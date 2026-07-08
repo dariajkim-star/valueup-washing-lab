@@ -1,0 +1,33 @@
+# ── 밸류업 워싱 탐지 대시보드 / Python 3.11+ ──
+
+# Web framework
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+
+# Settings & validation
+pydantic==2.10.4
+pydantic-settings==2.7.1
+
+# DB / ORM
+SQLAlchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10        # PostgreSQL 드라이버 (개발 SQLite는 표준 라이브러리)
+
+# 데이터 수집 (외부 소스)
+dart-fss==0.4.11               # 금융감독원 전자공시 DART OpenAPI (재무제표 + 밸류업 공시)
+pykrx==1.0.51                  # KRX 시세 / 시가총액 / PBR
+requests==2.32.3               # 금융위 금융공공데이터 개방 API (배당·재무 보강)
+
+# 분석
+pandas==2.2.3
+numpy==2.2.1
+
+# 배치 스케줄러
+APScheduler==3.11.0
+
+# 테스트
+pytest==8.3.4
+httpx==0.28.1                  # FastAPI TestClient 백엔드
+
+# 개발 편의
+python-dotenv==1.0.1
