@@ -1,0 +1,20 @@
+# 환경/시크릿
+.env
+*.db
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+
+# 빌드
+*.egg-info/
+dist/
+build/
+
+# 프론트 (Epic 3)
+frontend/node_modules/
+frontend/dist/

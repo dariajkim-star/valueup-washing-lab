@@ -1,0 +1,57 @@
+# generated: 2026-07-08
+# last_updated: 2026-07-09
+# project: 밸류업 워싱 스크리너
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: {output_folder}/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:  backlog → in-progress → done
+# Story Status: backlog → ready-for-dev → in-progress → review → done
+# Retrospective: optional ↔ done
+# Action Item:  open → in-progress → done
+#
+# WORKFLOW NOTES:
+# - Epic → in-progress 자동전환: 첫 스토리 생성(create-story) 시
+# - 스토리는 순차 기본, 팀 여력 시 병렬 가능
+# - Dev가 story를 review로 옮긴 뒤 code-review(신규 컨텍스트 권장) 실행
+# - 개발 순서: Epic 1 → 2 → 3 (데이터 → 스코어 → UI). 발표 순서는 역순.
+
+generated: 2026-07-08
+last_updated: 2026-07-09
+project: 밸류업 워싱 스크리너
+project_key: NOKEY
+tracking_system: file-system
+story_location: "{output_folder}/implementation-artifacts"
+
+development_status:
+  # ===== Epic 1: 데이터 기반 & 지표 조회 =====
+  epic-1: in-progress
+  1-1-scaffolding-db: done
+  1-2-ingest-financials-dart: done
+  1-3-ingest-prices-krx: done
+  1-4-ingest-macro-ecos: done
+  1-5-ingest-valueup-disclosure: ready-for-dev
+  1-6-ingest-ownership: backlog
+  1-7-metrics-view-api: done
+  epic-1-retrospective: optional
+
+  # ===== Epic 2: 밸류업 워싱 & M&A 타겟 스코어 =====
+  epic-2: backlog
+  2-1-valueup-gap-engine: backlog
+  2-2-washing-flag: backlog
+  2-3-mna-score-engine: backlog
+  2-4-gap-washing-ranking-api: backlog
+  2-5-mna-ranking-api: backlog
+  2-6-screening-api: backlog
+  epic-2-retrospective: optional
+
+  # ===== Epic 3: 시장 인사이트 & 스크리너 UI =====
+  epic-3: backlog
+  3-1-stats-macro-api: backlog
+  3-2-figma-screener-design: backlog
+  3-3-screener-filter-list: backlog
+  3-4-detail-investment-card: backlog
+  3-5-tableau-dashboard: backlog
+  epic-3-retrospective: optional
