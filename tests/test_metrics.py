@@ -170,3 +170,67 @@ def test_metrics_sort_whitelist_and_payout_filter(engine, monkeypatch) -> None:
     r = client.get("/metrics", params={"min_payout_ratio": 30})
     assert r.status_code == 200
     assert {i["corp_code"] for i in r.json()["items"]} == {"00000003"}
+
+
+def _seed_capital_impaired(s: Session) -> None:
+    """자본잠식·적자 기업: equity<0, net_income<0."""
+    s.add(Company(corp_code="00000004", corp_name="자본잠식"))
+    s.add(Financial(corp_code="00000004", year=2024, quarter=4,
+          revenue=50, net_income=-10, operating_income=-5, depreciation=0,
+          equity=-100, total_assets=100, total_liabilities=200,
+          cash=10, total_debt=50, dividend_total=0))
+    s.add(Price(corp_code="00000004", date="2024-12-30", close=100,
+                market_cap=1000, volume=10, trading_value=1000))
+
+
+def test_view_negative_denominators_null(engine) -> None:
+    """GPT 교차검증 patch: 음수/0 분모(자본잠식·적자) 지표는 NULL(스크리너 오염 방지)."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_capital_impaired(s)
+        s.commit()
+        row = s.execute(text(
+            "SELECT roe, pbr, per, debt_ratio, payout_ratio, ev_ebitda "
+            "FROM valuation_metrics WHERE corp_code='00000004'")).mappings().one()
+    # 구버전(NULLIF만)이면 roe=+10·pbr=-10 등 유효값처럼 나옴 → 전부 NULL이어야 함
+    assert row["roe"] is None       # equity<0
+    assert row["pbr"] is None
+    assert row["per"] is None        # net_income<0
+    assert row["debt_ratio"] is None
+    assert row["payout_ratio"] is None
+    assert row["ev_ebitda"] is None  # EBITDA<0
+
+
+def test_min_roe_filter_excludes_capital_impaired(engine, monkeypatch) -> None:
+    """GPT 교차검증 patch: min_roe 필터가 자본잠식 기업을 통과시키지 않는다."""
+    from fastapi.testclient import TestClient
+
+    import app.db as db_module
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed(s)  # 정상 기업 00000001 (roe 10~12.5)
+        _seed_capital_impaired(s)  # roe NULL이어야 함
+        s.commit()
+    monkeypatch.setattr(db_module, "SessionLocal", Session_)
+    from app.main import app as fastapi_app
+    client = TestClient(fastapi_app)
+    r = client.get("/metrics", params={"min_roe": 10})
+    assert r.status_code == 200
+    codes = {i["corp_code"] for i in r.json()["items"]}
+    assert "00000004" not in codes  # 자본잠식 제외(roe NULL)
+    assert "00000001" in codes      # 정상 우량 포함
+
+
+def test_nan_inf_filter_rejected(engine, monkeypatch) -> None:
+    """GPT 교차검증 patch: NaN/inf 필터값은 422로 거부(DB별 비교 규칙 갈림 방지)."""
+    from fastapi.testclient import TestClient
+
+    import app.db as db_module
+
+    Session_ = sessionmaker(bind=engine)
+    monkeypatch.setattr(db_module, "SessionLocal", Session_)
+    from app.main import app as fastapi_app
+    client = TestClient(fastapi_app)
+    assert client.get("/metrics", params={"max_pbr": "nan"}).status_code == 422
+    assert client.get("/metrics", params={"min_roe": "inf"}).status_code == 422

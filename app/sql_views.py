@@ -17,19 +17,23 @@ SELECT
     f.corp_code,
     f.year,
     f.quarter,
-    ROUND(f.net_income * 100.0 / NULLIF(f.equity, 0), 2)                           AS roe,
-    ROUND(f.net_income * 100.0 / NULLIF(f.total_assets, 0), 2)                     AS roa,
-    ROUND(lp.market_cap * 1.0 / NULLIF(f.equity, 0), 2)                            AS pbr,
-    ROUND(lp.market_cap * 1.0 / NULLIF(f.net_income, 0), 2)                        AS per,
-    -- EBITDA = 영업이익 + 감가상각비. DART 전체재무제표에 감가상각비가 없는 경우가 많아
-    -- COALESCE(...,0)으로 EBIT 근사(감가상각비 있으면 정확한 EBITDA).
-    ROUND((lp.market_cap + f.total_debt - f.cash) * 1.0
-          / NULLIF(f.operating_income + COALESCE(f.depreciation, 0), 0), 2)        AS ev_ebitda,
-    ROUND(f.total_liabilities * 100.0 / NULLIF(f.equity, 0), 2)                    AS debt_ratio,
-    ROUND(f.dividend_total * 100.0 / NULLIF(f.net_income, 0), 2)                   AS payout_ratio,
+    -- 음수/0 분모는 무의미(자본잠식·적자) → NULL. NULLIF(0)만으론 '음수 분모'가 통과해
+    -- 지표 부호가 뒤집히고 스크리너를 오염(예: min_roe가 자본잠식 기업을 우량으로 통과)한다.
+    -- 그래서 분모 > 0 조건을 CASE로 명시한다(GPT 교차검증 반영).
+    ROUND(CASE WHEN f.equity > 0 THEN f.net_income * 100.0 / f.equity END, 2)      AS roe,
+    ROUND(CASE WHEN f.total_assets > 0 THEN f.net_income * 100.0 / f.total_assets END, 2) AS roa,
+    ROUND(CASE WHEN f.equity > 0 THEN lp.market_cap * 1.0 / f.equity END, 2)       AS pbr,
+    ROUND(CASE WHEN f.net_income > 0 THEN lp.market_cap * 1.0 / f.net_income END, 2) AS per,
+    -- EBITDA = 영업이익 + 감가상각비(없으면 COALESCE로 EBIT 근사). EBITDA > 0일 때만.
+    ROUND(CASE WHEN (f.operating_income + COALESCE(f.depreciation, 0)) > 0
+               THEN (lp.market_cap + f.total_debt - f.cash) * 1.0
+                    / (f.operating_income + COALESCE(f.depreciation, 0)) END, 2)   AS ev_ebitda,
+    ROUND(CASE WHEN f.equity > 0 THEN f.total_liabilities * 100.0 / f.equity END, 2) AS debt_ratio,
+    ROUND(CASE WHEN f.net_income > 0 THEN f.dividend_total * 100.0 / f.net_income END, 2) AS payout_ratio,
     (f.cash - f.total_debt)                                                        AS net_cash,
-    ROUND((f.operating_income + COALESCE(f.depreciation, 0)) * 100.0
-          / NULLIF(f.revenue, 0), 2)                                              AS ebitda_margin,
+    -- 매출 > 0에서만. EBITDA 자체는 음수 가능(음수 마진은 유의미)이라 분자 부호는 유지.
+    ROUND(CASE WHEN f.revenue > 0
+               THEN (f.operating_income + COALESCE(f.depreciation, 0)) * 100.0 / f.revenue END, 2) AS ebitda_margin,
     ROUND((f.revenue - LAG(f.revenue) OVER w) * 100.0
           / NULLIF(LAG(f.revenue) OVER w, 0), 2)                                   AS yoy_revenue_growth,
     ROUND((f.net_income - LAG(f.net_income) OVER w) * 100.0

@@ -16,10 +16,11 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 def list_metrics(
     market: str | None = None,
     sector: str | None = None,
-    max_pbr: float | None = None,
-    min_roe: float | None = None,
-    max_debt_ratio: float | None = None,
-    min_payout_ratio: float | None = None,
+    # 수치 필터는 NaN/inf 거부(DB별 비교 규칙이 갈리고 필터가 무력화됨) → 422
+    max_pbr: float | None = Query(None, allow_inf_nan=False),
+    min_roe: float | None = Query(None, allow_inf_nan=False),
+    max_debt_ratio: float | None = Query(None, allow_inf_nan=False),
+    min_payout_ratio: float | None = Query(None, allow_inf_nan=False),
     sort: str | None = Query(
         None,
         description="정렬 필드(공통 규약). `-field`는 내림차순. "
