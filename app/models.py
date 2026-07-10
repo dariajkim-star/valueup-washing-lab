@@ -11,10 +11,12 @@ from __future__ import annotations
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     Float,
     ForeignKey,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -98,6 +100,33 @@ class Price(Base):
     volume: Mapped[int | None] = mapped_column(BigInteger)
     trading_value: Mapped[int | None] = mapped_column(BigInteger)  # 거래대금
     market_cap: Mapped[int | None] = mapped_column(BigInteger)  # 시가총액(AD-9 단일원천)
+
+
+class ValueupPlan(Base):
+    """밸류업 계획공시 원천 (writer = dart_adapter, AD-3). 자연키 (corp_code, disclosure_date), AD-7.
+
+    "기업가치 제고 계획"은 자유서식 공시 → 목표 필드는 best-effort 파싱(못 찾으면 null, NFR2).
+    원문 raw_text는 항상 보존(재파싱 가능). 목표 지표는 비율/배수라 Float.
+    """
+
+    __tablename__ = "valueup_plan"
+    __table_args__ = (
+        UniqueConstraint("corp_code", "disclosure_date", name="uq_valueup_corp_date"),
+    )
+
+    plan_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(
+        String(8), ForeignKey("company.corp_code"), index=True
+    )
+    disclosure_date: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD (접수일)
+    # 목표치 (best-effort 파싱, 없으면 null)
+    target_roe: Mapped[float | None] = mapped_column(Float)  # %
+    target_payout_ratio: Mapped[float | None] = mapped_column(Float)  # 배당성향 %
+    target_pbr: Mapped[float | None] = mapped_column(Float)  # 배
+    period_start: Mapped[str | None] = mapped_column(String(10))  # 목표기간 시작(연도/ISO)
+    period_end: Mapped[str | None] = mapped_column(String(10))  # 목표기간 종료
+    buyback_planned: Mapped[bool | None] = mapped_column(Boolean)  # 자사주 계획 언급 여부
+    raw_text: Mapped[str | None] = mapped_column(Text)  # 공시 원문(항상 보존)
 
 
 class MacroIndicator(Base):

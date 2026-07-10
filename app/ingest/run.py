@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from app.db import SessionLocal
 from app.ingest.dart import DartAdapter, DartAdapterError
+from app.ingest.dart_valueup import DartValueupAdapter
 from app.ingest.ecos import EcosAdapter
 from app.ingest.krx import KrxAdapter
 from app.models import Company
@@ -47,6 +48,41 @@ def ingest_financials(
             result.succeeded.append(corp_code)
         except (DartAdapterError, Exception) as e:  # noqa: BLE001 (부분성공 정책)
             logger.warning("수집 실패 corp_code=%s: %s", corp_code, type(e).__name__)
+            result.failed.append((corp_code, str(e)))
+    return result
+
+
+def ingest_valueup_plans(
+    corp_codes: Sequence[str], date_from: str, date_to: str
+) -> IngestResult:
+    """종목별 밸류업 계획공시(DART) 수집. [date_from, date_to]는 YYYYMMDD(bgn_de/end_de).
+
+    한 종목이 예고·본공시·정정 등 여러 공시를 내면 각각 valueup_plan 행이 된다.
+    실패는 건너뛰고 목록에 담는다(부분성공). fetch(네트워크)는 짧은 트랜잭션 밖.
+    """
+    adapter = DartValueupAdapter()
+    result = IngestResult()
+    for corp_code in corp_codes:
+        try:
+            raw = adapter.fetch(corp_code, date_from, date_to)  # 네트워크(트랜잭션 밖)
+            records = adapter.normalize(raw)
+            with SessionLocal() as session:  # 종목당 짧은 트랜잭션
+                with session.begin():
+                    n = adapter.upsert(session, records)
+            result.ingested += n
+            result.succeeded.append(corp_code)
+            # 문서별 실패(무효 날짜·문서 다운로드 실패 등)는 종목 전체를 막지 않고 degraded 표시
+            if raw.get("failed"):
+                result.degraded.append(corp_code)
+                for doc_id, reason in raw["failed"]:
+                    logger.warning(
+                        "밸류업 문서 실패 corp_code=%s doc=%s: %s",
+                        corp_code, doc_id, reason,
+                    )
+        except Exception as e:  # noqa: BLE001 (부분성공 정책)
+            logger.warning(
+                "밸류업 공시 수집 실패 corp_code=%s: %s", corp_code, type(e).__name__
+            )
             result.failed.append((corp_code, str(e)))
     return result
 
