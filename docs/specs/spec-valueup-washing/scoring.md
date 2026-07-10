@@ -31,7 +31,15 @@ washing_flag = (progress_rate >= 0.5)                 -- 목표기간 절반 이
 > **null ≠ 소각 안 함 (코드리뷰 2026-07-10, GPT High)**: `buyback_retired_amount IS NULL`은
 > "모름(미공시/수집실패/파싱애매)"이지 "소각 안 함"의 증거가 아니다. `NOT (NULL > 0)`을
 > False→"미소각"으로 강제하면 미공시 기업이 워싱으로 오판된다. 따라서 소각 항은
-> **확정 0(공시된 활동 없음)**일 때만 워싱 성립, null이면 washing_flag도 null(판정 불가)로 전파.
+> **확정 0(공시된 활동 없음)**일 때만 워싱 성립.
+
+> **null 전파 = 3치(Kleene) AND (코드리뷰 2026-07-10, GPT Med로 정정)**: 위 세 조건의 AND는
+> "하나라도 unknown이면 전체 null"이 아니라 **하나라도 확정 False면 나머지가 unknown이어도
+> 전체 확정 False**(그 다음 확정 False가 없고 unknown이 하나라도 있으면 null, 전부 확정
+> True면 True). 예: 소각이 확정 이뤄졌으면(`buyback_retired_amount>0`) 진척률을 몰라도
+> washing은 이미 확정 아님(False). progress_rate가 확정으로 0.5 미만이면 나머지를 몰라도
+> 이미 확정 아님(False). 이렇게 해야 "확정 가능한 정상 케이스"까지 불필요하게 판단불가로
+> 내지 않는다(false positive 없이 unknown을 줄임). `gap_engine._washing_flag` 구현 참조.
 
 > `buyback_status` = retired(소각완료) / purchased_only(매입만) / none(미실행) /
 > **unknown(취득·소각 중 하나라도 null → 판정 불가)** — UI 표시·부분워싱 신호용.

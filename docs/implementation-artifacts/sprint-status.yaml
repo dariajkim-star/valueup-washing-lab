@@ -40,8 +40,8 @@ development_status:
   epic-1-retrospective: done
 
   # ===== Epic 2: 밸류업 워싱 & M&A 타겟 스코어 =====
-  epic-2: backlog
-  2-1-valueup-gap-engine: backlog
+  epic-2: in-progress
+  2-1-valueup-gap-engine: done
   2-2-washing-flag: backlog
   2-3-mna-score-engine: backlog
   2-4-gap-washing-ranking-api: backlog

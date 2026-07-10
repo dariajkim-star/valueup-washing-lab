@@ -168,3 +168,30 @@ class MacroIndicator(Base):
     date: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD
     value: Mapped[float | None] = mapped_column(Float)
     frequency: Mapped[str | None] = mapped_column(String(1))  # M(월)/D(일) — look-ahead 판별용
+
+
+class ValueupScore(Base):
+    """Value-up 갭 스코어 (writer = gap_engine, AD-4). 자연키 (corp_code, as_of), AD-8.
+
+    achievement_rate·progress_rate·execution_score·washing_flag는 계산 불가(입력 애매/누락)
+    시 null(NFR2, "null > 틀린 값"). washing_flag는 특히 null을 False로 강제하지 않는다
+    (null=판단불가, scoring.md 2026-07-10 강화). Boolean 컬럼 전부 nullable — null 전파 필수.
+    """
+
+    __tablename__ = "valueup_score"
+    __table_args__ = (
+        UniqueConstraint("corp_code", "as_of", name="uq_valueup_score_corp_asof"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(
+        String(8), ForeignKey("company.corp_code"), index=True
+    )
+    as_of: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD (progress_rate의 today)
+    achievement_rate: Mapped[float | None] = mapped_column(Float)  # actual_roe/target_roe
+    progress_rate: Mapped[float | None] = mapped_column(Float)  # 연도 단위, [0,1] 클램프
+    execution_score: Mapped[float | None] = mapped_column(Float)  # 0~100
+    washing_flag: Mapped[bool | None] = mapped_column(Boolean)
+    buyback_executed: Mapped[bool | None] = mapped_column(Boolean)
+    buyback_retired: Mapped[bool | None] = mapped_column(Boolean)
+    buyback_status: Mapped[str | None] = mapped_column(String(20))  # retired/purchased_only/none/unknown

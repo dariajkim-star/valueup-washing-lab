@@ -72,6 +72,13 @@
 - **`IngestResult.failed`의 `str(e)` 노출 표면** (Low, GPT G18) — 예상외 예외 메시지가 URL/DB정보 포함 가능. **코드베이스 공통**(전 ingest 함수), allowlist 에러코드로 후속.
 - **decode utf-8-first mojibake** (Low) — CP949 바이트가 우연히 유효 UTF-8이면 조용히 깨짐. 페이로드/헤더 기반 인코딩 감지가 정석.
 
+## Deferred from: code review of story-2.1 (2026-07-10, GPT)
+
+- **1~3분기 보고서의 동일연도 내 look-ahead 잔여 리스크** (High) — gap_engine의 `latest_metrics`/`latest_financial_buyback`이 같은 연도 사업보고서(quarter=4)는 무조건 배제(다음해 공시 확정사실이라 안전)하지만, 분기/반기 보고서는 실제 공시일을 모르므로 완전 차단 불가. as_of가 실제 공시일보다 이른 시점이면 여전히 미래정보를 쓸 수 있음. **완전 해결**: `financials`(및 `valuation_metrics` 뷰)에 실제 공시일(`available_at`, DART `rcept_dt`) 컬럼 추가 필요 — DART 어댑터(dart.py)·스키마·뷰를 가로지르는 별도 스토리 스코프. [app/repositories/valueup_score.py]
+- **날짜 컬럼 전부 String(10) → Date 타입 전환** (Low) — 2.1은 `run()` 진입점에서 `as_of` 포맷만 fail-fast 검증. 전체 7개 테이블(0001~0008 마이그레이션 전부)이 날짜를 문자열로 저장하는 기존 컨벤션 자체를 바꾸는 건 대규모 변경이라 스코프 밖.
+- **valueup_score도 select-then-insert 동시성 미보장** (Low, 공통) — `upsert_financial`/`upsert_ownership`/`upsert_valueup_plan`과 동일한 기존 공통 defer(단일 프로세스 배치 v1, 병렬화 시 `ON CONFLICT` 전환).
+- **target_pbr 여전히 스코어 미사용** (Low, 2.1 스토리 자체 결정) — 리드 확정: 계산 제외, `valueup_plan` 원본에 참고값으로만 존재. 2.4(갭분석 API)에서 응답 노출 여부 결정.
+
 ## Deferred from: code review of story-1.8 (2026-07-10, 자체+GPT 교차검증)
 
 buyback 집계는 실공시 샘플 없이 보수적 규칙(총계 우선·상충/소계-only는 null)으로 근사. 실샘플 확보 후 튜닝.
