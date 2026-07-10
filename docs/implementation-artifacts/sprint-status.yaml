@@ -35,7 +35,7 @@ development_status:
   1-5-ingest-valueup-disclosure: done
   1-6-ingest-ownership: done
   1-7-metrics-view-api: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   # ===== Epic 2: 밸류업 워싱 & M&A 타겟 스코어 =====
   epic-2: backlog
@@ -55,3 +55,21 @@ development_status:
   3-4-detail-investment-card: backlog
   3-5-tableau-dashboard: backlog
   epic-3-retrospective: optional
+
+action_items:
+  - epic: 1
+    action: "착수 전 경로/repo·아티팩트 경로(docs/)·BMAD config 확정하고 시작(중간 변동 금지)"
+    owner: "리드+AI"
+    status: open
+  - epic: 1
+    action: "컨텍스트 없는 리뷰어·GPT 번들·서브에이전트에 코드 verbatim 전달(축약 금지)"
+    owner: "AI"
+    status: open
+  - epic: 1
+    action: "2.1/2.2 착수 전 자사주 취득/소각 데이터 소스(tesstkAcqsDspsSttus) 필요 여부 판단"
+    owner: "리드"
+    status: open
+  - epic: 1
+    action: "2.1 갭 엔진 설계 시 target_payout_ratio(배당성향) vs 주주환원율 의미 정합"
+    owner: "AI"
+    status: open
