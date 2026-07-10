@@ -3,7 +3,7 @@
 # project: 밸류업 워싱 스크리너
 # project_key: NOKEY
 # tracking_system: file-system
-# story_location: {output_folder}/implementation-artifacts
+# story_location: valueup-washing-lab/docs/implementation-artifacts
 
 # STATUS DEFINITIONS:
 # ==================
@@ -19,11 +19,11 @@
 # - 개발 순서: Epic 1 → 2 → 3 (데이터 → 스코어 → UI). 발표 순서는 역순.
 
 generated: 2026-07-08
-last_updated: 2026-07-09
+last_updated: 2026-07-10
 project: 밸류업 워싱 스크리너
 project_key: NOKEY
 tracking_system: file-system
-story_location: "{output_folder}/implementation-artifacts"
+story_location: "valueup-washing-lab/docs/implementation-artifacts"
 
 development_status:
   # ===== Epic 1: 데이터 기반 & 지표 조회 =====
@@ -32,7 +32,7 @@ development_status:
   1-2-ingest-financials-dart: done
   1-3-ingest-prices-krx: done
   1-4-ingest-macro-ecos: done
-  1-5-ingest-valueup-disclosure: ready-for-dev
+  1-5-ingest-valueup-disclosure: done
   1-6-ingest-ownership: backlog
   1-7-metrics-view-api: done
   epic-1-retrospective: optional

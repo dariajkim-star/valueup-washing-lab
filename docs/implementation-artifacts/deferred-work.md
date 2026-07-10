@@ -39,7 +39,7 @@
 ## Deferred from: code review of story-1.7 (2026-07-09)
 
 - **최신가 선택이 market_cap NULL 행도 채택** (Medium) — 뷰의 최신가 상관서브쿼리가 `MAX(p2.date)`를 무조건 선택. 최신 행이 거래정지 등으로 `market_cap` NULL이면 유효한 이전 시총이 있어도 pbr/per/ev_ebitda가 전부 NULL. 해결: 서브쿼리에 `AND p2.market_cap IS NOT NULL` 추가(단일가격 원천 KRX에선 현재 미발생이라 defer). [app/sql_views.py:40]
-- **음수 분모 미방어 → 지표 부호 왜곡** (Medium) — `NULLIF(x,0)`은 0만 방어. 적자기업은 음수 PER·음수 payout_ratio를 유효값처럼 반환하고, 이전연도 순이익이 음수면 `yoy_income_growth` 부호가 뒤집힘(-100→-50이 -50%로 표기). 손실 종목 표현 규칙(음수 표기 vs N/A) 제품 결정 후 CASE 가드 추가. [app/sql_views.py:23,29,35-36]
+- **음수 분모 미방어 → 지표 부호 왜곡** (Medium) — ~~`NULLIF(x,0)`은 0만 방어~~ **[일부 patch됨 2026-07-10, GPT 2차]**: roe·roa·pbr·per·ev_ebitda·debt_ratio·payout_ratio는 `CASE WHEN 분모>0` 가드로 음수 분모→NULL 처리(스크리너 오염 해소). **남은 defer**: `yoy_income_growth`는 LAG 기반이라 이전연도 순이익이 음수면 부호 왜곡(-100→-50이 -50% 표기) — 성장률 % 자체의 음수기저 한계라 별도. [app/sql_views.py]
 - **YoY 연도 비연속(gap) 오산** (Medium) — LAG는 직전 '행'을 참조하므로 2023→2025처럼 연도가 빠지면 2년치 성장을 1기 성장으로 계산(NULL 아님, 조용히 틀림). 연속성 검증(연도차=1 확인) 또는 날짜차 기반 로직 필요. 코드리뷰 patch로 window를 `PARTITION BY corp_code, quarter ORDER BY year`로 바꿔 QoQ 오표기는 해소했으나 gap 문제는 별도. [app/sql_views.py:41]
 - **`GET /metrics/{corp_code}` 미존재 종목 200 `[]`** (Low) — 오타/미존재 종목과 '재무 아직 없음'을 구분 못 함(404 없음). REST 계약(API_SPEC) 확정 시 404 여부 결정. [app/routers/metrics.py:33-35]
 - **스토리 소스트리 `ValuationMetric` ORM 매핑 미구현(문서 불일치)** (Low) — 스토리 소스트리에 `models.py# UPDATE: ValuationMetric(읽기전용 뷰 매핑)`이 있으나 실제로는 리포지토리가 `text()` raw SQL로 뷰를 조회(의도된 설계). 스토리 소스트리 문구를 정정하거나, ORM 뷰 매핑이 정말 필요하면 추가. 기능 영향 없음.
@@ -52,3 +52,22 @@
 - **일반 VIEW 성능(운영 규모)** (High, GPT #4/#5) — valuation_metrics는 매 조회마다 financials+prices+LAG+상관서브쿼리를 재계산. COUNT와 목록이 각각 실행돼 비용 2배, 계산컬럼(pbr/roe/debt_ratio) 필터는 인덱스 미탐→full scan. 종목·연도 증가 시 병목. 대응: (a) 단기 CTE+`COUNT(*) OVER()`로 1회 계산, (b) 운영 PostgreSQL은 materialized view 또는 physical metrics 테이블 승격 + pbr/roe/debt_ratio 인덱스. 승격 기준(종목수·응답시간 임계) 정의 필요.
 - **AC5 이식성 실검증(PostgreSQL 통합 테스트)** (Med, GPT #6/#15) — 현재 테스트는 SQLite in-memory만. CREATE VIEW·ROUND·WINDOW(LAG)·상관서브쿼리·LIMIT/OFFSET을 PostgreSQL 컨테이너(testcontainers 또는 CI PG 서비스)로 최소 1회 검증해야 '동일 뷰 SQL 양쪽 동작(AC5)'이 실증됨. 정렬 NULL 순서(SQLite=NULLS FIRST/PG=NULLS LAST 기본차)도 함께 확인.
 - **debt/cash NULL → EV/EBITDA 전체 NULL** (Med, GPT #7) — `market_cap + total_debt - cash`는 하나라도 NULL이면 NULL. DART 수집서 debt/cash 누락 가능→EV/EBITDA 대량 NULL 가능. 보수적 근사 원하면 `COALESCE(total_debt,0)`·`COALESCE(cash,0)`(감가상각비 COALESCE 패턴과 일관). 단 '원천 결측 vs 실제 0'은 metadata로 구분해야 하므로 정책 결정 후 반영. [app/sql_views.py]
+
+## Deferred from: GPT 2차 cross-check of story-1.7 (2026-07-10)
+
+- **과거 마이그레이션이 app 상수에 의존(재현성)** (Med) — `0005_valuation_metrics_view.py`가 `app/sql_views.py`의 `CREATE_VALUATION_METRICS`를 import. 이후 뷰 SQL을 수정하면 새 DB에서 0005 실행 시 '당시 SQL'이 아니라 수정본이 돎 → 마이그레이션 히스토리 재현 불가. 마이그레이션/테스트 SQL 공유는 drift 방지 위한 의도적 선택(스토리 Dev Notes)이나, 뷰 변경이 잦아지면 버전별 불변 SQL 모듈(`sql_views_v0005.py`)로 분리 검토.
+- **`/metrics` total과 items가 동일 스냅샷 아님** (Low) — READ COMMITTED에서 COUNT와 목록 SELECT 사이 데이터 갱신 시 total≠len(items) 가능. 단순 조회 API라 eventual consistency 수용(문서화). 강한 일관성 필요 시 `COUNT(*) OVER()` 단일 쿼리 or repeatable-read.
+
+## Deferred from: code review of story-1.5 (2026-07-10)
+
+밸류업 공시 파서의 best-effort 정제 — 실제 DART 원문 다양성 샘플 확보 후 튜닝. raw_text가 원문 보존이므로 재파싱 가능(파괴적 아님). [app/ingest/dart_valueup.py]
+- **ROE가 인접 지표 %를 잡음** (Med, EdgeCase F2) — `_ROE_RE`의 20자 윈도우가 "ROE 개선…배당성향 30%"에서 30을 ROE로. 윈도우 축소/키워드 경계 필요(부분해라 실샘플 필요).
+- **"30%→35%"에서 FROM 채택** (Med, F3) — `.search`가 첫 %를 잡아 현재치(30)를 목표로 저장(목표는 35). 화살표/증감 문맥 판별 필요.
+- **period 과거범위 오표기** (Med, F5) — start≤end 검증은 **patch됨**(2026-07-10). 남은 건 "2020-2023 실적…" 같은 과거범위를 목표기간으로 잡는 문맥 오인 — 목표/기간 앵커는 실공시 샘플 후.
+- **report_nm이 이행현황/철회도 매칭** (Med, F9) — "기업가치제고계획" 부분일치가 "…이행현황"·"…철회신고서"도 잡아 계획 아닌 공시를 적재. 부정 키워드 제외는 실제 report_nm 샘플 확인 후(정정 공시는 유지해야 함).
+- **인라인 산문의 인접지표·"현재→목표" 우변 채택** (High, GPT G2/G3 잔여) — 셀 경계보존(개행)으로 표는 해결했으나, 한 줄 산문 "현재 ROE 5%, 목표 ROE 10%"·"30%→35%"에서 첫 값(현재/출발)을 채택하는 문제는 목표 키워드 앵커·A→B 우변 로직 필요(실공시 샘플 후). raw_text 보존+전체교체로 재파싱 가능.
+- **raw_text가 원문(태그포함) 아님** (Med, GPT G12) — 태그·셀·줄바꿈 제거된 평문이라 셀 단위 재파싱 불가. 원본 XML/ZIP 별도 저장 + `plain_text` 컬럼 분리 검토.
+- **DB CheckConstraint 부재** (Med, GPT G15) — `target_pbr>0`·비율 범위·날짜형식 등 DB 강제 없음. 애매값 null 저장 원칙과 병행해 일부 제약 추가 검토.
+- **SELECT→INSERT 동시성** (Med, GPT G14) — 병렬 수집 시 같은 자연키 동시 INSERT가 UNIQUE 위반. **코드베이스 공통 defer**(1.2/1.3/1.4와 동일, 병렬화 시 on_conflict).
+- **`IngestResult.failed`의 `str(e)` 노출 표면** (Low, GPT G18) — 예상외 예외 메시지가 URL/DB정보 포함 가능. **코드베이스 공통**(전 ingest 함수), allowlist 에러코드로 후속.
+- **decode utf-8-first mojibake** (Low) — CP949 바이트가 우연히 유효 UTF-8이면 조용히 깨짐. 페이로드/헤더 기반 인코딩 감지가 정석.
