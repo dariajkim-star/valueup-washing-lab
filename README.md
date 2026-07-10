@@ -81,7 +81,7 @@
 | `total_assets` | int\|null | 자산총계 |
 | `total_liabilities` | int\|null | 부채총계 |
 | `dividend_total` | int\|null | 배당총액 |
-| `buyback_amount` | int\|null | 자사주 매입액 |
+| `buyback_amount` | int\|null | 자사주 취득 수량(주) — 워싱 presence 신호(>0), KRW 액 아님(1.8) |
 
 ### ValuationMetric (파생 지표 — **SQL VIEW** `valuation_metrics`, 조회 시 즉석 계산)
 | 필드 | 타입 | 산식 |
@@ -242,7 +242,7 @@
 {
   "corp_code": "00126380",
   "items": [
-    { "year": 2026, "quarter": 1, "revenue": 70000000000000, "net_income": 8000000000000, "equity": 300000000000000, "buyback_amount": 3000000000000 }
+    { "year": 2026, "quarter": 1, "revenue": 70000000000000, "net_income": 8000000000000, "equity": 300000000000000, "buyback_amount": 3000000 }
   ]
 }
 ```

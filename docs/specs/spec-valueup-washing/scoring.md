@@ -25,10 +25,18 @@
 ```
 washing_flag = (progress_rate >= 0.5)                 -- 목표기간 절반 이상 경과
             AND (achievement_rate < 0.6)              -- 목표의 60% 미달
-            AND (buyback_planned AND NOT buyback_retired)  -- 약속했으나 소각까지 안 함
+            AND (buyback_planned AND buyback_retired_amount = 0)  -- 약속했으나 소각 '확정 0'
 ```
 
-> `buyback_status` = retired(소각완료) / purchased_only(매입만) / none(미실행) — UI 표시·부분워싱 신호용. `purchased_only`(매입만 하고 미소각)는 약한 워싱 신호로 별도 노출.
+> **null ≠ 소각 안 함 (코드리뷰 2026-07-10, GPT High)**: `buyback_retired_amount IS NULL`은
+> "모름(미공시/수집실패/파싱애매)"이지 "소각 안 함"의 증거가 아니다. `NOT (NULL > 0)`을
+> False→"미소각"으로 강제하면 미공시 기업이 워싱으로 오판된다. 따라서 소각 항은
+> **확정 0(공시된 활동 없음)**일 때만 워싱 성립, null이면 washing_flag도 null(판정 불가)로 전파.
+
+> `buyback_status` = retired(소각완료) / purchased_only(매입만) / none(미실행) /
+> **unknown(취득·소각 중 하나라도 null → 판정 불가)** — UI 표시·부분워싱 신호용.
+> `purchased_only`는 `buyback_amount > 0 AND buyback_retired_amount = 0`처럼 **양쪽 모두
+> 확정**일 때만 부여(소각이 null이면 unknown). 약한 워싱 신호로 별도 노출.
 
 ## 실행점수 (0~100)
 

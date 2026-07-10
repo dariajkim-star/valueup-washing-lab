@@ -167,6 +167,307 @@ def test_fetch_rejects_bad_args(monkeypatch) -> None:
         DartAdapter().fetch("00126380", "20A4", "11011")
 
 
+# ── Story 1.8: 자기주식 취득/소각 (tesstkAcqsDspsSttus) ──
+
+# 가짜 tesstkAcqsDspsSttus: 직접취득 3M주 취득 + 소각 1M주. 총계행 포함(이중집계 유발).
+BUYBACK_ROWS = [
+    {"acqs_mth1": "직접 취득", "acqs_mth2": "장내직접취득", "acqs_mth3": "-",
+     "stock_knd": "보통주", "change_qy_acqs": "3,000,000",
+     "change_qy_dsps": "0", "change_qy_incnr": "1,000,000"},
+    {"acqs_mth1": "총계", "acqs_mth2": "-", "acqs_mth3": "-",
+     "stock_knd": "보통주", "change_qy_acqs": "3,000,000",
+     "change_qy_dsps": "0", "change_qy_incnr": "1,000,000"},  # 요약행 → 제외돼야
+]
+
+
+def test_buyback_totals_sums_leaf_excludes_summary() -> None:
+    """AC2/AC3: leaf+총계 공존 시 이중가산 없음(총계가 권위 소스)."""
+    from app.ingest.dart import _buyback_totals
+
+    acqs, incnr = _buyback_totals(BUYBACK_ROWS)
+    assert acqs == 3_000_000  # 6,000,000 아님(총계 이중가산 방지)
+    assert incnr == 1_000_000
+
+
+def test_buyback_totals_no_disclosure_is_none() -> None:
+    """AC4: 미공시(빈 리스트) → (None, None). 기존값 안 덮게."""
+    from app.ingest.dart import _buyback_totals
+
+    assert _buyback_totals([]) == (None, None)
+
+
+def test_buyback_totals_zero_activity_is_zero() -> None:
+    """AC4: 공시했으나 활동 0(모든 change_qy='0') → 정수 0(>0=False), None 아님."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [{"acqs_mth1": "직접 취득", "acqs_mth2": "-", "acqs_mth3": "-",
+             "change_qy_acqs": "0", "change_qy_incnr": "0"}]
+    assert _buyback_totals(rows) == (0, 0)
+
+
+def test_buyback_totals_dash_is_none_per_field() -> None:
+    """AC4: '-'/빈값(파싱불가)만 있는 필드는 None(unknown). 취득만 있고 소각은 '-'."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [{"acqs_mth1": "직접 취득", "acqs_mth2": "-", "acqs_mth3": "-",
+             "change_qy_acqs": "3,000,000", "change_qy_incnr": "-"}]
+    assert _buyback_totals(rows) == (3_000_000, None)
+
+
+def test_buyback_totals_summary_only_fallback() -> None:
+    """AC3: leaf 없이 총계행만 오면 총계 사용(데이터 손실 방지)."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [{"acqs_mth1": "합계", "acqs_mth2": "-", "acqs_mth3": "-",
+             "change_qy_acqs": "5,000,000", "change_qy_incnr": "2,000,000"}]
+    assert _buyback_totals(rows) == (5_000_000, 2_000_000)
+
+
+# ── 코드리뷰 patch 회귀 테스트 (2026-07-10, 자체+GPT 교차) ──
+
+def test_buyback_per_field_total_backfill() -> None:
+    """리뷰 High(GPT#1): 취득은 leaf, 소각은 총계에만 → 필드별 독립으로 둘 다 채움."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [
+        {"acqs_mth1": "직접 취득", "change_qy_acqs": "3,000,000", "change_qy_incnr": "-"},
+        {"acqs_mth1": "총계", "change_qy_acqs": "-", "change_qy_incnr": "1,000,000"},
+    ]
+    assert _buyback_totals(rows) == (3_000_000, 1_000_000)  # 이전엔 (3M, None) — 소각 유실
+
+
+def test_buyback_duplicate_totals_agree_no_double() -> None:
+    """리뷰 High(GPT#2): 합계+총계 중복 표기(값 일치) → 그 값, 이중가산 없음."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [
+        {"acqs_mth1": "합계", "change_qy_acqs": "5,000,000", "change_qy_incnr": "0"},
+        {"acqs_mth1": "총계", "change_qy_acqs": "5,000,000", "change_qy_incnr": "0"},
+    ]
+    assert _buyback_totals(rows) == (5_000_000, 0)  # 10,000,000 아님
+
+
+def test_buyback_conflicting_totals_is_none() -> None:
+    """리뷰 High(GPT#2/AC3): 상충하는 총계(5M vs 4M) → 애매 → null."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [
+        {"acqs_mth1": "합계", "change_qy_acqs": "5,000,000"},
+        {"acqs_mth1": "총계", "change_qy_acqs": "4,000,000"},
+    ]
+    assert _buyback_totals(rows) == (None, None)
+
+
+def test_buyback_per_kind_totals_partition_sum() -> None:
+    """총계가 주식종류별(보통주/우선주)로 나뉘면 파티션으로 보고 합산."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [
+        {"acqs_mth1": "총계", "stock_knd": "보통주", "change_qy_acqs": "1,000,000"},
+        {"acqs_mth1": "총계", "stock_knd": "우선주", "change_qy_acqs": "500,000"},
+    ]
+    assert _buyback_totals(rows)[0] == 1_500_000
+
+
+def test_buyback_subtotal_only_is_none() -> None:
+    """리뷰 High(GPT#3/AC3): 소계만 있으면(계층 검증 불가) 합산하지 않고 null."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [
+        {"acqs_mth1": "직접 취득", "acqs_mth3": "-", "change_qy_acqs": "-"},
+        {"acqs_mth1": "직접 취득", "acqs_mth3": "소계", "change_qy_acqs": "1,000,000"},
+    ]
+    assert _buyback_totals(rows) == (None, None)
+
+
+def test_buyback_subtotal_plus_total_uses_total() -> None:
+    """리뷰 High(GPT#2): 소계+총계 공존 → 총계만 사용(2M 아님)."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [
+        {"acqs_mth3": "소계", "change_qy_acqs": "1,000,000"},
+        {"acqs_mth1": "총계", "change_qy_acqs": "1,000,000"},
+    ]
+    assert _buyback_totals(rows)[0] == 1_000_000
+
+
+def test_buyback_negative_quantity_rejected() -> None:
+    """리뷰 High(GPT#4): 음수 표기(△·괄호)는 수량 도메인에 없음 → 해당 값 무시(상쇄 방지)."""
+    from app.ingest.dart import _buyback_totals, _parse_quantity
+
+    assert _parse_quantity("△1,000") is None
+    assert _parse_quantity("(1,000)") is None
+    assert _parse_quantity("1,000") == 1000
+    rows = [
+        {"acqs_mth1": "직접 취득", "change_qy_acqs": "3,000,000"},
+        {"acqs_mth1": "직접 취득", "change_qy_acqs": "(3,000,000)"},  # 상쇄 시도
+    ]
+    assert _buyback_totals(rows)[0] == 3_000_000  # 0으로 상쇄되지 않음
+
+
+def test_buyback_inner_space_label_is_total() -> None:
+    """리뷰 Med: '총 계'(내부 공백 변형)도 총계로 분류 → leaf 오분류·이중가산 방지."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [
+        {"acqs_mth1": "직접 취득", "change_qy_acqs": "3,000,000"},
+        {"acqs_mth1": "총 계", "change_qy_acqs": "3,000,000"},
+    ]
+    assert _buyback_totals(rows)[0] == 3_000_000  # 6,000,000 아님
+
+
+def test_buyback_malformed_rows_skipped() -> None:
+    """리뷰 Med(GPT#10): 비dict 요소가 섞여도 크래시 없이 건너뜀."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = ["garbage", 42, {"acqs_mth1": "직접 취득", "change_qy_acqs": "3,000,000"}]
+    assert _buyback_totals(rows)[0] == 3_000_000
+
+
+def _fake_get_factory(fail_buyback: bool = False, calls: list | None = None):
+    """fetch 흐름 테스트용 가짜 _get(엔드포인트별 응답)."""
+    def _fake_get(endpoint, params, allow_no_data=False):
+        if calls is not None:
+            calls.append(endpoint)
+        if endpoint == "company.json":
+            return {"status": "000", "corp_name": "테스트", "stock_code": "005930",
+                    "corp_cls": "Y"}
+        if endpoint == "fnlttSinglAcntAll.json":
+            return {"status": "000",
+                    "list": [{"account_nm": "매출액", "thstrm_amount": "100"}]}
+        if endpoint == "tesstkAcqsDspsSttus.json":
+            if fail_buyback:
+                raise DartAdapterError("DART API 오류: status=020")
+            return {"status": "000", "list": BUYBACK_ROWS}
+        raise AssertionError(f"unexpected endpoint: {endpoint}")
+    return _fake_get
+
+
+def test_fetch_buyback_failure_does_not_kill_financials(monkeypatch) -> None:
+    """리뷰 High(GPT#6): buyback 호출 실패(쿼터 020 등)에도 재무 수집은 계속(degraded)."""
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "dart_api_key", SecretStr("k"))
+    adapter = DartAdapter()
+    monkeypatch.setattr(adapter, "_get", _fake_get_factory(fail_buyback=True))
+    raw = adapter.fetch("00000001", "2024")
+    assert len(raw["periods"]) == 1          # 재무 period 생존
+    assert raw["periods"][0]["buyback_rows"] is None  # 실패 = 미상(None), 빈 리스트 아님
+    assert raw["buyback_ok"] is False        # run.py가 degraded로 표시
+    _, fins = adapter.normalize(raw)
+    assert fins[0]["revenue"] == 100         # 재무는 정상 적재 경로
+    assert fins[0]["buyback_amount"] is None  # 미상 → 기존값 안 덮음
+
+
+def test_fetch_skips_buyback_when_no_accounts(monkeypatch) -> None:
+    """리뷰 Med: 재무 데이터 없으면 buyback 호출 자체를 생략(rate-limit 낭비 방지)."""
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "dart_api_key", SecretStr("k"))
+    adapter = DartAdapter()
+    calls: list[str] = []
+
+    def _no_accounts_get(endpoint, params, allow_no_data=False):
+        calls.append(endpoint)
+        if endpoint == "company.json":
+            return {"status": "000", "corp_name": "테스트", "corp_cls": "Y"}
+        return {"list": []}  # 재무 없음(013 상당)
+
+    monkeypatch.setattr(adapter, "_get", _no_accounts_get)
+    raw = adapter.fetch("00000001", "2024")
+    assert raw["periods"] == []
+    assert "tesstkAcqsDspsSttus.json" not in calls  # 호출 안 함
+    assert raw["buyback_ok"] is True  # 미시도는 실패 아님
+
+
+def test_fetch_include_buyback_false_skips_call(monkeypatch) -> None:
+    """include_buyback=False면 tesstk 호출 생략(플래그 False 분기 커버)."""
+    from pydantic import SecretStr
+
+    monkeypatch.setattr(settings, "dart_api_key", SecretStr("k"))
+    adapter = DartAdapter()
+    calls: list[str] = []
+    monkeypatch.setattr(adapter, "_get", _fake_get_factory(calls=calls))
+    raw = adapter.fetch("00000001", "2024", include_buyback=False)
+    assert "tesstkAcqsDspsSttus.json" not in calls
+    assert raw["periods"][0]["buyback_rows"] is None  # 미시도 = 미상
+
+
+def test_get_non_dict_json_raises(monkeypatch) -> None:
+    """리뷰 Med(GPT#10): 200이지만 JSON이 dict가 아니면 명확한 DartAdapterError."""
+    adapter = DartAdapter()
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self):
+            return ["not", "a", "dict"]
+
+    monkeypatch.setattr(adapter._session, "get", lambda *a, **k: _Resp())
+    with pytest.raises(DartAdapterError, match="형태 오류"):
+        adapter._get("tesstkAcqsDspsSttus.json", {"crtfc_key": "k"})
+
+
+def test_normalize_fills_buyback_from_rows() -> None:
+    """AC2: normalize가 period['buyback_rows']에서 두 필드를 채운다."""
+    raw = {
+        "company": {"corp_code": "00000001", "corp_name": "테스트"},
+        "periods": [
+            {"year": 2025, "quarter": 4, "fs_div": "CFS",
+             "accounts": {"매출액": 100}, "total_debt": None,
+             "buyback_rows": BUYBACK_ROWS},
+        ],
+    }
+    _, fins = DartAdapter().normalize(raw)
+    assert fins[0]["buyback_amount"] == 3_000_000
+    assert fins[0]["buyback_retired_amount"] == 1_000_000
+
+
+def test_normalize_no_buyback_rows_is_none() -> None:
+    """회귀: buyback_rows 없는 period(기존 fixture)는 두 필드 null."""
+    _, fins = DartAdapter().normalize(DART_RAW_SAMSUNG)
+    assert fins[0]["buyback_amount"] is None
+    assert fins[0]["buyback_retired_amount"] is None
+
+
+def test_upsert_buyback_none_safe(session: Session) -> None:
+    """AC5: 이후 buyback None으로 재적재해도 기존 수량 보존(None-safe)."""
+    adapter = DartAdapter()
+    raw = {
+        "company": {"corp_code": "00000001", "corp_name": "테스트"},
+        "periods": [{"year": 2025, "quarter": 4, "fs_div": "CFS",
+                     "accounts": {"매출액": 100}, "total_debt": None,
+                     "buyback_rows": BUYBACK_ROWS}],
+    }
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+    # 미공시로 재적재(buyback_rows 없음) → 기존 3M/1M 유지
+    raw["periods"][0].pop("buyback_rows")
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+    obj = session.scalars(select(Financial)).one()
+    assert obj.buyback_amount == 3_000_000  # 안 덮임
+    assert obj.buyback_retired_amount == 1_000_000
+
+
+def test_get_json_value_error_wrapped(monkeypatch) -> None:
+    """T5: 비JSON 200(resp.json ValueError)도 DartAdapterError로 래핑(키 미노출)."""
+    adapter = DartAdapter()
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            raise ValueError("No JSON could be decoded")
+
+    monkeypatch.setattr(adapter._session, "get", lambda *a, **k: _Resp())
+    with pytest.raises(DartAdapterError, match="DART 요청 실패") as ei:
+        adapter._get("tesstkAcqsDspsSttus.json", {"crtfc_key": "SECRETKEY"})
+    assert "SECRETKEY" not in str(ei.value)
+
+
 @pytest.mark.skipif(
     not settings_has_key(), reason="DART_API_KEY 없음 — 라이브 테스트 스킵"
 )

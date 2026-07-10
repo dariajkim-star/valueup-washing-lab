@@ -72,6 +72,18 @@
 - **`IngestResult.failed`의 `str(e)` 노출 표면** (Low, GPT G18) — 예상외 예외 메시지가 URL/DB정보 포함 가능. **코드베이스 공통**(전 ingest 함수), allowlist 에러코드로 후속.
 - **decode utf-8-first mojibake** (Low) — CP949 바이트가 우연히 유효 UTF-8이면 조용히 깨짐. 페이로드/헤더 기반 인코딩 감지가 정석.
 
+## Deferred from: code review of story-1.8 (2026-07-10, 자체+GPT 교차검증)
+
+buyback 집계는 실공시 샘플 없이 보수적 규칙(총계 우선·상충/소계-only는 null)으로 근사. 실샘플 확보 후 튜닝.
+- **`"-"`의 의미(0 vs 미상) 미확정** (High, GPT) — 현재 `"-"`→None(unknown, 보수적). 실공시에서 대시가 "변동 없음(=0)"을 뜻하면 공시된 0을 null로 잘못 저장(None-safe upsert로 과거 값 잔존 가능). **실응답 fixture로 의미 확정 후** tri-state(disclosed_zero/unknown/value) 파서 전환 판단. [app/ingest/dart.py:_parse_quantity]
+- **취득 목적 미분류 + 처분(dsps) 미사용** (High, GPT) — 모든 `change_qy_acqs`를 주주환원성 매입으로 취급(합병·임직원보상 등 포함), 취득 후 전량 처분해도 purchased_only 가능. `acqs_mth1/2/3` 실어휘 확보 후 목적 분류 + `change_qy_dsps`·`trmend_qy` 활용은 **2.1 buyback_status 설계**에서 반영.
+- **change_qy_* 기간 의미(분기 누적 vs 단독)** (Med, GPT) — 연간(11011, quarter=4) 기준으론 무해. 분기 수집 시 누적/차분 확정 필요(1-7 TTM defer와 동일 계열). 필드명 `_ytd_qty` 리네이밍 검토.
+- **materiality 임계 부재(1주=10%와 동일 30점)** (Med, GPT) — `>0` 이진 신호의 의도된 한계. 2.1에서 `취득수량/발행주식수` 등 임계(config) 도입 검토.
+- **소계-only 응답 데이터 손실** (Med) — 소계 계층 검증 불가로 null 처리(null>오값). 실샘플에서 소계 구조 확정되면 승격.
+- **buyback_status 상태 세분화** (Med, GPT) — retired/purchased_only/none/unknown(스펙 반영됨) 외 acquired_and_disposed 등 세분은 2.1 설계에서.
+- **요약행 판정 공유 헬퍼** (Low, 자체) — `_buyback_row_kind`(dart.py)와 `_is_summary`(dart_ownership.py)가 같은 1.6 교훈을 중복 인코딩. 공유 헬퍼 추출은 어댑터 공통 정비 시.
+- **DEV_PLAN.md의 '금융공공데이터' buyback 출처 잔존** (Low, 자체) — 구식 계획 문서. 이중 writer 오해 소지, 문서 정비 시 정리.
+
 ## Deferred from: code review of story-1.6 (2026-07-10)
 
 대부분 **전 DART 어댑터 공통** — 개별 스토리가 아니라 dart.py 계열 일괄 개선으로 후속.

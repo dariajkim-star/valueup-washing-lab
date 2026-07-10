@@ -125,7 +125,7 @@ So that ROE·EV/EBITDA·배당성향 계산의 원천이 준비된다.
 
 **Given** `dart_adapter`와 corp_code
 **When** 수집을 실행하면
-**Then** `company`와 `financials`(revenue, net_income, equity, total_assets, total_liabilities, **operating_income, depreciation, cash, total_debt, dividend_total, buyback_amount(매입액), buyback_retired_amount(소각액)**)가 적재되고(AD-3·AD-9)
+**Then** `company`와 `financials`(revenue, net_income, equity, total_assets, total_liabilities, **operating_income, depreciation, cash, total_debt, dividend_total, buyback_amount(취득 수량, 1.8), buyback_retired_amount(소각 수량, 1.8)**)가 적재되고(AD-3·AD-9)
 **And** 자연키(corp_code+year+quarter) 멱등 upsert로 중복이 없다(AD-7). 배당은 DART에서 수집한다(금융공공데이터 미사용).
 
 ### Story 1.3: 시세·시가총액·거래대금 수집 (KRX)
@@ -193,6 +193,21 @@ So that 종목을 정량 비교할 수 있다.
 **Then** 지표가 최신 주가 기준으로 계산되어 반환되고(AD-1: 뷰 전용), **EV/EBITDA = (시총 + 순부채) / EBITDA**, EBITDA = 영업이익 + 감가상각비, **net_cash(현금−차입금)·ebitda_margin(EBITDA/매출)도 뷰가 노출(M&A 엔진 입력, F-4)**
 **And** YoY는 LAG(4분기)·TTM은 SUM OVER, 0 나눗셈은 NULLIF, 목록 응답은 {items,total,page,size} 봉투를 따른다(AD-6).
 
+### Story 1.8: 자기주식 취득/소각 수집 (DART 자기주식 취득/처분현황)
+
+> **추가 경위 (2026-07-10, Epic 1 회고 액션아이템 #3)**: 1-2 재무제표(`fnlttSinglAcntAll`)에는 자사주 취득/소각 라인이 없어 `financials.buyback_amount`·`buyback_retired_amount`가 **구조적으로 100% null**이었다. 그런데 2.1이 이 두 필드에서 `buyback_executed`·`buyback_retired`·`buyback_status`를 도출하고 2.2 워싱 플래그가 `NOT buyback_retired`에 의존한다 → 데이터 없이 엔진을 붙이면 워싱 판정이 조용히 상수로 고정된다. 정밀 출처 `tesstkAcqsDspsSttus`(자기주식 취득/처분현황)를 별도 수집 스토리로 확보한다. 수집 스토리라 Epic 1 테마('데이터 기반')에 배치(Epic 2는 순수 계산 유지).
+
+As a 애널리스트,
+I want DART 자기주식 취득/처분현황에서 취득 수량과 소각 수량이 적재되는 것,
+So that 워싱 판정의 '진짜 소각(NOT buyback_retired)' 신호를 실데이터로 잴 수 있다.
+
+**Acceptance Criteria:**
+
+**Given** `dart_adapter`의 자기주식 취득/처분현황(`tesstkAcqsDspsSttus`) 수집
+**When** 수집을 실행하면
+**Then** 기존 `financials`의 `buyback_amount`(취득 수량(주))·`buyback_retired_amount`(소각 수량(주))가 corp_code+year+quarter로 채워지고(기존 재무 upsert에 병합, 별도 테이블 신설 없음, AD-7)
+**And** 취득/소각 구분은 자기주식 처분사유(소각·이익소각 → retired, 매입·취득 → amount)로 매핑하며, 미공시·애매값은 null(0 아님)로 남겨 2.1의 `buyback_status` 도출이 실데이터에 근거한다(NFR2 "null > 틀린 값").
+
 ---
 
 ## Epic 2: 밸류업 워싱 & M&A 타겟 스코어 (핵심 차별점)
@@ -207,7 +222,7 @@ So that 밸류업 이행 정도를 비교할 수 있다.
 
 **Acceptance Criteria:**
 
-**Given** `valueup_plan`·`valuation_metrics` 뷰·`financials`(자사주 매입액·소각액)(AD-4)
+**Given** `valueup_plan`·`valuation_metrics` 뷰·`financials`(자사주 취득·소각 수량(주), >0 신호)(AD-4)
 **When** `gap_engine`을 특정 as_of로 실행하면
 **Then** `valueup_score`(achievement_rate, progress_rate, execution_score, as_of, **buyback_executed, buyback_retired, buyback_status**)가 적재되고(gap_engine이 유일 writer)
 **And** **buyback_executed = (buyback_amount>0), buyback_retired = (buyback_retired_amount>0), buyback_status = retired/purchased_only/none로 도출**되며, progress_rate는 as_of 기준(AD-8), 임계치·가중치는 config 주입(NFR3).

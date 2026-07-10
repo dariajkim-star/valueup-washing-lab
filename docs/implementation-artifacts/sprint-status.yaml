@@ -19,7 +19,7 @@
 # - 개발 순서: Epic 1 → 2 → 3 (데이터 → 스코어 → UI). 발표 순서는 역순.
 
 generated: 2026-07-08
-last_updated: 2026-07-10
+last_updated: 2026-07-10  # 1-8 스토리 생성(ready-for-dev)
 project: 밸류업 워싱 스크리너
 project_key: NOKEY
 tracking_system: file-system
@@ -27,6 +27,7 @@ story_location: "valueup-washing-lab/docs/implementation-artifacts"
 
 development_status:
   # ===== Epic 1: 데이터 기반 & 지표 조회 =====
+  # 2026-07-10: 회고 액션아이템 #3(자사주 취득/소각 데이터 소스)로 1-8 추가 → 재개 → 1-8 done으로 재완료
   epic-1: done
   1-1-scaffolding-db: done
   1-2-ingest-financials-dart: done
@@ -35,6 +36,7 @@ development_status:
   1-5-ingest-valueup-disclosure: done
   1-6-ingest-ownership: done
   1-7-metrics-view-api: done
+  1-8-ingest-buyback-status: done
   epic-1-retrospective: done
 
   # ===== Epic 2: 밸류업 워싱 & M&A 타겟 스코어 =====
@@ -60,7 +62,7 @@ action_items:
   - epic: 1
     action: "착수 전 경로/repo·아티팩트 경로(docs/)·BMAD config 확정하고 시작(중간 변동 금지)"
     owner: "리드+AI"
-    status: open
+    status: done  # 2026-07-10 1-8 착수 전 확정: repo=dariajkim-star/valueup-washing-lab@main, docs/, _bmad/bmm/config.yaml
   - epic: 1
     action: "컨텍스트 없는 리뷰어·GPT 번들·서브에이전트에 코드 verbatim 전달(축약 금지)"
     owner: "AI"
@@ -68,7 +70,7 @@ action_items:
   - epic: 1
     action: "2.1/2.2 착수 전 자사주 취득/소각 데이터 소스(tesstkAcqsDspsSttus) 필요 여부 판단"
     owner: "리드"
-    status: open
+    status: done  # 2026-07-10 결정: 수집 스토리 1-8 신설(financials 재사용). 엔진 전 실데이터 확보
   - epic: 1
     action: "2.1 갭 엔진 설계 시 target_payout_ratio(배당성향) vs 주주환원율 의미 정합"
     owner: "AI"

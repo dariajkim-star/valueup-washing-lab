@@ -19,6 +19,8 @@ macro_indicator                (원천: ECOS 매크로, 종목 무관 시계열)
 |---|---|---|---|
 | `company` | 원천 | corp_code(PK), stock_code, corp_name, market(KOSPI/KOSDAQ), sector | DART |
 | `financials` | 원천 | corp_code, year, quarter, revenue, net_income, equity, total_assets, total_liabilities, operating_income, depreciation, cash, total_debt, dividend_total, buyback_amount, **buyback_retired_amount** | DART |
+
+> **자사주 필드 각주(1.8)**: `buyback_amount`·`buyback_retired_amount`는 `tesstkAcqsDspsSttus`(자기주식 취득·처분 현황)의 **취득/소각 수량(주)**이다(KRW 액 아님). 워싱 판정이 `>0`(실행/소각 여부)로만 소비하므로 수량을 presence-proxy로 저장. 엔드포인트가 금액을 제공하지 않음. KRW 정밀액은 후속(수량×결산일 종가).
 | `prices` | 원천 | corp_code, date, close, volume, trading_value, market_cap | KRX |
 | `valueup_plan` | 원천 | plan_id, corp_code, disclosure_date, target_roe, target_payout_ratio, target_pbr, period_start, period_end, buyback_planned | DART 밸류업 공시 |
 | `ownership` | 원천 | corp_code, as_of, largest_shareholder_pct, treasury_stock_pct | DART 지분공시 |

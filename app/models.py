@@ -73,8 +73,9 @@ class Financial(Base):
     total_debt: Mapped[int | None] = mapped_column(BigInteger)
     # 환원 (별도 공시 기반, best-effort; 없으면 null)
     dividend_total: Mapped[int | None] = mapped_column(BigInteger)
-    buyback_amount: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 매입액
-    buyback_retired_amount: Mapped[int | None] = mapped_column(BigInteger)  # 소각액
+    # 자사주(1.8, tesstkAcqsDspsSttus): 취득/소각 수량(주) — 워싱 presence 신호(>0), KRW 액 아님
+    buyback_amount: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 취득 수량(주)
+    buyback_retired_amount: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 소각 수량(주)
 
 
 class Price(Base):

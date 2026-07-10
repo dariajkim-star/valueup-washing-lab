@@ -93,6 +93,7 @@ class DartAdapter(SourceAdapter):
         bsns_year: str,
         reprt_code: str = "11011",
         fs_div: str = "CFS",
+        include_buyback: bool = True,
     ) -> dict[str, Any]:
         key = settings.dart_api_key.get_secret_value()
         if not key:
@@ -109,8 +110,35 @@ class DartAdapter(SourceAdapter):
             key, corp_code, bsns_year, reprt_code, fs_div
         )
         periods: list[dict[str, Any]] = []
-        # 데이터 없음(빈 accounts)과 계정 누락을 구분: 데이터 없으면 재무 period를 만들지 않음
+        buyback_ok = True  # buyback 시도 실패 시 False(재무는 계속, run.py가 degraded 표시)
+        # 데이터 없음(빈 accounts)과 계정 누락을 구분: 데이터 없으면 재무 period를 만들지 않음.
+        # buyback만 있고 accounts 없는 종목은 period 미생성 → buyback 미적재(드묾, 한계 문서화).
         if accounts:
+            # 자기주식 취득/처분 현황(1.8) — buyback_amount·buyback_retired_amount 신호원.
+            # financials 단일 writer(AD-3) 유지: 별도 어댑터 아니라 이 fetch가 함께 수집.
+            # 재무 period가 생길 때만 호출(빈 accounts에 rate-limit 호출 낭비 방지, 리뷰 Med).
+            # 보조 원천이라 실패해도 재무 수집을 막지 않는다(리뷰 High: 쿼터 020 등에서
+            # 이미 성공한 재무까지 유실되던 회귀 격리). None=미상/실패, []=미공시(013).
+            buyback_rows: list[Any] | None = None
+            if include_buyback:
+                try:
+                    bb = self._get(
+                        "tesstkAcqsDspsSttus.json",
+                        {
+                            "crtfc_key": key,
+                            "corp_code": corp_code,
+                            "bsns_year": bsns_year,
+                            "reprt_code": reprt_code,
+                        },
+                        allow_no_data=True,
+                    )
+                    rows = bb.get("list") or []
+                    if isinstance(rows, list):
+                        buyback_rows = rows
+                    else:  # 형태 이탈(list가 dict/str 등) → unknown 처리(리뷰 Med)
+                        buyback_ok = False
+                except DartAdapterError:
+                    buyback_ok = False  # 보조 원천 실패 → 재무는 계속(degraded)
             periods.append(
                 {
                     "year": int(bsns_year),
@@ -118,9 +146,10 @@ class DartAdapter(SourceAdapter):
                     "accounts": accounts,
                     "total_debt": total_debt,
                     "fs_div": used_fs_div,
+                    "buyback_rows": buyback_rows,
                 }
             )
-        return {"company": company, "periods": periods}
+        return {"company": company, "periods": periods, "buyback_ok": buyback_ok}
 
     def _fetch_company(self, key: str, corp_code: str) -> dict[str, Any]:
         data = self._get("company.json", {"crtfc_key": key, "corp_code": corp_code})
@@ -172,11 +201,14 @@ class DartAdapter(SourceAdapter):
             )
             resp.raise_for_status()
             data = resp.json()
-        except requests.RequestException as e:
-            # 예외 메시지에 params(crtfc_key 포함 URL)를 넣지 않는다 — 키 노출 방지
+        except (requests.RequestException, ValueError) as e:
+            # 예외 메시지에 params(crtfc_key 포함 URL)를 넣지 않는다 — 키 노출 방지.
+            # ValueError = 비JSON 200(HTML 점검페이지 등)의 resp.json() 실패(공통 defer 해소).
             raise DartAdapterError(
                 f"DART 요청 실패: endpoint={endpoint} ({type(e).__name__})"
             ) from None
+        if not isinstance(data, dict):  # JSON이지만 dict 아님(배열/문자열) → 명확한 에러
+            raise DartAdapterError(f"DART 응답 형태 오류: endpoint={endpoint}")
         status = data.get("status")
         if status == "000":
             return data
@@ -207,8 +239,11 @@ class DartAdapter(SourceAdapter):
             rec["total_debt"] = period.get("total_debt")
             # 환원 항목은 전체 재무제표에 없음 → best-effort(있으면 사용, 없으면 null)
             rec["dividend_total"] = period.get("dividend_total")
-            rec["buyback_amount"] = period.get("buyback_amount")
-            rec["buyback_retired_amount"] = period.get("buyback_retired_amount")
+            # 자사주 취득/소각 신호(1.8): tesstkAcqsDspsSttus 행에서 집계(수량, 액 아님).
+            # buyback_rows None(미상/실패)·[](미공시) 모두 (None, None) → 기존값 보존.
+            rec["buyback_amount"], rec["buyback_retired_amount"] = _buyback_totals(
+                period.get("buyback_rows")
+            )
             fin_recs.append(rec)
         return company, fin_recs
 
@@ -253,6 +288,101 @@ def _pick(accounts: Mapping[str, Any], labels: tuple[str, ...]) -> int | None:
             if parsed is not None:
                 return parsed
     return None
+
+
+# 자기주식 취득/처분 행 분류(코드리뷰 2026-07-10: 자체+GPT 교차검증 반영).
+# 총계/합계 = 최상위 총계(권위 소스), 소계 = 중간 집계(계층 검증 불가 → 단독으론 미사용).
+_BUYBACK_TOTAL_LABELS = ("총계", "합계")
+_BUYBACK_SUBTOTAL_LABELS = ("소계",)
+_BUYBACK_MTH_KEYS = ("acqs_mth1", "acqs_mth2", "acqs_mth3")
+
+
+def _norm_label(v: Any) -> str:
+    """라벨 정규화: 모든 공백 제거('총 계' 표기 변형 대응) 후 비교.
+
+    정확일치 원칙 유지(1.6 "특수관계인"의 "계" 부분일치 오탐 교훈) —
+    공백 제거는 _parse_amount의 수치 정규화와 동일한 수준의 표기 방어일 뿐.
+    """
+    return "".join(str(v).split())
+
+
+def _buyback_row_kind(row: Mapping[str, Any]) -> str:
+    """행 분류: 'total'(총계/합계) / 'subtotal'(소계) / 'leaf'(개별 취득방법)."""
+    for k in _BUYBACK_MTH_KEYS:
+        label = _norm_label(row.get(k, ""))
+        if label in _BUYBACK_TOTAL_LABELS:
+            return "total"
+        if label in _BUYBACK_SUBTOTAL_LABELS:
+            return "subtotal"
+    return "leaf"
+
+
+def _parse_quantity(raw: Any) -> int | None:
+    """수량(주) 파싱. 음수는 수량 도메인에 없음 → None(null>오값).
+
+    _parse_amount는 KRW용이라 회계 음수 표기(△·괄호)를 음수로 해석하는데,
+    수량 합산에서 음수가 섞이면 상쇄로 '활동 없음(0)'이 조작될 수 있어(GPT 리뷰) 거부.
+    """
+    v = _parse_amount(raw)
+    return v if v is not None and v >= 0 else None
+
+
+def _buyback_field_total(
+    rows: Sequence[Any], field: str
+) -> int | None:
+    """한 필드(change_qy_acqs/change_qy_incnr)의 기간 수량 합계. 필드별 독립 판정.
+
+    우선순위(이중집계·부분손실 방지, 애매하면 null — AC3):
+      1) 총계/합계 행이 있으면 그것이 권위 소스:
+         - 유일하면 그 값.
+         - 여러 행이고 stock_knd가 전부 다르면(보통주/우선주 등 종류별 파티션) 합산.
+         - 여러 행이고 값이 전부 같으면(합계·총계 중복 표기) 그 값.
+         - 그 외(상충 총계) → None.
+      2) 총계 없으면 leaf 행 합(0 가능 → '활동 0' 확정).
+      3) 소계만 있으면 None — 소계 중첩/부분 계층을 검증할 수 없어 합산하지 않는다.
+    """
+    totals: list[tuple[str, int]] = []
+    leaves: list[int] = []
+    for row in rows:
+        if not isinstance(row, Mapping):  # 형태 이탈 요소(비dict) 방어
+            continue
+        v = _parse_quantity(row.get(field))
+        if v is None:
+            continue
+        kind = _buyback_row_kind(row)
+        if kind == "total":
+            totals.append((_norm_label(row.get("stock_knd", "")), v))
+        elif kind == "leaf":
+            leaves.append(v)
+        # subtotal은 수집하지 않음(계층 불명 → 단독 사용 금지)
+    if totals:
+        if len(totals) == 1:
+            return totals[0][1]
+        kinds = [k for k, _ in totals]
+        if all(kinds) and len(set(kinds)) == len(kinds):
+            return sum(v for _, v in totals)  # 종류별 총계 파티션 합
+        values = {v for _, v in totals}
+        if len(values) == 1:
+            return values.pop()  # 중복 표기 일치(합계=총계)
+        return None  # 상충 총계 → 애매 → null
+    if leaves:
+        return sum(leaves)
+    return None  # 소계만/파싱값 전무 → null(미공시·불명과 동일 취급)
+
+
+def _buyback_totals(
+    rows: Sequence[Any] | None,
+) -> tuple[int | None, int | None]:
+    """tesstkAcqsDspsSttus 행 → (취득 수량, 소각 수량). 수량(주), 액 아님.
+
+    필드별 독립 판정(취득은 leaf에, 소각은 총계에만 있어도 각각 채움 — 리뷰 High 반영).
+    None(미공시/실패/애매)과 0(공시된 활동 없음)을 구분(NFR2 "null > 틀린 값").
+    """
+    safe_rows = rows or []
+    return (
+        _buyback_field_total(safe_rows, "change_qy_acqs"),
+        _buyback_field_total(safe_rows, "change_qy_incnr"),
+    )
 
 
 def _sum_debt(rows: Sequence[Mapping[str, Any]]) -> int | None:
