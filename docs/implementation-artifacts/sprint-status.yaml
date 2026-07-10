@@ -27,13 +27,13 @@ story_location: "valueup-washing-lab/docs/implementation-artifacts"
 
 development_status:
   # ===== Epic 1: 데이터 기반 & 지표 조회 =====
-  epic-1: in-progress
+  epic-1: done
   1-1-scaffolding-db: done
   1-2-ingest-financials-dart: done
   1-3-ingest-prices-krx: done
   1-4-ingest-macro-ecos: done
   1-5-ingest-valueup-disclosure: done
-  1-6-ingest-ownership: backlog
+  1-6-ingest-ownership: done
   1-7-metrics-view-api: done
   epic-1-retrospective: optional
 

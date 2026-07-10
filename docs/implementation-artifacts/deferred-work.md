@@ -71,3 +71,12 @@
 - **SELECT→INSERT 동시성** (Med, GPT G14) — 병렬 수집 시 같은 자연키 동시 INSERT가 UNIQUE 위반. **코드베이스 공통 defer**(1.2/1.3/1.4와 동일, 병렬화 시 on_conflict).
 - **`IngestResult.failed`의 `str(e)` 노출 표면** (Low, GPT G18) — 예상외 예외 메시지가 URL/DB정보 포함 가능. **코드베이스 공통**(전 ingest 함수), allowlist 에러코드로 후속.
 - **decode utf-8-first mojibake** (Low) — CP949 바이트가 우연히 유효 UTF-8이면 조용히 깨짐. 페이로드/헤더 기반 인코딩 감지가 정석.
+
+## Deferred from: code review of story-1.6 (2026-07-10)
+
+대부분 **전 DART 어댑터 공통** — 개별 스토리가 아니라 dart.py 계열 일괄 개선으로 후속.
+- **rate-limit(HTTP 200 + status "020") 미재시도** (Low, 공통) — urllib3 Retry는 429/5xx만. DART 쿼터 초과는 200+status라 재시도 없이 hard fail. 1.3/1.4의 circuit-breaker defer와 동일 계열.
+- **`resp.json()` ValueError 처리를 dart.py/dart_valueup에도 전파** (Med, 공통) — 1.6 `_get_json`은 ValueError 포착으로 고쳤으나, `dart.py:_get`·`dart_valueup:_get_json`은 아직 RequestException만 잡음(비JSON 200에서 raw ValueError 누출). 일괄 반영 필요.
+- **log(type명) vs `failed`(str(e)) 불일치** (Low, 공통) — 전 ingest 함수에서 로그는 예외 타입명만, failed엔 str(e). 진단 일관성 위해 통일(안전 에러코드/ID) 후속.
+- **DB CheckConstraint(비율 범위)** (Low, GPT계열) — ownership에 `0<=largest/treasury<=100` 등 DB 제약 없음(앱단 가드만). 다른 원천과 함께 제약 정책 후속.
+- **합계행 tesstk 결측 시 개별행 복구** (Low) — stockTotqySttus 합계행에 `tesstk_co` 없고 종류별 행에만 있으면 현재 None. 종류별 합산 복구는 복잡도 대비 실익 낮아 defer(합계행 정상이 일반적).

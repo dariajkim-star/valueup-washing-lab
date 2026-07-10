@@ -129,6 +129,27 @@ class ValueupPlan(Base):
     raw_text: Mapped[str | None] = mapped_column(Text)  # 공시 원문(항상 보존)
 
 
+class Ownership(Base):
+    """지분구조 원천 (writer = dart_adapter, AD-3). 자연키 (corp_code, as_of), AD-7.
+
+    최대주주 지분율(보통주 기준 최대주주+특수관계인 합계)·자사주 비중. M&A 엔진(2.3)의
+    지배구조 취약성 입력(AD-10). 미공시·계정 누락 시 해당 필드 null(NFR2).
+    """
+
+    __tablename__ = "ownership"
+    __table_args__ = (
+        UniqueConstraint("corp_code", "as_of", name="uq_ownership_corp_asof"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(
+        String(8), ForeignKey("company.corp_code"), index=True
+    )
+    as_of: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD (기준일)
+    largest_shareholder_pct: Mapped[float | None] = mapped_column(Float)  # % (보통주)
+    treasury_stock_pct: Mapped[float | None] = mapped_column(Float)  # 자사주/발행총수 %
+
+
 class MacroIndicator(Base):
     """매크로 지표 시계열 (writer = ecos_adapter, AD-3). 종목 무관. 자연키 (indicator, date)."""
 

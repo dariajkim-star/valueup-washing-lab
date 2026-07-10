@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from app.db import SessionLocal
 from app.ingest.dart import DartAdapter, DartAdapterError
+from app.ingest.dart_ownership import DartOwnershipAdapter
 from app.ingest.dart_valueup import DartValueupAdapter
 from app.ingest.ecos import EcosAdapter
 from app.ingest.krx import KrxAdapter
@@ -82,6 +83,38 @@ def ingest_valueup_plans(
         except Exception as e:  # noqa: BLE001 (부분성공 정책)
             logger.warning(
                 "밸류업 공시 수집 실패 corp_code=%s: %s", corp_code, type(e).__name__
+            )
+            result.failed.append((corp_code, str(e)))
+    return result
+
+
+def ingest_ownership(
+    corp_codes: Sequence[str], bsns_year: str, reprt_code: str = "11011"
+) -> IngestResult:
+    """종목별 지분구조(DART hyslrSttus+stockTotqySttus) 수집.
+
+    완전 미공시(양 엔드포인트 데이터 없음)는 행을 만들지 않고 failed에 사유로 분리한다.
+    실패는 건너뛰고 목록에 담는다(부분성공). fetch(네트워크)는 짧은 트랜잭션 밖.
+    """
+    adapter = DartOwnershipAdapter()
+    result = IngestResult()
+    for corp_code in corp_codes:
+        try:
+            raw = adapter.fetch(corp_code, bsns_year, reprt_code)  # 네트워크(트랜잭션 밖)
+            records = adapter.normalize(raw)
+            with SessionLocal() as session:  # 종목당 짧은 트랜잭션
+                with session.begin():
+                    n = adapter.upsert(session, records)
+            result.ingested += n
+            if records:
+                result.succeeded.append(corp_code)
+            else:
+                # 미공시(에러 아님) → degraded로 분리(진짜 실패와 구분)
+                logger.info("지분공시 데이터 없음 corp_code=%s", corp_code)
+                result.degraded.append(corp_code)
+        except Exception as e:  # noqa: BLE001 (부분성공 정책)
+            logger.warning(
+                "지분구조 수집 실패 corp_code=%s: %s", corp_code, type(e).__name__
             )
             result.failed.append((corp_code, str(e)))
     return result
