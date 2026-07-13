@@ -229,6 +229,8 @@ So that 밸류업 이행 정도를 비교할 수 있다.
 
 ### Story 2.2: 워싱 플래그 판정
 
+> **2026-07-10: 별도 구현 없이 완료 처리** — 이 AC 전부가 Story 2.1(gap_engine)의 산출물에 이미 포함됨(washing_flag 계산, buyback_status=purchased_only 노출, config 임계치 연동). 설계 단계부터 2.1·2.2가 "같은 엔진·같은 테이블"이라 스토리만 분리돼 있었음. 별도 구현 시도 없이 sprint-status만 done으로 갱신.
+
 As a 애널리스트,
 I want 공시만 하고 이행 안 한 기업이 자동 표시되는 것,
 So that 워싱 기업을 걸러낼 수 있다.
@@ -291,6 +293,21 @@ So that 워싱·저평가·M&A 후보를 양방향으로 스크리닝한다.
 **When** `/screening`을 실행점수·mna_score 범위, washing_only, buyback_executed 필터로 호출하면
 **Then** 조건에 맞는 종목이 정렬·페이지네이션되어 반환되고(FR6)
 **And** 라우터는 repository를 통해서만 조회한다(AD-2).
+
+### Story 2.7: M&A 스코어 sector peer-group 백분위
+
+> **추가 경위 (2026-07-10, 리드 스코프 분리 결정)**: 2.3의 전종목 통합 백분위는 finance 관점에서 업종 간 비교가능성이 깨진다(은행·금융은 레버리지가 사업모델이라 EV/EBITDA·부채비율 백분위가 무의미, 리츠는 FFO 기반 등). 2.3은 `_build_populations` grouping seam만 확보하고, 실제 sector-relative 랭킹은 이 스토리로 분리. 업종별 **변수 세트 교체**(금융=P/B·ROE, 산업재=EV/EBITDA 등, 레벨 2)는 finance 도메인 리서치가 선행돼야 해서 이 스토리 범위 밖(후속 후보로만 기록).
+
+As a 애널리스트,
+I want M&A 스코어의 저평가·인수여력 백분위가 같은 업종 peer 안에서 매겨지는 것,
+So that 은행과 반도체가 같은 자로 줄 세워지는 왜곡 없이 "업종 내에서 싼 회사"를 찾는다.
+
+**Acceptance Criteria:**
+
+**Given** `company.sector`(DART induty_code)와 2.3의 grouping seam(`_build_populations`)
+**When** 업종코드→peer 버킷 택소노미 매핑을 적용해 mna_engine을 실행하면
+**Then** valuation_score·capacity_score의 백분위 모집단이 같은 버킷 종목으로 제한되고(ownership_score·macro_score는 업종 무관 유지)
+**And** 버킷 peer 수가 최소 임계(config) 미만이면 전체시장 모집단으로 폴백하며(small-N 노이즈 방어), 어느 모집단을 썼는지 식별 가능하다.
 
 ---
 

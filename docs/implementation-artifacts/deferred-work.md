@@ -72,6 +72,14 @@
 - **`IngestResult.failed`의 `str(e)` 노출 표면** (Low, GPT G18) — 예상외 예외 메시지가 URL/DB정보 포함 가능. **코드베이스 공통**(전 ingest 함수), allowlist 에러코드로 후속.
 - **decode utf-8-first mojibake** (Low) — CP949 바이트가 우연히 유효 UTF-8이면 조용히 깨짐. 페이로드/헤더 기반 인코딩 감지가 정석.
 
+## Deferred from: code review of story-2.3 (2026-07-10, GPT)
+
+- **가격 point-in-time 미보장 → 과거 as_of의 valuation_score 오염** (High, 최중요) — `valuation_metrics` VIEW가 as_of와 무관하게 전역 최신가(`MAX(p2.date)`)를 붙임(1.7 설계). mna_engine의 pbr·ev_ebitda(valuation_score 35% 가중)가 과거 as_of에서 미래 가격을 사용. 해결: VIEW에 price_date 노출 + repository에서 `price_date <= as_of` 필터 — 1.7 VIEW·/metrics API와 공유되는 변경이라 별도 스토리. [app/sql_views.py, app/repositories/mna_score.py]
+- **전년도 Q4 사업보고서 연초 사용** (High) — as_of=2025-01-15에 FY2024 사업보고서(통상 3월 공시)가 `year<2025`로 통과. 2-1의 available_at defer와 동일 뿌리 — rcept_dt 수집 스토리로 일괄 해결.
+- **market universe / 생존편향** (High) — 백분위 모집단에 상장·상폐일 필터 없음(미래 상장사가 과거 모집단에, 상폐사가 과거에서 소실). company에 상장/상폐일 데이터 자체가 없어 DART 수집 스토리 선행 필요.
+- **macro 신선도(staleness) 계약** (Med) — 월간 시계열 수집 중단을 금리 동결로 오인 가능. frequency별 기대 주기 검사 + ingestion heartbeat 설계 후속. 단 한은 기준금리는 변경 간격이 1년+일 수 있어 단순 max_age 규칙은 오탐(GPT 자체 부연).
+- **부분 실행 스냅샷 혼합** (Med, 문서화됨) — corp_codes 부분집합 실행 시 같은 as_of에 구/신 모집단 점수 혼재. v1은 "게시용=전체 실행" 계약으로 완화(run docstring), 진짜 필요해지면 population_version/staging 교체.
+
 ## Deferred from: code review of story-2.1 (2026-07-10, GPT)
 
 - **1~3분기 보고서의 동일연도 내 look-ahead 잔여 리스크** (High) — gap_engine의 `latest_metrics`/`latest_financial_buyback`이 같은 연도 사업보고서(quarter=4)는 무조건 배제(다음해 공시 확정사실이라 안전)하지만, 분기/반기 보고서는 실제 공시일을 모르므로 완전 차단 불가. as_of가 실제 공시일보다 이른 시점이면 여전히 미래정보를 쓸 수 있음. **완전 해결**: `financials`(및 `valuation_metrics` 뷰)에 실제 공시일(`available_at`, DART `rcept_dt`) 컬럼 추가 필요 — DART 어댑터(dart.py)·스키마·뷰를 가로지르는 별도 스토리 스코프. [app/repositories/valueup_score.py]

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from datetime import date
 
 from sqlalchemy.orm import Session
 
@@ -18,6 +19,21 @@ from app.config import settings
 from app.repositories import valueup_score as repo
 
 _AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _validate_as_of(as_of: str) -> None:
+    """as_of가 zero-padded YYYY-MM-DD **이자 달력상 유효**한지 fail-fast.
+
+    정규식만으론 2025-02-30이 통과(코드리뷰 2026-07-10 Med) — 세 입력원(metrics 연도,
+    ownership·macro 문자열 비교)이 무효 날짜를 서로 다르게 해석하는 것을 진입점에서 차단.
+    gap_engine·mna_engine 공용(중복 정의 금지).
+    """
+    if not _AS_OF_RE.match(as_of):
+        raise ValueError(f"as_of는 YYYY-MM-DD 형식이어야 합니다: {as_of!r}")
+    try:
+        date.fromisoformat(as_of)
+    except ValueError:
+        raise ValueError(f"as_of가 달력상 유효한 날짜가 아닙니다: {as_of!r}") from None
 
 
 def _safe_ratio(actual: float | None, target: float | None) -> float | None:
@@ -136,8 +152,7 @@ def run(
     as_of는 YYYY-MM-DD 형식만 허용(fail-fast) — 비표준 포맷은 disclosure_date와의 문자열
     비교(사전식)를 실제 날짜 비교와 어긋나게 만들 수 있다(코드리뷰 High, GPT).
     """
-    if not _AS_OF_RE.match(as_of):
-        raise ValueError(f"as_of는 YYYY-MM-DD 형식이어야 합니다: {as_of!r}")
+    _validate_as_of(as_of)
     if corp_codes is None:
         corp_codes = repo.list_all_corp_codes(session)
     as_of_year = int(as_of[:4])

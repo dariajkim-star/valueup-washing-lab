@@ -195,3 +195,28 @@ class ValueupScore(Base):
     buyback_executed: Mapped[bool | None] = mapped_column(Boolean)
     buyback_retired: Mapped[bool | None] = mapped_column(Boolean)
     buyback_status: Mapped[str | None] = mapped_column(String(20))  # retired/purchased_only/none/unknown
+
+
+class MnaScore(Base):
+    """M&A Target Score (writer = mna_engine, AD-10). 자연키 (corp_code, as_of).
+
+    cross-sectional 백분위(시장 내 상대 순위) 기반 — 요소 서브지표가 하나라도 null이면
+    요소 점수 null, 요소가 하나라도 null이면 mna_target_score null(엄격, 리드 결정 2026-07-10).
+    macro_score는 종목 무관 공통값(as_of당 1회 계산).
+    """
+
+    __tablename__ = "mna_score"
+    __table_args__ = (
+        UniqueConstraint("corp_code", "as_of", name="uq_mna_score_corp_asof"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(
+        String(8), ForeignKey("company.corp_code"), index=True
+    )
+    as_of: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD
+    mna_target_score: Mapped[float | None] = mapped_column(Float)  # 0~100
+    valuation_score: Mapped[float | None] = mapped_column(Float)  # 0~1 (저평가)
+    capacity_score: Mapped[float | None] = mapped_column(Float)  # 0~1 (인수여력)
+    ownership_score: Mapped[float | None] = mapped_column(Float)  # 0~1 (지배구조 취약성)
+    macro_score: Mapped[float | None] = mapped_column(Float)  # 0~1, 종목 무관 공통
