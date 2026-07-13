@@ -19,7 +19,7 @@
 # - 개발 순서: Epic 1 → 2 → 3 (데이터 → 스코어 → UI). 발표 순서는 역순.
 
 generated: 2026-07-08
-last_updated: 2026-07-13  # 2-5 스토리 생성(ready-for-dev)
+last_updated: 2026-07-13  # epic-2 회고 완료
 project: 밸류업 워싱 스크리너
 project_key: NOKEY
 tracking_system: file-system
@@ -52,7 +52,7 @@ development_status:
   2-6-screening-api: done  # 2026-07-13: GPT 리뷰 Med3·Low2 전건 patch, 210 passed
   # 2026-07-10: finance 스코프 분리 — 2.3은 grouping seam만, sector-relative 랭킹은 2-7로
   2-7-mna-sector-peer-percentile: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   # ===== Epic 3: 시장 인사이트 & 스크리너 UI =====
   epic-3: backlog
@@ -71,7 +71,7 @@ action_items:
   - epic: 1
     action: "컨텍스트 없는 리뷰어·GPT 번들·서브에이전트에 코드 verbatim 전달(축약 금지)"
     owner: "AI"
-    status: open
+    status: done  # 2026-07-13 epic-2 회고에서 이행 확인: review-bundle-2-1~2-6 전부 verbatim
   - epic: 1
     action: "2.1/2.2 착수 전 자사주 취득/소각 데이터 소스(tesstkAcqsDspsSttus) 필요 여부 판단"
     owner: "리드"
@@ -79,4 +79,24 @@ action_items:
   - epic: 1
     action: "2.1 갭 엔진 설계 시 target_payout_ratio(배당성향) vs 주주환원율 의미 정합"
     owner: "AI"
+    status: done  # 2026-07-13 epic-2 회고에서 이행 확인: 2.1 착수 전 결정(achievement_rate=ROE 단독, payout 별도 0.2 가중)으로 해소
+  - epic: 2
+    action: "3.2 착수 전 execution_score/achievement_rate 최신 커버리지 재확인(1.9 배당수집 반영 후)"
+    owner: "리드+AI"
+    status: open
+  - epic: 2
+    action: "null/불확실 상태(판단불가·산출불가·미지원업종)의 시각 언어를 3.2 Figma 단계에서 확정"
+    owner: "리드+AI"
+    status: open
+  - epic: 2
+    action: "확인 없는 파일 삭제 금지 — 삭제 전 git status·용도 확인을 표준 절차로 고정"
+    owner: "AI"
+    status: open
+  - epic: 2
+    action: "새 스토리 리뷰 결함의 기존 라우터 소급 점검을 리뷰 triage 체크리스트에 표준화"
+    owner: "AI"
+    status: open
+  - epic: 2
+    action: "score_run 배치 메타데이터 스토리 착수 시점 결정(Epic 3 랭킹 화면 노출 전후)"
+    owner: "리드"
     status: open
