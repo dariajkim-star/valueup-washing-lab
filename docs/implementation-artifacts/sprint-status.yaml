@@ -57,7 +57,7 @@ development_status:
   # ===== Epic 3: 시장 인사이트 & 스크리너 UI =====
   epic-3: in-progress
   3-1-stats-macro-api: done  # 2026-07-13: GPT 리뷰 High1·Med3·Low1 전건 patch, 221 passed
-  3-2-figma-screener-design: backlog
+  3-2-figma-screener-design: done  # 2026-07-13: Figma 시안(스크리너·상세·범례) + null 시각언어 확정
   3-3-screener-filter-list: backlog
   3-4-detail-investment-card: backlog
   3-5-tableau-dashboard: backlog
@@ -87,7 +87,7 @@ action_items:
   - epic: 2
     action: "null/불확실 상태(판단불가·산출불가·미지원업종)의 시각 언어를 3.2 Figma 단계에서 확정"
     owner: "리드+AI"
-    status: open
+    status: done  # 2026-07-13 3.2에서 6상태 시각 언어 확정 + 범례 시트(Figma node 11:2)
   - epic: 2
     action: "확인 없는 파일 삭제 금지 — 삭제 전 git status·용도 확인을 표준 절차로 고정"
     owner: "AI"
