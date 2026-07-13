@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from typing import Generic, Literal, TypeVar
 
 from pydantic import BaseModel
 
@@ -83,6 +83,44 @@ class MnaRankingOut(BaseModel):
     ownership_score: float | None = None
     macro_score: float | None = None
     population_basis: str | None = None
+
+
+class MarketComparisonOut(BaseModel):
+    """시장별(KOSPI/KOSDAQ) 헤드라인 통계 (3.1). n=as_of 시점 최신 지표 보유 종목 수,
+    washing_ratio 분모는 n_judged(washing_flag가 null이 아닌 종목) — n과 다른 모집단.
+    market은 이 스토리가 다루는 KOSPI/KOSDAQ로 한정(repository가 이미 필터하지만
+    스키마에서도 계약을 좁혀 방어)."""
+
+    market: Literal["KOSPI", "KOSDAQ"]
+    n: int
+    avg_roe: float | None = None
+    avg_pbr: float | None = None
+    avg_ev_ebitda: float | None = None
+    n_judged: int
+    n_washing: int
+    washing_ratio: float | None = None
+
+
+class StatsSummaryOut(BaseModel):
+    """시장 구분 없는 전체 헤드라인 KPI (3.1)."""
+
+    as_of: str
+    n_companies: int
+    n_metrics: int
+    avg_roe: float | None = None
+    avg_pbr: float | None = None
+    avg_ev_ebitda: float | None = None
+    n_judged: int
+    n_washing: int
+    washing_ratio: float | None = None
+
+
+class MacroSnapshotOut(BaseModel):
+    """매크로 지표 스냅샷 (3.1). date/value null = 아직 관측 없음(지표 자리는 항상 보장)."""
+
+    indicator: str
+    date: str | None = None
+    value: float | None = None
 
 
 class GapAnalysisOut(BaseModel):

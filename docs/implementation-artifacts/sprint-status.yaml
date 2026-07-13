@@ -55,8 +55,8 @@ development_status:
   epic-2-retrospective: done
 
   # ===== Epic 3: 시장 인사이트 & 스크리너 UI =====
-  epic-3: backlog
-  3-1-stats-macro-api: backlog
+  epic-3: in-progress
+  3-1-stats-macro-api: done  # 2026-07-13: GPT 리뷰 High1·Med3·Low1 전건 patch, 221 passed
   3-2-figma-screener-design: backlog
   3-3-screener-filter-list: backlog
   3-4-detail-investment-card: backlog

@@ -19,6 +19,7 @@ from app.db import check_db
 from app.routers import metrics as metrics_router
 from app.routers import mna as mna_router
 from app.routers import screening as screening_router
+from app.routers import stats as stats_router
 from app.routers import valueup as valueup_router
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,7 @@ app.include_router(metrics_router.router)
 app.include_router(valueup_router.router)
 app.include_router(mna_router.router)
 app.include_router(screening_router.router)
+app.include_router(stats_router.router)
 
 
 @app.exception_handler(RequestValidationError)
