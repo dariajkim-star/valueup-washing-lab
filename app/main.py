@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import settings
 from app.db import check_db
 from app.routers import metrics as metrics_router
+from app.routers import mna as mna_router
 from app.routers import valueup as valueup_router
 
 logger = logging.getLogger(__name__)
@@ -22,6 +25,23 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title=settings.app_name, version=__version__)
 app.include_router(metrics_router.router)
 app.include_router(valueup_router.router)
+app.include_router(mna_router.router)
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """422를 AD-6 에러 계약 {detail, code}로 변환(2-5 GPT 리뷰 Med).
+
+    FastAPI 기본 응답은 detail만 있고 code가 없어 계약 위반 — 전 라우터 공통 적용.
+    """
+    # jsonable_encoder: pydantic v2 errors()의 ctx에 예외 객체 등 비직렬화 값이 섞일 수
+    # 있음(FastAPI 기본 핸들러와 동일 처리) — 없으면 422 만들다 500이 됨.
+    return JSONResponse(
+        status_code=422,
+        content={"detail": jsonable_encoder(exc.errors()), "code": "VALIDATION_ERROR"},
+    )
 
 
 @app.get("/health", tags=["system"])

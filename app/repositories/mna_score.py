@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Company, MacroIndicator, MnaScore, Ownership
@@ -122,6 +122,70 @@ def upsert_mna_score(session: Session, rec: dict[str, Any]) -> MnaScore:
     ):
         setattr(obj, field, rec[field])
     return obj
+
+
+# ── 서빙 조회 (2.5 /mna/ranking) ─────────────────────────────────────────────
+# 위쪽은 mna_engine 전용 배치 입력·upsert, 아래는 API 서빙 읽기 전용(AD-10: 쓰기는 엔진만).
+
+
+def latest_as_of(session: Session) -> str | None:
+    """mna_score의 최신 as_of(기본 조회 기준일). 없으면 None.
+
+    부분 실행이 latest_as_of를 오염시키는 문제는 2.4와 공통 defer(score_run 메타데이터,
+    deferred-work.md) — 여기서 해결하지 않는다.
+    """
+    return session.scalar(select(func.max(MnaScore.as_of)))
+
+
+def list_scores(
+    session: Session, filters: dict[str, Any], page: int, size: int
+) -> tuple[list[dict[str, Any]], int]:
+    """M&A 타겟 랭킹 서빙 조회(2.5). company 조인 + 필터 + mna_target_score 내림차순.
+
+    2.4 list_scores와 동일 골격, 정렬 방향만 반대(인수 매력 높은 순). null 정렬은
+    방언 무관 명시적 키(`IS NULL` 우선 → 값 desc → corp_code 안정 정렬)로 처리.
+    sector 필터는 KSIC prefix 매칭(2.7 버킷 택소노미와 동일 단위) — 정확일치로 하면
+    세분류 코드(4~5자리)를 사용자가 알 수 없어 필터가 사실상 죽는다.
+    """
+    conds = [MnaScore.as_of == filters["as_of"]]
+    # `is not None`(truthiness 아님): 빈 문자열이 "필터 없음"으로 새는 것을 repo 층에서도
+    # 차단(GPT 리뷰 Med — 1차 방어는 라우터 min_length=1의 422).
+    if filters.get("market") is not None:
+        conds.append(Company.market == filters["market"])
+    if filters.get("sector") is not None:
+        conds.append(Company.sector.startswith(filters["sector"], autoescape=True))
+
+    base = select(MnaScore, Company).join(
+        Company, Company.corp_code == MnaScore.corp_code
+    ).where(*conds)
+
+    total = session.scalar(
+        select(func.count()).select_from(base.subquery())
+    ) or 0
+    rows = session.execute(
+        base.order_by(
+            MnaScore.mna_target_score.is_(None),  # null last(명시적)
+            MnaScore.mna_target_score.desc(),
+            MnaScore.corp_code.asc(),
+        ).limit(size).offset((page - 1) * size)
+    ).all()
+
+    items = []
+    for score, company in rows:
+        items.append({
+            "corp_code": score.corp_code,
+            "corp_name": company.corp_name,
+            "market": company.market,
+            "sector": company.sector,
+            "as_of": score.as_of,
+            "mna_target_score": score.mna_target_score,
+            "valuation_score": score.valuation_score,
+            "capacity_score": score.capacity_score,
+            "ownership_score": score.ownership_score,
+            "macro_score": score.macro_score,
+            "population_basis": score.population_basis,
+        })
+    return items, total
 
 
 def delete_mna_score(session: Session, corp_code: str, as_of: str) -> None:

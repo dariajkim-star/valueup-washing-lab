@@ -114,3 +114,8 @@ buyback 집계는 실공시 샘플 없이 보수적 규칙(총계 우선·상충
 - **log(type명) vs `failed`(str(e)) 불일치** (Low, 공통) — 전 ingest 함수에서 로그는 예외 타입명만, failed엔 str(e). 진단 일관성 위해 통일(안전 에러코드/ID) 후속.
 - **DB CheckConstraint(비율 범위)** (Low, GPT계열) — ownership에 `0<=largest/treasury<=100` 등 DB 제약 없음(앱단 가드만). 다른 원천과 함께 제약 정책 후속.
 - **합계행 tesstk 결측 시 개별행 복구** (Low) — stockTotqySttus 합계행에 `tesstk_co` 없고 종류별 행에만 있으면 현재 None. 종류별 합산 복구는 복잡도 대비 실익 낮아 defer(합계행 정상이 일반적).
+
+## Deferred from: code review of story-2.5 (2026-07-13, GPT)
+
+- **valueup·metrics 라우터 HTTP 경계 정비(2.5와 패리티)** — 2.5 리뷰에서 잡힌 세 가지가 기존 라우터에도 동일하게 존재: ① 빈 문자열 필터(`?market=`)가 "필터 없음"으로 확대(truthiness), ② `page` 상한 없음(OFFSET 오버플로 → 500 가능), ③ (해소됨) 422 에러 계약 — 이것만은 main.py 전역 핸들러라 이미 전 라우터에 적용됨. ①②를 2.5와 동일 방식(min_length=1·le=1_000_000·repo `is not None`)으로 /valueup/*·/metrics/*에 적용하는 소규모 정비 스토리 또는 2-6에 편승.
+- **as_of 관대 파싱(Dismiss 기록)** — `as_of=2026-07-13T00:00:00`·epoch 문자열도 유효 날짜로 해석돼 200(pydantic v2 lax). 계약을 "달력상 유효한 날짜로 해석 가능한 입력"으로 정의하고 수용 — 유효 날짜로만 해석되고 500·오동작 없음, 2.4와 동작 일치 유지. 엄격 `YYYY-MM-DD` 강제가 필요해지면(외부 공개 등) 정규식 validator를 전 라우터 공통으로.

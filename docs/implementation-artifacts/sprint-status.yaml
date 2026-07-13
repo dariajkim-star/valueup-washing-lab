@@ -19,7 +19,7 @@
 # - 개발 순서: Epic 1 → 2 → 3 (데이터 → 스코어 → UI). 발표 순서는 역순.
 
 generated: 2026-07-08
-last_updated: 2026-07-10  # 1-8 스토리 생성(ready-for-dev)
+last_updated: 2026-07-13  # 2-5 스토리 생성(ready-for-dev)
 project: 밸류업 워싱 스크리너
 project_key: NOKEY
 tracking_system: file-system
@@ -48,7 +48,7 @@ development_status:
   2-2-washing-flag: done  # 2026-07-10: 별도 구현 없이 2.1(gap_engine)이 AC 전부 충족 — washing_flag·buyback_status(purchased_only)·config 임계치 연동이 이미 2-1 산출물에 포함됨
   2-3-mna-score-engine: done
   2-4-gap-washing-ranking-api: done
-  2-5-mna-ranking-api: backlog
+  2-5-mna-ranking-api: done  # 2026-07-13: GPT 리뷰 Med3 patch·Low1 dismiss, 199 passed
   2-6-screening-api: backlog
   # 2026-07-10: finance 스코프 분리 — 2.3은 grouping seam만, sector-relative 랭킹은 2-7로
   2-7-mna-sector-peer-percentile: done
