@@ -55,6 +55,8 @@ class Settings(BaseSettings):
     mna_w_capacity: float = Field(0.25, ge=0.0, le=1.0)
     mna_w_ownership: float = Field(0.25, ge=0.0, le=1.0)
     mna_w_macro: float = Field(0.15, ge=0.0, le=1.0)
+    # sector peer 버킷 최소 종목 수(2.7) — 미달 버킷은 전체시장 폴백(small-N 노이즈 방어)
+    mna_peer_min: int = Field(5, ge=2)
 
     @model_validator(mode="after")
     def _check_weight_sums(self) -> "Settings":

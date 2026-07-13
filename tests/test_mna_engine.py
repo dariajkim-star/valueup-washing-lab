@@ -133,6 +133,18 @@ def test_build_populations_custom_grouping_seam() -> None:
     assert sorted(pops["semi"]["pbr"]) == [5.0, 6.0]
 
 
+# ── Story 2.7: sector peer-group ──
+
+def test_sector_bucket_two_digit_prefix() -> None:
+    from app.analysis.mna_engine import _sector_bucket
+
+    assert _sector_bucket("64191") == "64"  # 은행업
+    assert _sector_bucket("26121") == "26"  # 반도체
+    assert _sector_bucket(None) is None
+    assert _sector_bucket("") is None
+    assert _sector_bucket("A1") is None  # 숫자 아님 → 분류 불가(값 안 만듦)
+
+
 # ── T4: 통합 테스트 (cross-sectional, SQLite in-memory + 뷰) ──
 
 @pytest.fixture()
@@ -326,6 +338,63 @@ def test_run_guards_against_mass_delete_on_empty_inputs(engine) -> None:
         s.commit()
         assert n == 0
         assert s.scalars(select(MnaScore)).one_or_none() is not None  # 안 지워짐
+
+
+def test_run_sector_peer_percentile_and_fallback(engine) -> None:
+    """2.7 AC1/3/4: peer 충분한 버킷은 업종 내 백분위, 미달 버킷은 시장 폴백, basis 저장.
+
+    mna_peer_min=2로 낮춰 반도체 버킷(2종목)은 sector, 단독 버킷(1종목)은 폴백을 검증.
+    """
+    from app.config import settings as cfg
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        # 반도체(26) 2종목: 시총 1000 vs 9000 — 시장 전체가 아니라 '둘 사이' 백분위여야 함
+        _seed_corp(s, "00000001", market_cap=1000)
+        _seed_corp(s, "00000002", market_cap=9000)
+        # 유통(47) 1종목: 버킷 peer 1 < min → 시장 폴백
+        _seed_corp(s, "00000003", market_cap=3000)
+        s.commit()
+        from app.models import Company as _C
+        for code, sec in (("00000001", "26121"), ("00000002", "26299"), ("00000003", "47111")):
+            s.get(_C, code).sector = sec
+        _seed_macro(s)
+        s.commit()
+
+        import pytest as _pytest
+        orig = cfg.mna_peer_min
+        try:
+            cfg.mna_peer_min = 2
+            run(s, as_of="2025-12-31")
+            s.commit()
+        finally:
+            cfg.mna_peer_min = orig
+
+        rows = {r.corp_code: r for r in s.scalars(select(MnaScore)).all()}
+        # 반도체 버킷 내 상대화: 1번(저평가)=1.0, 2번(고평가)=0.0
+        assert rows["00000001"].valuation_score == _pytest.approx(1.0)
+        assert rows["00000002"].valuation_score == _pytest.approx(0.0)
+        assert rows["00000001"].population_basis == "sector:26"
+        assert rows["00000002"].population_basis == "sector:26"
+        # 유통 1종목: 버킷 미달 → 시장(3종목) 폴백 — 시총 3000은 시장 중간
+        assert rows["00000003"].population_basis == "market_fallback"
+        assert rows["00000003"].valuation_score == _pytest.approx(0.5)
+        # ownership은 업종 무관(시장 모집단) 유지 — basis와 무관하게 계산됨
+        assert rows["00000001"].ownership_score is not None
+
+
+def test_run_sector_null_uses_market_basis(engine) -> None:
+    """2.7 AC5: sector 없는 종목은 market basis(정직 분류)."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_corp(s, "00000001", market_cap=1000)  # _seed_corp은 sector 미지정
+        _seed_corp(s, "00000002", market_cap=9000)
+        _seed_macro(s)
+        s.commit()
+        run(s, as_of="2025-12-31")
+        s.commit()
+        rows = s.scalars(select(MnaScore)).all()
+        assert all(r.population_basis == "market" for r in rows)
 
 
 def test_run_macro_uses_only_history_before_as_of(engine) -> None:

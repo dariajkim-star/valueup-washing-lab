@@ -111,6 +111,7 @@ class DartAdapter(SourceAdapter):
         )
         periods: list[dict[str, Any]] = []
         buyback_ok = True  # buyback 시도 실패 시 False(재무는 계속, run.py가 degraded 표시)
+        dividend_ok = True  # 배당(1.9) 동일 격리 — 보조 원천 실패가 재무를 막지 않음
         # 데이터 없음(빈 accounts)과 계정 누락을 구분: 데이터 없으면 재무 period를 만들지 않음.
         # buyback만 있고 accounts 없는 종목은 period 미생성 → buyback 미적재(드묾, 한계 문서화).
         if accounts:
@@ -132,13 +133,40 @@ class DartAdapter(SourceAdapter):
                         },
                         allow_no_data=True,
                     )
-                    rows = bb.get("list") or []
+                    rows = bb.get("list")
+                    if rows is None:
+                        rows = []
+                    # `or []`는 falsy dict/str도 미공시로 세탁하므로 금지(일괄리뷰 Med)
                     if isinstance(rows, list):
                         buyback_rows = rows
                     else:  # 형태 이탈(list가 dict/str 등) → unknown 처리(리뷰 Med)
                         buyback_ok = False
                 except DartAdapterError:
                     buyback_ok = False  # 보조 원천 실패 → 재무는 계속(degraded)
+            # 배당에 관한 사항(1.9) — dividend_total(현금배당금총액) 신호원. buyback과
+            # 동일 격리 패턴: 실패해도 재무 수집 계속, None=미상/실패, []=미공시(013).
+            dividend_rows: list[Any] | None = None
+            try:
+                dv = self._get(
+                    "alotMatter.json",
+                    {
+                        "crtfc_key": key,
+                        "corp_code": corp_code,
+                        "bsns_year": bsns_year,
+                        "reprt_code": reprt_code,
+                    },
+                    allow_no_data=True,
+                )
+                rows = dv.get("list")
+                if rows is None:
+                    rows = []
+                # `or []`는 falsy dict/str도 미공시로 세탁하므로 금지(일괄리뷰 Med)
+                if isinstance(rows, list):
+                    dividend_rows = rows
+                else:
+                    dividend_ok = False
+            except DartAdapterError:
+                dividend_ok = False
             periods.append(
                 {
                     "year": int(bsns_year),
@@ -147,9 +175,15 @@ class DartAdapter(SourceAdapter):
                     "total_debt": total_debt,
                     "fs_div": used_fs_div,
                     "buyback_rows": buyback_rows,
+                    "dividend_rows": dividend_rows,
                 }
             )
-        return {"company": company, "periods": periods, "buyback_ok": buyback_ok}
+        return {
+            "company": company,
+            "periods": periods,
+            "buyback_ok": buyback_ok,
+            "dividend_ok": dividend_ok,
+        }
 
     def _fetch_company(self, key: str, corp_code: str) -> dict[str, Any]:
         data = self._get("company.json", {"crtfc_key": key, "corp_code": corp_code})
@@ -237,8 +271,8 @@ class DartAdapter(SourceAdapter):
                 rec[col] = _pick(accounts, labels)
             # total_debt는 fetch에서 '모든 차입 행' 합산(중복 라벨 포함)해 넘겨받음
             rec["total_debt"] = period.get("total_debt")
-            # 환원 항목은 전체 재무제표에 없음 → best-effort(있으면 사용, 없으면 null)
-            rec["dividend_total"] = period.get("dividend_total")
+            # 배당총액(1.9): alotMatter 행에서 집계(백만원→KRW 스케일). rows None/[] → null.
+            rec["dividend_total"] = _dividend_total(period.get("dividend_rows"))
             # 자사주 취득/소각 신호(1.8): tesstkAcqsDspsSttus 행에서 집계(수량, 액 아님).
             # buyback_rows None(미상/실패)·[](미공시) 모두 (None, None) → 기존값 보존.
             rec["buyback_amount"], rec["buyback_retired_amount"] = _buyback_totals(
@@ -295,6 +329,41 @@ def _pick(accounts: Mapping[str, Any], labels: tuple[str, ...]) -> int | None:
 _BUYBACK_TOTAL_LABELS = ("총계", "합계")
 _BUYBACK_SUBTOTAL_LABELS = ("소계",)
 _BUYBACK_MTH_KEYS = ("acqs_mth1", "acqs_mth2", "acqs_mth3")
+
+
+# 배당총액 라벨(1.9): 단위가 라벨에 박혀 있어 (라벨, 스케일) 쌍으로만 인정 —
+# 단위 미확인 변형에 값을 만들면 100만 배 축소가 조용히 payout_ratio를 오염(null>틀린값).
+_DIVIDEND_TOTAL_LABELS: dict[str, int] = {
+    "현금배당금총액(백만원)": 1_000_000,
+}
+
+
+def _dividend_total(rows: Sequence[Any] | None) -> int | None:
+    """alotMatter 행 → 현금배당금총액(KRW). 라벨 정확일치 + 명시 스케일만.
+
+    rows None(미상/실패)·[](미공시) → null(기존값 보존). 파싱값 0은 확정 0(배당 없음).
+    코드리뷰(2026-07-13) 반영:
+    - 비-Mapping 행은 건너뜀(malformed 행이 AttributeError로 재무 적재 전체를 죽이지 않게).
+    - 동일 라벨 다중 후보는 **전원 일치할 때만** 확정 — 상충값·음수 혼입은 오염 신호 → null.
+    """
+    if not rows:
+        return None
+    candidates: list[int | None] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue  # malformed 행 격리(보조 원천이 재무를 못 죽임)
+        scale = _DIVIDEND_TOTAL_LABELS.get(_norm_label(row.get("se")))
+        if scale is None:
+            continue
+        v = _parse_amount(row.get("thstrm"))
+        if v is None:
+            continue
+        candidates.append(v * scale if v >= 0 else None)  # 음수=오염 표식
+    if not candidates or any(c is None for c in candidates):
+        return None
+    if len(set(candidates)) > 1:  # 상충 후보 → 확정 금지(null > 틀린 값)
+        return None
+    return candidates[0]
 
 
 def _norm_label(v: Any) -> str:

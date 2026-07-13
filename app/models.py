@@ -188,6 +188,10 @@ class ValueupScore(Base):
         String(8), ForeignKey("company.corp_code"), index=True
     )
     as_of: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD (progress_rate의 today)
+    # 목표·실제·갭(2.4 표시용, 엔진 계산 시점 동결 — 서빙 재계산 시 as_of 정합 깨짐 방지)
+    target_roe: Mapped[float | None] = mapped_column(Float)
+    actual_roe: Mapped[float | None] = mapped_column(Float)
+    roe_gap: Mapped[float | None] = mapped_column(Float)  # actual − target(둘 다 있을 때만)
     achievement_rate: Mapped[float | None] = mapped_column(Float)  # actual_roe/target_roe
     progress_rate: Mapped[float | None] = mapped_column(Float)  # 연도 단위, [0,1] 클램프
     execution_score: Mapped[float | None] = mapped_column(Float)  # 0~100
@@ -220,3 +224,5 @@ class MnaScore(Base):
     capacity_score: Mapped[float | None] = mapped_column(Float)  # 0~1 (인수여력)
     ownership_score: Mapped[float | None] = mapped_column(Float)  # 0~1 (지배구조 취약성)
     macro_score: Mapped[float | None] = mapped_column(Float)  # 0~1, 종목 무관 공통
+    # 백분위 모집단 식별(2.7): sector:{KSIC2} / market_fallback(peer 미달) / market(sector 없음)
+    population_basis: Mapped[str | None] = mapped_column(String(20))

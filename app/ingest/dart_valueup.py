@@ -42,22 +42,104 @@ from app.repositories.valueup_plan import upsert_valueup_plan
 
 # report_nm 매칭(공백 제거 후 부분일치). pblntf_ty로 좁히지 않는다(과대필터 방지).
 _REPORT_KEYWORD = "기업가치제고계획"
+# 계획이 아닌 공시 제외(1.10, F9 실증): 이행현황(사후보고)·철회는 목표 공시가 아님.
+# 정정([기재정정] 등)은 유지 — 최신 정정이 권위 있는 목표(2.1 최신공시 채택 규칙과 정합).
+_REPORT_EXCLUDE = ("이행현황", "철회")
+
+
+def _is_plan_report(report_nm: str | None) -> bool:
+    """report_nm이 '계획' 공시인지 판정(공백 제거 부분일치 + 부정 키워드 제외)."""
+    compact = str(report_nm or "").replace(" ", "")
+    if _REPORT_KEYWORD not in compact:
+        return False
+    return not any(kw in compact for kw in _REPORT_EXCLUDE)
 _MAX_PAGES = 50  # 페이지네이션 상한(과대 total_page 방어)
 _MAX_ZIP_BYTES = 20 * 1024 * 1024  # 문서 ZIP 원본 크기 상한
 _MAX_MEMBER_BYTES = 10 * 1024 * 1024  # 멤버 압축해제 크기 상한(zip-bomb 방어)
+_MAX_TOTAL_BYTES = 50 * 1024 * 1024  # 누적 압축해제 상한(일괄리뷰 Med: 멤버별 한도 우회 방어)
+_MAX_MEMBERS = 200  # 텍스트 멤버 수 상한
 _TEXT_EXTS = (".xml", ".html", ".htm", ".txt")  # 텍스트 멤버만(바이너리 오탐 방지)
 _PBR_MAX = 100.0  # 현실적 PBR 상한(연도·페이지번호 오탐 배제)
 
 # ── best-effort 파싱 패턴 ──
 # 값 뒤에 p/P/포(인트)가 오면 '퍼센트포인트'(증감)라 절대목표 아님 → 제외.
 _PCT = r"(\d+(?:\.\d+)?)\s*%(?![pP포])"
-# 라벨-값 gap은 **개행을 넘지 못한다**(표 셀/문단 경계 보존 → 인접 지표 % 침범 방지).
-_ROE_RE = re.compile(r"ROE[^0-9%\n]{0,15}?" + _PCT, re.IGNORECASE)
+# ROE 별칭(1.10, 실샘플 6건: '자기자본이익률' 표기).
+_ROE_LABEL = r"(?:ROE|자기자본이익률)"
+# 경쟁 지표 라벨(일괄리뷰 2026-07-13 High): gap이 다른 지표를 가로질러 그 지표의 %를
+# 훔쳐오는 오탐 차단 — 라벨별로 "자신이 아닌" 지표들을 배제한다.
+_OTHERS_FOR_ROE = r"배당성향|주주환원|PBR|영업이익|부채비율"
+_OTHERS_FOR_PAYOUT = r"ROE|자기자본이익률|주주환원|PBR|영업이익|부채비율"
+
+
+def _plain_gap(others: str) -> str:
+    """라벨-값 gap: 개행·숫자·%·경쟁 지표 금지 + 괄호 한정어 1개 허용.
+
+    괄호 안은 숫자·백틱 허용(실샘플 `목표(\\`24~\\`30년 평균)`)하되 **%·경쟁 지표는 금지**
+    (일괄리뷰 High: `ROE(2024년 5%) 배당성향 30%`가 30을 ROE로 훔치던 오탐 차단).
+    """
+    pre = rf"(?:(?!{others})[^0-9%\n(]){{0,15}}"
+    paren = rf"(?:\((?:(?!%|{others})[^)\n]){{0,25}}\)\s*[:：]?\s*)?"
+    tail = rf"(?:(?!{others})[^0-9%\n]){{0,10}}?"
+    return pre + paren + tail
+
+
+_ROE_RE = re.compile(_ROE_LABEL + _plain_gap(_OTHERS_FOR_ROE) + _PCT, re.IGNORECASE)
 # '배당성향'만 매칭(주주환원율은 다른 지표라 target_payout_ratio에 넣지 않음).
-_PAYOUT_RE = re.compile(r"배당성향[^0-9%\n]{0,15}?" + _PCT)
+_PAYOUT_RE = re.compile(r"배당성향" + _plain_gap(_OTHERS_FOR_PAYOUT) + _PCT)
+
+
+def _arrow_tail(others: str) -> str:
+    """"현재 X% → 목표 Y%" 화살표 체인(우변 채택). 좌변 gap은 숫자 허용(연도 서술 통과)
+    하되 **경쟁 지표 라벨은 금지**(일괄리뷰 High: 남의 화살표를 훔치던 오탐 차단), 개행 금지."""
+    seg_l = rf"(?:(?!{others})[^%\n]){{0,30}}?"
+    seg_m = rf"(?:(?!{others})[^\n%]){{0,25}}?"
+    return (
+        seg_l + r"(\d+(?:\.\d+)?)\s*%"
+        + seg_m + r"(?:→|⇒|➔)\s*" + seg_m + r"(\d+(?:\.\d+)?)\s*%(?![pP포])"
+    )
+
+
+_ROE_ARROW_RE = re.compile(_ROE_LABEL + _arrow_tail(_OTHERS_FOR_ROE), re.IGNORECASE)
+_PAYOUT_ARROW_RE = re.compile(r"배당성향" + _arrow_tail(_OTHERS_FOR_PAYOUT))
 # PBR은 '배' 단위 **필수**(연도·페이지번호를 PBR로 오탐하는 것 차단).
 _PBR_RE = re.compile(r"PBR[^0-9\n]{0,15}?(\d+(?:\.\d+)?)\s*배", re.IGNORECASE)
 _PERIOD_RE = re.compile(r"(20\d{2})\s*년?\s*[~\-–∼]\s*(20\d{2})")
+# 1.10: 백틱/따옴표 표식이 붙은 2자리 연도 범위(실샘플 `24~`30년) → 20xx 확장.
+# 표식·'년' 필수(24~26개월 같은 비연도 오탐 방지).
+_PERIOD2_RE = re.compile(r"[`'‘’]\s*(\d{2})\s*[~\-–∼]\s*[`'‘’]?\s*(\d{2})\s*년")
+# 기간 후보 선택 앵커(일괄리뷰 Med: 과거 비교기간을 계획기간으로 오인 방지).
+# '기간'은 제외 — "비교기간"에도 들어가 과거 범위를 앵커시키는 역효과.
+_PERIOD_CTX_RE = re.compile(r"(계획|목표|향후|중장기)")
+
+
+def _select_period(text: str) -> tuple[str | None, str | None]:
+    """문서 내 모든 연도범위 후보 중 계획 문맥에 앵커된 것을 선택(일괄리뷰 Med).
+
+    규칙: (1) 후보 직전 20자에 계획·목표·향후·중장기가 있으면 그 첫 후보,
+    (2) 앵커 없고 후보가 전부 같은 범위면 그 값(단일 후보 포함 — 기존 recall 유지),
+    (3) 앵커 없이 상이한 범위 다수면 애매 → null(NFR2).
+    """
+    cands: list[tuple[int, str, str]] = []
+    for m in _PERIOD_RE.finditer(text):
+        if int(m.group(1)) <= int(m.group(2)):
+            cands.append((m.start(), m.group(1), m.group(2)))
+    for m in _PERIOD2_RE.finditer(text):
+        start, end = f"20{m.group(1)}", f"20{m.group(2)}"
+        if int(start) <= int(end):
+            cands.append((m.start(), start, end))
+    if not cands:
+        return None, None
+    cands.sort()
+    anchored = [
+        c for c in cands
+        if _PERIOD_CTX_RE.search(text[max(0, c[0] - 20): c[0]])
+    ]
+    if anchored:
+        return anchored[0][1], anchored[0][2]
+    if len({(s, e) for _, s, e in cands}) == 1:
+        return cands[0][1], cands[0][2]
+    return None, None
 _BUYBACK_RE = re.compile(r"(자기주식|자사주)[^\n]{0,15}?(취득|매입|소각)")
 # 부정·과거(계획 아님) 문맥 → False 판정.
 _BUYBACK_NEG_RE = re.compile(r"(없음|없이|아니|않|미실시|미계획|계획\s*없|완료|기실시)")
@@ -119,12 +201,18 @@ def _zip_to_text(content: bytes) -> str:
         # 비ZIP = DART 오류 HTML/XML 응답 → 실패로 격리(빈 원문으로 오인 금지)
         raise DartDocumentError("ZIP 아님(오류 응답 가능)") from None
     parts: list[str] = []
+    total_bytes = 0
+    members = 0
     with zf:
         for info in zf.infolist():
             if not info.filename.lower().endswith(_TEXT_EXTS):
                 continue
             if info.file_size > _MAX_MEMBER_BYTES:
                 continue
+            members += 1
+            total_bytes += info.file_size
+            if members > _MAX_MEMBERS or total_bytes > _MAX_TOTAL_BYTES:
+                raise DartDocumentError("문서 누적 압축해제 상한 초과(멤버 수/총 크기)")
             parts.append(_decode(zf.read(info)))
     text = _strip_tags("\n".join(parts))
     if not text:
@@ -143,14 +231,22 @@ def parse_targets(raw_text: str | None) -> dict[str, Any]:
         m = rx.search(text)
         return float(m.group(1)) if m else None
 
+    def _num_with_arrow(arrow_rx: re.Pattern[str], plain_rx: re.Pattern[str]) -> float | None:
+        """화살표 체인(현재→목표)은 우변(목표) 채택 — 단 **문서 내 위치가 앞선 쪽 우선**
+        (일괄리뷰 Med: 앞의 명시 목표가 뒤쪽 과거실적 표의 화살표에 밀리지 않게).
+        같은 위치(같은 clause)에서 화살표가 있으면 화살표 우변이 목표."""
+        am = arrow_rx.search(text)
+        pm = plain_rx.search(text)
+        if am is not None and (pm is None or am.start() <= pm.start()):
+            return float(am.group(2))
+        return float(pm.group(1)) if pm else None
+
     pbr = _num(_PBR_RE)
     if pbr is not None and not (0 < pbr <= _PBR_MAX):
         pbr = None  # 연도·비현실적 값 배제
 
-    period_start = period_end = None
-    pm = _PERIOD_RE.search(text)
-    if pm and int(pm.group(1)) <= int(pm.group(2)):  # start<=end만 인정
-        period_start, period_end = pm.group(1), pm.group(2)
+    # 기간: 전체 후보 중 계획 문맥 앵커 우선(일괄리뷰 Med — 과거 비교기간 오인 방지)
+    period_start, period_end = _select_period(text)
 
     buyback: bool | None = None
     bm = _BUYBACK_RE.search(text)
@@ -159,8 +255,8 @@ def parse_targets(raw_text: str | None) -> dict[str, Any]:
         buyback = False if _BUYBACK_NEG_RE.search(window) else True
 
     return {
-        "target_roe": _num(_ROE_RE),
-        "target_payout_ratio": _num(_PAYOUT_RE),
+        "target_roe": _num_with_arrow(_ROE_ARROW_RE, _ROE_RE),
+        "target_payout_ratio": _num_with_arrow(_PAYOUT_ARROW_RE, _PAYOUT_RE),
         "target_pbr": pbr,
         "period_start": period_start,
         "period_end": period_end,
@@ -210,9 +306,17 @@ class DartValueupAdapter(SourceAdapter):
                 # 후반 페이지 실패 시 이미 모은 plan은 보존하고 중단(부분결과 보존)
                 failed.append((f"list.json#p{page_no}", type(e).__name__))
                 break
-            for item in data.get("list") or []:
+            page_items = data.get("list")
+            if page_items is None:
+                page_items = []
+            if not isinstance(page_items, list):  # 형태 이탈 → 페이지 실패로 격리
+                failed.append((f"list.json#p{page_no}", "list 형태 오류"))
+                break
+            for item in page_items:
+                if not isinstance(item, Mapping):  # malformed 항목 격리(일괄리뷰 High)
+                    continue
                 report_nm = str(item.get("report_nm") or "")
-                if _REPORT_KEYWORD not in report_nm.replace(" ", ""):
+                if not _is_plan_report(report_nm):  # 1.10: 이행현황·철회 제외(F9)
                     continue
                 disclosure_date = _parse_date(item.get("rcept_dt"))
                 rcept_no = item.get("rcept_no")
@@ -251,10 +355,15 @@ class DartValueupAdapter(SourceAdapter):
             )
             resp.raise_for_status()
             data = resp.json()
-        except requests.RequestException as e:
+        except (requests.RequestException, ValueError) as e:
+            # ValueError=비JSON 200(dart.py `_get`과 동일 처리, 일괄리뷰 High)
             raise DartAdapterError(
                 f"DART 요청 실패: endpoint={endpoint} ({type(e).__name__})"
             ) from None
+        if not isinstance(data, dict):
+            # 비-dict JSON(list/str)이 AttributeError로 누출되면 페이지 격리 계약이
+            # 깨진다(DartAdapterError만 부분결과 보존 경로를 탄다, 일괄리뷰 High)
+            raise DartAdapterError(f"DART 응답 형태 오류: endpoint={endpoint}")
         status = data.get("status")
         if status == "000":
             return data

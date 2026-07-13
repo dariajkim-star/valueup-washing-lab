@@ -114,11 +114,74 @@ def upsert_valueup_score(session: Session, rec: dict[str, Any]) -> ValueupScore:
         obj = ValueupScore(corp_code=rec["corp_code"], as_of=rec["as_of"])
         session.add(obj)
     for field in (
+        "target_roe", "actual_roe", "roe_gap",
         "achievement_rate", "progress_rate", "execution_score", "washing_flag",
         "buyback_executed", "buyback_retired", "buyback_status",
     ):
         setattr(obj, field, rec[field])
     return obj
+
+
+def latest_as_of(session: Session) -> str | None:
+    """valueup_score의 최신 as_of(기본 조회 기준일, 2.4). 없으면 None."""
+    from sqlalchemy import func
+
+    return session.scalar(select(func.max(ValueupScore.as_of)))
+
+
+def list_scores(
+    session: Session, filters: dict[str, Any], page: int, size: int
+) -> tuple[list[dict[str, Any]], int]:
+    """갭분석/워싱랭킹 서빙 조회(2.4). company 조인 + 필터 + execution_score 오름차순.
+
+    null 정렬은 방언(SQLite NULLS FIRST/PG NULLS LAST 기본 차이)을 타지 않도록
+    명시적 2단 키(`IS NULL` 우선순위 → 값)로 처리(1.7 defer 교훈). 동순위는 corp_code로
+    안정 정렬(페이지네이션 결정성).
+    """
+    from sqlalchemy import func
+
+    from app.models import Company
+
+    conds = [ValueupScore.as_of == filters["as_of"]]
+    if filters.get("market"):
+        conds.append(Company.market == filters["market"])
+    if filters.get("min_progress") is not None:
+        conds.append(ValueupScore.progress_rate >= filters["min_progress"])
+    if filters.get("washing_only"):
+        conds.append(ValueupScore.washing_flag.is_(True))
+
+    base = select(ValueupScore, Company).join(
+        Company, Company.corp_code == ValueupScore.corp_code
+    ).where(*conds)
+
+    total = session.scalar(
+        select(func.count()).select_from(base.subquery())
+    ) or 0
+    rows = session.execute(
+        base.order_by(
+            ValueupScore.execution_score.is_(None),  # null last(명시적)
+            ValueupScore.execution_score.asc(),
+            ValueupScore.corp_code.asc(),
+        ).limit(size).offset((page - 1) * size)
+    ).all()
+
+    items = []
+    for score, company in rows:
+        items.append({
+            "corp_code": score.corp_code,
+            "corp_name": company.corp_name,
+            "market": company.market,
+            "as_of": score.as_of,
+            "target_roe": score.target_roe,
+            "actual_roe": score.actual_roe,
+            "roe_gap": score.roe_gap,
+            "achievement_rate": score.achievement_rate,
+            "progress_rate": score.progress_rate,
+            "execution_score": score.execution_score,
+            "washing_flag": score.washing_flag,
+            "buyback_status": score.buyback_status,
+        })
+    return items, total
 
 
 def delete_valueup_score(session: Session, corp_code: str, as_of: str) -> None:

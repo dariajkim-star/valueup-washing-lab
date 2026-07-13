@@ -254,3 +254,135 @@ def test_fetch_without_key_raises(monkeypatch) -> None:
     monkeypatch.setattr(settings, "dart_api_key", SecretStr(""))
     with pytest.raises(DartAdapterError, match="DART_API_KEY"):
         DartValueupAdapter().fetch("00000001", "20240101", "20241231")
+
+
+# ── Story 1.10: 실샘플(리허설 79건) 기반 파서 튜닝 ──
+
+def test_roe_gap_allows_parenthesized_qualifier() -> None:
+    """실샘플: `ROE 목표(`24~`30년 평균) : 15%+ α` — 괄호 안 숫자 때문에 기존 gap 규칙 실패."""
+    t = parse_targets("ROE 목표(`24~`30년 평균) : 15%+ α")
+    assert t["target_roe"] == 15.0
+
+
+def test_roe_alias_자기자본이익률() -> None:
+    """실샘플 6건: 'ROE' 대신 '자기자본이익률' 표기."""
+    assert parse_targets("자기자본이익률 12% 달성")["target_roe"] == 12.0
+
+
+def test_arrow_takes_target_side_not_current() -> None:
+    """1.5 defer F3/G2: '현재 → 목표'에서 우변(목표)을 채택. 실샘플: 1.8% → ... 8.3%."""
+    t = parse_targets("ROE : 2024년말 1.8% → 2025년말 8.3%")
+    assert t["target_roe"] == 8.3
+    t2 = parse_targets("배당성향 20% → 30% 확대")
+    assert t2["target_payout_ratio"] == 30.0
+
+
+def test_arrow_absent_keeps_first_match() -> None:
+    """화살표 없으면 기존 동작(첫 매칭) 유지 — 회귀 방지."""
+    assert parse_targets("ROE 10% 이상")["target_roe"] == 10.0
+
+
+def test_period_backtick_two_digit_years() -> None:
+    """실샘플: `24~`30년 (백틱/따옴표 2자리 연도) → 2024~2030 확장."""
+    t = parse_targets("ROE 목표(`24~`30년 평균) : 15%")
+    assert t["period_start"] == "2024"
+    assert t["period_end"] == "2030"
+    t2 = parse_targets("'25~'27년 주주환원 계획")
+    assert t2["period_start"] == "2025"
+    assert t2["period_end"] == "2027"
+
+
+def test_period_two_digit_requires_marker() -> None:
+    """2자리 연도는 백틱/따옴표 표식 필수 — '24~26개월' 같은 비연도 오탐 방지."""
+    t = parse_targets("향후 24~26개월 내 실행")
+    assert t["period_start"] is None
+
+
+def test_report_nm_negative_filter() -> None:
+    """1.5 defer F9: 이행현황·철회는 계획 아님 → 제외. 정정공시는 유지."""
+    from app.ingest.dart_valueup import _is_plan_report
+
+    assert _is_plan_report("기업가치 제고 계획") is True
+    assert _is_plan_report("[기재정정]기업가치 제고 계획") is True
+    assert _is_plan_report("기업가치 제고 계획 이행현황") is False
+    assert _is_plan_report("기업가치 제고 계획 철회신고서") is False
+    assert _is_plan_report("주요사항보고서") is False
+
+
+# ── 일괄 코드리뷰(2026-07-13, GPT) 회귀 테스트 ──
+
+def test_label_gap_rejects_competing_metric_in_paren() -> None:
+    """[High] 괄호 안 %·경쟁 지표가 ROE 값을 훔치던 오탐(GPT 재현 그대로)."""
+    assert parse_targets("ROE(2024년 5%) 배당성향 30%")["target_roe"] is None
+    assert parse_targets("ROE 목표(PBR 0.8배, 배당성향 25%) : 15%")["target_roe"] is None
+    # 실샘플 정상 케이스는 계속 통과(괄호 안 숫자·백틱 허용)
+    assert parse_targets("ROE 목표(`24~`30년 평균) : 15%")["target_roe"] == 15.0
+
+
+def test_label_gap_rejects_competing_metric_in_plain_gap() -> None:
+    """[High] 라벨-값 사이에 경쟁 지표가 오면 매칭 중단."""
+    assert parse_targets("ROE 미제시 배당성향 30%")["target_roe"] is None
+    assert parse_targets("배당성향 미제시 ROE 10%")["target_payout_ratio"] is None
+
+
+def test_arrow_rejects_competing_metric_between() -> None:
+    """[High] 다른 지표의 화살표를 ROE 목표로 훔치던 오탐(GPT 재현 그대로)."""
+    t = parse_targets("ROE 목표 미제시, 배당성향 20% → 30%")
+    assert t["target_roe"] is None
+    assert t["target_payout_ratio"] == 30.0
+    assert parse_targets("ROE는 별도 목표 없음 / 영업이익률 5% → 10%")["target_roe"] is None
+
+
+def test_arrow_does_not_override_earlier_plain_target() -> None:
+    """[Med] 앞의 명시 목표가 뒤의 과거실적 화살표에 밀리지 않음(위치 우선)."""
+    text = "ROE 목표 12% 달성 계획.\n과거 추이: ROE 5% → 8%"
+    assert parse_targets(text)["target_roe"] == 12.0
+
+
+def test_period_prefers_keyword_anchored_range() -> None:
+    """[Med] 과거 비교기간이 아니라 '계획' 인접 범위 선택(GPT 재현 그대로)."""
+    t = parse_targets("비교기간 2020~2022, 기업가치 제고 계획 2025~2030")
+    assert t["period_start"] == "2025"
+    assert t["period_end"] == "2030"
+
+
+def test_period_multiple_unanchored_is_null() -> None:
+    """[Med] 앵커 없는 상이한 범위 다수 → 애매 → null(NFR2)."""
+    t = parse_targets("2019~2021 실적. 2022~2024 추이.")
+    assert t["period_start"] is None
+
+
+def test_period_single_candidate_still_works() -> None:
+    """회귀: 단일 후보는 앵커 없어도 채택(기존 동작 유지)."""
+    assert parse_targets("2024~2026년")["period_start"] == "2024"
+
+
+def test_get_json_non_dict_wrapped(monkeypatch) -> None:
+    """[High] 비-dict JSON(list/str)이 AttributeError로 누출되지 않고 DartAdapterError."""
+    from app.ingest.dart_valueup import DartValueupAdapter
+
+    adapter = DartValueupAdapter()
+
+    class _Resp:
+        def raise_for_status(self) -> None: pass
+        def json(self): return ["not", "a", "dict"]
+
+    monkeypatch.setattr(adapter._session, "get", lambda *a, **k: _Resp())
+    with pytest.raises(DartAdapterError):
+        adapter._get_json("list.json", {"crtfc_key": "K"})
+
+
+def test_zip_total_size_cap() -> None:
+    """[Med] 멤버별 한도만으론 부족 — 누적 압축해제 상한."""
+    import io as _io
+    import zipfile as _zf
+
+    from app.ingest.dart_valueup import DartDocumentError, _zip_to_text
+
+    buf = _io.BytesIO()
+    with _zf.ZipFile(buf, "w", _zf.ZIP_DEFLATED) as z:
+        member = ("가" * 1_000_000)  # ~3MB utf-8 × 20 = 총 한도 초과
+        for i in range(20):
+            z.writestr(f"doc{i}.xml", member)
+    with pytest.raises(DartDocumentError, match="누적"):
+        _zip_to_text(buf.getvalue())

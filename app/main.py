@@ -15,11 +15,13 @@ from app import __version__
 from app.config import settings
 from app.db import check_db
 from app.routers import metrics as metrics_router
+from app.routers import valueup as valueup_router
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.app_name, version=__version__)
 app.include_router(metrics_router.router)
+app.include_router(valueup_router.router)
 
 
 @app.get("/health", tags=["system"])

@@ -72,6 +72,13 @@
 - **`IngestResult.failed`의 `str(e)` 노출 표면** (Low, GPT G18) — 예상외 예외 메시지가 URL/DB정보 포함 가능. **코드베이스 공통**(전 ingest 함수), allowlist 에러코드로 후속.
 - **decode utf-8-first mojibake** (Low) — CP949 바이트가 우연히 유효 UTF-8이면 조용히 깨짐. 페이로드/헤더 기반 인코딩 감지가 정석.
 
+## Deferred from: 일괄 code review of 1-9·1-10·2-7·2-4 (2026-07-13, GPT)
+
+- **score_run 배치 메타데이터(run_id·status·config_hash·완료 판정)** (High×2, 2-4) — (a) `latest_as_of`가 '최신 완료 스냅샷'이 아니라 단순 MAX(as_of)라 부분/디버그 실행이 기본 조회를 오염 가능, (b) 같은 as_of 안에 서로 다른 코드/설정 세대의 점수가 섞여도 식별 불가. 해결책은 score_run 테이블(+staging 원자 활성화) — 엔진·API·운영 절차를 가로지르는 별도 스토리. v1 완화: 엔진 docstring "게시용=전체 실행" 계약 + 부분 실행은 테스트 용도 문서화.
+- **입력 원천별 watermark/최소 커버리지 검증** (Med, 2-7) — `not metrics and not ownership` 가드는 두 원천 동시 공백만 방어. 한쪽만의 ETL 장애는 권위 있는 null로 덮일 수 있음. score_run과 같은 스토리 계열.
+- **count/items 스냅샷 불일치** (Low, 2-4) — 1-7의 기존 defer(eventual consistency 수용)와 동일 계열. completed-run 서빙 도입 시 자연 해소.
+- **미인식 배당 라벨 로그/집계** (Low, 1-9, GPT 제안) — allowlist 밖 se 라벨을 로깅해 신규 라벨(예: 현금배당금총액(원)) 발견 시 명시적으로 추가하는 운영 루프.
+
 ## Deferred from: code review of story-2.3 (2026-07-10, GPT)
 
 - **가격 point-in-time 미보장 → 과거 as_of의 valuation_score 오염** (High, 최중요) — `valuation_metrics` VIEW가 as_of와 무관하게 전역 최신가(`MAX(p2.date)`)를 붙임(1.7 설계). mna_engine의 pbr·ev_ebitda(valuation_score 35% 가중)가 과거 as_of에서 미래 가격을 사용. 해결: VIEW에 price_date 노출 + repository에서 `price_date <= as_of` 필터 — 1.7 VIEW·/metrics API와 공유되는 변경이라 별도 스토리. [app/sql_views.py, app/repositories/mna_score.py]

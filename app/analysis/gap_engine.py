@@ -189,11 +189,21 @@ def run(
             settings.washing_progress_min, settings.washing_achievement_max,
         )
 
+        # 목표·실제·갭 동결(2.4 표시용): 엔진이 고른 값 그대로 저장(AC3 게이팅과 무관한 원값)
+        target_roe = plan["target_roe"]
+        roe_gap = (
+            actual_roe - target_roe
+            if actual_roe is not None and target_roe is not None
+            else None
+        )
         repo.upsert_valueup_score(
             session,
             {
                 "corp_code": corp_code,
                 "as_of": as_of,
+                "target_roe": target_roe,
+                "actual_roe": actual_roe,
+                "roe_gap": roe_gap,
                 "achievement_rate": achievement_rate,
                 "progress_rate": progress_rate,
                 "execution_score": execution_score,

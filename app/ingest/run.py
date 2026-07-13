@@ -50,6 +50,10 @@ def ingest_financials(
             if not raw.get("buyback_ok", True):  # 자사주 현황 실패 → 부분성공(1.8, krx cap_ok 패턴)
                 logger.warning("자기주식 현황 미수집(degraded) corp_code=%s", corp_code)
                 result.degraded.append(corp_code)
+            if not raw.get("dividend_ok", True):  # 배당 현황 실패 → 부분성공(1.9, 동일 패턴)
+                logger.warning("배당 현황 미수집(degraded) corp_code=%s", corp_code)
+                if corp_code not in result.degraded:
+                    result.degraded.append(corp_code)
         except (DartAdapterError, Exception) as e:  # noqa: BLE001 (부분성공 정책)
             logger.warning("수집 실패 corp_code=%s: %s", corp_code, type(e).__name__)
             result.failed.append((corp_code, str(e)))

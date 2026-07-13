@@ -167,6 +167,54 @@ def test_fetch_rejects_bad_args(monkeypatch) -> None:
         DartAdapter().fetch("00126380", "20A4", "11011")
 
 
+# ── Story 1.9: 배당총액 (alotMatter) ──
+
+def test_dividend_total_scales_million_won() -> None:
+    """AC2: '현금배당금총액(백만원)' 행 × 1,000,000 = KRW. 스케일 누락은 100만배 축소 오염."""
+    from app.ingest.dart import _dividend_total
+
+    rows = [
+        {"se": "주당 현금배당금(원)", "stock_knd": "보통주", "thstrm": "361"},
+        {"se": "현금배당금총액(백만원)", "thstrm": "2,452,153"},
+        {"se": "현금배당성향(%)", "thstrm": "17.9"},
+    ]
+    assert _dividend_total(rows) == 2_452_153_000_000
+
+
+def test_dividend_total_label_exact_match_only() -> None:
+    """AC2: 라벨 정확일치(1-6 교훈) — 단위 미확인 변형은 값을 만들지 않고 null."""
+    from app.ingest.dart import _dividend_total
+
+    # 단위가 다른/없는 라벨 → 스케일을 확신할 수 없으므로 null
+    assert _dividend_total([{"se": "현금배당금총액", "thstrm": "100"}]) is None
+    assert _dividend_total([{"se": "현금배당금총액(억원)", "thstrm": "100"}]) is None
+    # 주당배당금·성향만 있는 경우 → null
+    assert _dividend_total([{"se": "주당 현금배당금(원)", "thstrm": "361"}]) is None
+
+
+def test_dividend_total_none_and_negative_guard() -> None:
+    """AC2/AC3: 미공시([])·미상(None)·파싱불가('-')·음수(도메인 밖) 전부 null."""
+    from app.ingest.dart import _dividend_total
+
+    assert _dividend_total([]) is None
+    assert _dividend_total(None) is None
+    assert _dividend_total([{"se": "현금배당금총액(백만원)", "thstrm": "-"}]) is None
+    assert _dividend_total([{"se": "현금배당금총액(백만원)", "thstrm": "(500)"}]) is None
+
+
+def test_dividend_total_zero_is_zero() -> None:
+    """공시했으나 배당 0 → 확정 0(null 아님) — 1.8 null vs 0 구분과 동일 계약."""
+    from app.ingest.dart import _dividend_total
+
+    assert _dividend_total([{"se": "현금배당금총액(백만원)", "thstrm": "0"}]) == 0
+
+
+def test_normalize_fills_dividend_from_rows() -> None:
+    """AC2: normalize가 period['dividend_rows']에서 dividend_total을 채운다(fixture=2조)."""
+    company, fins = DartAdapter().normalize(DART_RAW_SAMSUNG)
+    assert fins[0]["dividend_total"] == 2_000_000_000_000
+
+
 # ── Story 1.8: 자기주식 취득/소각 (tesstkAcqsDspsSttus) ──
 
 # 가짜 tesstkAcqsDspsSttus: 직접취득 3M주 취득 + 소각 1M주. 총계행 포함(이중집계 유발).
@@ -339,6 +387,8 @@ def _fake_get_factory(fail_buyback: bool = False, calls: list | None = None):
             if fail_buyback:
                 raise DartAdapterError("DART API 오류: status=020")
             return {"status": "000", "list": BUYBACK_ROWS}
+        if endpoint == "alotMatter.json":  # 1.9 배당(기본: 미공시 013 → 빈 리스트)
+            return {"list": []}
         raise AssertionError(f"unexpected endpoint: {endpoint}")
     return _fake_get
 
@@ -479,3 +529,42 @@ def test_live_fetch_samsung() -> None:
     assert company["market"] == "KOSPI"
     assert company["stock_code"] == "005930"
     assert fins[0]["total_assets"] and fins[0]["total_assets"] > 0
+
+
+# ── 일괄 코드리뷰(2026-07-13, GPT) 회귀 테스트 (1.9) ──
+
+def test_dividend_total_skips_non_mapping_rows() -> None:
+    """[High] malformed 행이 AttributeError로 재무 적재 전체를 죽이지 않음."""
+    from app.ingest.dart import _dividend_total
+
+    assert _dividend_total(["broken", None, 42]) is None
+    assert _dividend_total(
+        ["broken", {"se": "현금배당금총액(백만원)", "thstrm": "100"}]
+    ) == 100_000_000  # 유효 행은 계속 처리
+
+
+def test_dividend_total_conflicting_duplicates_is_null() -> None:
+    """[Med] 동일 라벨 상충값 → 확정 금지(null). 동일값 중복은 확정."""
+    from app.ingest.dart import _dividend_total
+
+    rows = [
+        {"se": "현금배당금총액(백만원)", "thstrm": "100"},
+        {"se": "현금배당금총액(백만원)", "thstrm": "200"},
+    ]
+    assert _dividend_total(rows) is None
+    same = [
+        {"se": "현금배당금총액(백만원)", "thstrm": "100"},
+        {"se": "현금배당금총액(백만원)", "thstrm": "100"},
+    ]
+    assert _dividend_total(same) == 100_000_000
+
+
+def test_dividend_total_negative_among_candidates_is_null() -> None:
+    """[Med] 음수 후보가 섞이면 오염 신호 → 전체 null."""
+    from app.ingest.dart import _dividend_total
+
+    rows = [
+        {"se": "현금배당금총액(백만원)", "thstrm": "(500)"},
+        {"se": "현금배당금총액(백만원)", "thstrm": "100"},
+    ]
+    assert _dividend_total(rows) is None

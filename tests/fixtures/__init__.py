@@ -27,7 +27,12 @@ DART_RAW_SAMSUNG: dict[str, Any] = {
                 "현금및현금성자산": 40_000_000_000_000,
                 # depreciation·차입금 누락 → null 검증
             },
-            "dividend_total": 2_000_000_000_000,
+            # 배당(1.9, alotMatter): 현금배당금총액 2,000,000백만원 = 2조 KRW
+            "dividend_rows": [
+                {"se": "주당 현금배당금(원)", "stock_knd": "보통주", "thstrm": "1,444"},
+                {"se": "현금배당금총액(백만원)", "thstrm": "2,000,000"},
+                {"se": "현금배당성향(%)", "thstrm": "25.0"},
+            ],
             # buyback 항목 누락 → null
         }
     ],

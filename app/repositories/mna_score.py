@@ -24,6 +24,12 @@ def list_all_corp_codes(session: Session) -> list[str]:
     return list(session.scalars(select(Company.corp_code)).all())
 
 
+def all_company_sectors(session: Session) -> dict[str, str | None]:
+    """전 종목 corp_code → sector(DART induty_code). 2.7 버킷 택소노미 입력."""
+    rows = session.execute(select(Company.corp_code, Company.sector)).all()
+    return {code: sector for code, sector in rows}
+
+
 def all_latest_metrics(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     """전 종목의 as_of 시점 최신 (year,quarter) valuation_metrics 행(배치).
 
@@ -112,7 +118,7 @@ def upsert_mna_score(session: Session, rec: dict[str, Any]) -> MnaScore:
         session.add(obj)
     for field in (
         "mna_target_score", "valuation_score", "capacity_score",
-        "ownership_score", "macro_score",
+        "ownership_score", "macro_score", "population_basis",
     ):
         setattr(obj, field, rec[field])
     return obj
