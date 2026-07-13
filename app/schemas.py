@@ -40,6 +40,30 @@ class MetricOut(BaseModel):
     yoy_income_growth: float | None = None
 
 
+class ScreeningOut(BaseModel):
+    """company + valueup_score + mna_score outer join 결과 (2.6 다중조건 스크리닝).
+
+    null 계약 승계: washing_flag null=판단 불가(빈칸/아니오 표시 금지, 2.4),
+    mna_target_score null=산출 불가(0점/최하위 표시 금지, 2.5).
+    has_valueup_score/has_mna_score: 엔진 실행 여부(score row 존재) — "row 없음(미실행)"과
+    "row는 있으나 전부 null(엄격 게이팅 산출 불가)"은 필드값만으론 구분 불가라 명시 노출.
+    """
+
+    corp_code: str
+    corp_name: str | None = None
+    market: str | None = None
+    sector: str | None = None
+    as_of: str
+    has_valueup_score: bool
+    has_mna_score: bool
+    execution_score: float | None = None
+    washing_flag: bool | None = None
+    buyback_status: str | None = None
+    buyback_executed: bool | None = None
+    mna_target_score: float | None = None
+    population_basis: str | None = None
+
+
 class MnaRankingOut(BaseModel):
     """mna_score + company 조인 결과 (2.5 M&A 타겟 랭킹).
 

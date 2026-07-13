@@ -63,10 +63,12 @@ def _order_by(sort: str | None) -> str:
 def _where(filters: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     clauses: list[str] = []
     params: dict[str, Any] = {}
-    if filters.get("market"):
+    # `is not None`: 빈 문자열이 "필터 없음"으로 새지 않게(2-5 리뷰 패리티 — 1차 방어는
+    # 라우터 min_length=1의 422)
+    if filters.get("market") is not None:
         clauses.append("c.market = :market")
         params["market"] = filters["market"]
-    if filters.get("sector"):
+    if filters.get("sector") is not None:
         clauses.append("c.sector = :sector")
         params["sector"] = filters["sector"]
     if filters.get("max_pbr") is not None:

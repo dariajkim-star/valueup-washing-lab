@@ -14,8 +14,9 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 @router.get("", response_model=Page[MetricOut])
 def list_metrics(
-    market: str | None = None,
-    sector: str | None = None,
+    # min_length=1·page 상한: 2-5 리뷰 패리티 정비(빈 필터 확대·OFFSET 오버플로 방지)
+    market: str | None = Query(None, min_length=1),
+    sector: str | None = Query(None, min_length=1),
     # 수치 필터는 NaN/inf 거부(DB별 비교 규칙이 갈리고 필터가 무력화됨) → 422
     max_pbr: float | None = Query(None, allow_inf_nan=False),
     min_roe: float | None = Query(None, allow_inf_nan=False),
@@ -27,7 +28,7 @@ def list_metrics(
         "예: `-pbr`, `roe`. 허용: roe·roa·pbr·per·ev_ebitda·debt_ratio·"
         "payout_ratio·year 등(화이트리스트).",
     ),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=1_000_000),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> Page[MetricOut]:

@@ -24,12 +24,13 @@ router = APIRouter(prefix="/valueup", tags=["valueup"])
     ),
 )
 def gap_analysis(
-    market: str | None = None,
+    # min_length=1·page 상한: 2-5 리뷰 패리티 정비(빈 필터 확대·OFFSET 오버플로 방지)
+    market: str | None = Query(None, min_length=1),
     min_progress: float | None = Query(None, ge=0.0, le=1.0),
     # date 타입 = FastAPI가 달력 검증(2026-02-30/garbage → 422, 일괄리뷰 Med — 빈 200으로
     # "데이터 없음"과 "잘못된 요청"이 섞이지 않게)
     as_of: date | None = Query(None, description="기준일(YYYY-MM-DD), 기본=최신"),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=1_000_000),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> Page[GapAnalysisOut]:
@@ -47,12 +48,13 @@ def gap_analysis(
     ),
 )
 def washing_ranking(
-    market: str | None = None,
+    # min_length=1·page 상한: 2-5 리뷰 패리티 정비(빈 필터 확대·OFFSET 오버플로 방지)
+    market: str | None = Query(None, min_length=1),
     min_progress: float | None = Query(None, ge=0.0, le=1.0),
     # date 타입 = FastAPI가 달력 검증(2026-02-30/garbage → 422, 일괄리뷰 Med — 빈 200으로
     # "데이터 없음"과 "잘못된 요청"이 섞이지 않게)
     as_of: date | None = Query(None, description="기준일(YYYY-MM-DD), 기본=최신"),
-    page: int = Query(1, ge=1),
+    page: int = Query(1, ge=1, le=1_000_000),
     size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
 ) -> Page[GapAnalysisOut]:
