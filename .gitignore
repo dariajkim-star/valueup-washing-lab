@@ -15,9 +15,10 @@ venv/
 dist/
 build/
 
-# 프론트 (Epic 3)
-frontend/node_modules/
-frontend/dist/
+# 프론트 (Epic 3) — dashboard/ (AD-9/AD-11 명명)
+dashboard/node_modules/
+dashboard/dist/
+dashboard/.vite/
 
 # BMAD 내부 워크플로우 로그(deliverable 아님)
 **/.memlog.md
