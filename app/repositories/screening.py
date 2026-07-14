@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Company, MnaScore, ValueupScore
@@ -50,6 +50,70 @@ def latest_as_of(session: Session) -> str | None:
     return max(candidates) if candidates else None
 
 
+def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
+    """corp별 look-ahead 안전 최신 지표(roe·pbr·ev_ebitda·debt_ratio) — 3.3 리뷰 반영.
+
+    2.1/2.3/3.1과 동일한 사업보고서 배제 규칙 + Python dedupe(DISTINCT ON 회피, 이식성).
+    look-ahead 패턴 4번째 사용처 — 시그니처(선택 컬럼·조인)가 소비자마다 달라 억지 공통화
+    대신 명시적 반복을 유지(deferred-work의 공통 헬퍼 항목에 기록).
+    """
+    as_of_year = int(as_of[:4])
+    rows = session.execute(
+        text(
+            "SELECT corp_code, roe, pbr, ev_ebitda, debt_ratio FROM valuation_metrics "
+            "WHERE year < :yr OR (year = :yr AND quarter < 4) "
+            "ORDER BY corp_code, year DESC, quarter DESC"
+        ),
+        {"yr": as_of_year},
+    ).mappings().all()
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        if row["corp_code"] not in latest:  # 정렬상 corp별 첫 행 = 최신
+            latest[row["corp_code"]] = dict(row)
+    return latest
+
+
+def _latest_market_cap_map(session: Session) -> dict[str, int | None]:
+    """corp별 최신 시가총액(prices가 단일 원천, AD-9).
+
+    뷰의 PBR과 동일하게 '전역 최신가' 컨벤션(1.7 known-limitation — 과거 as_of의
+    point-in-time 시총은 기존 defer 그대로). 시총구간 필터 전용.
+    """
+    rows = session.execute(
+        text("SELECT corp_code, market_cap FROM prices ORDER BY corp_code, date DESC")
+    ).all()
+    latest: dict[str, int | None] = {}
+    for corp_code, market_cap in rows:
+        if corp_code not in latest:
+            latest[corp_code] = market_cap
+    return latest
+
+
+# 지표 범위 필터 정의: (파라미터 키, 지표 컬럼, 비교 방향). null 지표는 어느 범위에도
+# 매칭되지 않는다(SQL 3치 논리와 동일 의미 — "산출 불가는 조건 판단 불가", 2.1 원칙).
+_METRIC_FILTERS = (
+    ("min_roe", "roe", "ge"),
+    ("max_pbr", "pbr", "le"),
+    ("max_ev_ebitda", "ev_ebitda", "le"),
+    ("max_debt_ratio", "debt_ratio", "le"),
+)
+
+
+def _passes_metric_filters(m: dict[str, Any] | None, filters: dict[str, Any]) -> bool:
+    for key, col, op in _METRIC_FILTERS:
+        bound = filters.get(key)
+        if bound is None:
+            continue
+        val = m.get(col) if m else None
+        if val is None:  # 지표 없음/산출 불가 → 범위 필터 불통과(null 세탁 금지)
+            return False
+        if op == "ge" and val < bound:
+            return False
+        if op == "le" and val > bound:
+            return False
+    return True
+
+
 def list_screening(
     session: Session, filters: dict[str, Any], page: int, size: int,
     sort: str | None = None,
@@ -76,6 +140,26 @@ def list_screening(
         conds.append(ValueupScore.washing_flag.is_(True))
     if filters.get("buyback_executed") is not None:
         conds.append(ValueupScore.buyback_executed.is_(filters["buyback_executed"]))
+
+    # 지표 범위 필터(3.3 리뷰 반영, AC2): 뷰(valuation_metrics)는 ORM 매핑이 없어 조인
+    # 대신 2단계 — 통과 corp_code 집합을 Python에서 구해 IN 조건으로 주입. COUNT·정렬·
+    # 페이지네이션은 SQL에 그대로 남는다(페이지 후 필터링 오류 방지).
+    metrics_map = _latest_metrics_map(session, as_of)
+    if any(filters.get(k) is not None for k, _, _ in _METRIC_FILTERS):
+        passing = [
+            code for code in metrics_map
+            if _passes_metric_filters(metrics_map.get(code), filters)
+        ]
+        conds.append(Company.corp_code.in_(passing))
+    # 시총구간 필터: prices 최신 시총(AD-9 단일 원천). null 시총은 불통과.
+    if filters.get("min_market_cap") is not None or filters.get("max_market_cap") is not None:
+        mcap = _latest_market_cap_map(session)
+        lo, hi = filters.get("min_market_cap"), filters.get("max_market_cap")
+        passing_mcap = [
+            code for code, v in mcap.items()
+            if v is not None and (lo is None or v >= lo) and (hi is None or v <= hi)
+        ]
+        conds.append(Company.corp_code.in_(passing_mcap))
 
     base = (
         select(Company, ValueupScore, MnaScore)
@@ -106,12 +190,16 @@ def list_screening(
 
     items = []
     for company, vs, ms in rows:
+        m = metrics_map.get(company.corp_code)
         items.append({
             "corp_code": company.corp_code,
             "corp_name": company.corp_name,
             "market": company.market,
             "sector": company.sector,
             "as_of": as_of,
+            # 핵심지표(AC3, 3.3 리뷰 반영): look-ahead 안전 최신 지표. 없으면 null.
+            "roe": m.get("roe") if m else None,
+            "pbr": m.get("pbr") if m else None,
             # has_* 플래그: "row 없음(엔진 미실행)"과 "row는 있으나 전부 null(엄격
             # 게이팅으로 산출 불가)"을 구분(GPT 리뷰 Med — 없으면 소비자가 식별 불가)
             "has_valueup_score": vs is not None,

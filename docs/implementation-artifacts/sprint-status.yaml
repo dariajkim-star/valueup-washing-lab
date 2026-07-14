@@ -58,7 +58,7 @@ development_status:
   epic-3: in-progress
   3-1-stats-macro-api: done  # 2026-07-13: GPT 리뷰 High1·Med3·Low1 전건 patch, 221 passed
   3-2-figma-screener-design: done  # 2026-07-13: Figma 시안(스크리너·상세·범례) + null 시각언어 확정
-  3-3-screener-filter-list: review
+  3-3-screener-filter-list: review  # 2026-07-13: 리뷰 반려→재작업 완료(전 필터 배선·roe/pbr·vitest 22), 재리뷰 대기
   3-4-detail-investment-card: backlog
   3-5-tableau-dashboard: backlog
   epic-3-retrospective: optional

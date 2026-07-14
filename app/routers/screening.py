@@ -37,6 +37,14 @@ def screening_list(
     max_execution_score: float | None = Query(None, allow_inf_nan=False),
     min_mna_score: float | None = Query(None, allow_inf_nan=False),
     max_mna_score: float | None = Query(None, allow_inf_nan=False),
+    # 지표 범위 필터(3.3 리뷰 반영, AC2) — null 지표는 어느 범위에도 매칭 안 됨
+    min_roe: float | None = Query(None, allow_inf_nan=False),
+    max_pbr: float | None = Query(None, allow_inf_nan=False),
+    max_ev_ebitda: float | None = Query(None, allow_inf_nan=False),
+    max_debt_ratio: float | None = Query(None, allow_inf_nan=False),
+    # 시총구간 필터(KRW 원) — prices 최신 시총 기준(AD-9)
+    min_market_cap: int | None = Query(None, ge=0),
+    max_market_cap: int | None = Query(None, ge=0),
     washing_only: bool = Query(False),
     buyback_executed: bool | None = Query(
         None, description="true=매입 실행 / false=미실행 — null(판단 불가)은 양쪽 다 제외"
@@ -52,6 +60,9 @@ def screening_list(
         "min_execution_score": min_execution_score,
         "max_execution_score": max_execution_score,
         "min_mna_score": min_mna_score, "max_mna_score": max_mna_score,
+        "min_roe": min_roe, "max_pbr": max_pbr,
+        "max_ev_ebitda": max_ev_ebitda, "max_debt_ratio": max_debt_ratio,
+        "min_market_cap": min_market_cap, "max_market_cap": max_market_cap,
         "washing_only": washing_only, "buyback_executed": buyback_executed,
         "as_of": as_of.isoformat() if as_of else None,
     }

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models import Base, Company, MnaScore, ValueupScore
+from app.sql_views import CREATE_VALUATION_METRICS
 
 AS_OF = "2026-07-13"
 
@@ -19,6 +20,9 @@ def engine():
         poolclass=StaticPool, connect_args={"check_same_thread": False},
     )
     Base.metadata.create_all(eng)
+    with eng.connect() as conn:  # roe/pbr·지표 필터가 뷰를 읽음(3.3 리뷰 반영)
+        conn.execute(text(CREATE_VALUATION_METRICS))
+        conn.commit()
     return eng
 
 
@@ -57,6 +61,20 @@ def _seed(s: Session) -> None:
     s.add(MnaScore(
         corp_code="00000004", as_of=AS_OF,
         mna_target_score=60.0, population_basis="market_fallback",
+    ))
+    s.commit()
+    # 지표·시총(3.3 리뷰 반영): 00000001=고ROE(20%)·저PBR, 00000002=저ROE(5%)·고PBR.
+    # 00000003/4는 지표 없음(roe/pbr null — 범위 필터 불통과 검증용).
+    s.execute(text(
+        "INSERT INTO financials (corp_code, year, quarter, revenue, net_income, equity, "
+        "total_assets, total_liabilities, operating_income) VALUES "
+        "('00000001', 2025, 3, 1000, 200, 1000, 3000, 1000, 220), "
+        "('00000002', 2025, 3, 1000, 50, 1000, 3000, 1000, 60)"
+    ))
+    s.execute(text(
+        "INSERT INTO prices (corp_code, date, close, volume, trading_value, market_cap) VALUES "
+        "('00000001', '2026-07-01', 1000, 100, 100000, 1000), "   # PBR=1.0, 시총 1000
+        "('00000002', '2026-07-01', 1000, 100, 100000, 5000)"     # PBR=5.0, 시총 5000
     ))
     s.commit()
 
@@ -147,6 +165,44 @@ def test_market_sector_blank_rejected_and_pagination(client) -> None:
     assert client.get("/screening?sector=").status_code == 422
     r3 = client.get("/screening", params={"page": 2, "size": 3})
     assert r3.json()["total"] == 4 and len(r3.json()["items"]) == 1
+
+
+def test_roe_pbr_in_response(client) -> None:
+    """[3.3 리뷰 High] AC3 핵심지표 — roe·pbr이 응답에 포함되고 지표 없는 종목은 null."""
+    r = client.get("/screening")
+    by_code = {i["corp_code"]: i for i in r.json()["items"]}
+    assert by_code["00000001"]["roe"] == pytest.approx(20.0)
+    assert by_code["00000001"]["pbr"] == pytest.approx(1.0)
+    assert by_code["00000002"]["roe"] == pytest.approx(5.0)
+    assert by_code["00000003"]["roe"] is None  # 지표 없음 → null(0 아님)
+    assert by_code["00000003"]["pbr"] is None
+
+
+def test_metric_range_filters(client) -> None:
+    """[3.3 리뷰 BLOCKER] AC2 지표 범위 필터 — null 지표는 어느 범위에도 매칭 안 됨."""
+    # min_roe=10: 00000001(20%)만. 00000003/4(지표 null)는 제외
+    r = client.get("/screening", params={"min_roe": 10})
+    assert [i["corp_code"] for i in r.json()["items"]] == ["00000001"]
+    # max_pbr=2: 00000001(1.0)만
+    r2 = client.get("/screening", params={"max_pbr": 2})
+    assert [i["corp_code"] for i in r2.json()["items"]] == ["00000001"]
+    # AND 조합: min_roe=10 & max_pbr=0.5 → 0건
+    r3 = client.get("/screening", params={"min_roe": 10, "max_pbr": 0.5})
+    assert r3.json()["total"] == 0
+    # 스코어 필터와의 조합도 동작
+    r4 = client.get("/screening", params={"min_roe": 1, "max_execution_score": 50})
+    assert [i["corp_code"] for i in r4.json()["items"]] == ["00000001"]
+
+
+def test_market_cap_filter(client) -> None:
+    """[3.3 리뷰 BLOCKER] AC2 시총구간 — prices 최신 시총 기준, 시총 없는 종목 불통과."""
+    r = client.get("/screening", params={"min_market_cap": 2000})
+    assert [i["corp_code"] for i in r.json()["items"]] == ["00000002"]
+    r2 = client.get("/screening", params={"max_market_cap": 2000})
+    assert [i["corp_code"] for i in r2.json()["items"]] == ["00000001"]
+    # 시총 데이터 없는 00000003/4는 어느 구간에도 안 걸림
+    r3 = client.get("/screening", params={"min_market_cap": 0})
+    assert {i["corp_code"] for i in r3.json()["items"]} == {"00000001", "00000002"}
 
 
 def test_empty_scores_returns_empty_envelope(engine, monkeypatch) -> None:

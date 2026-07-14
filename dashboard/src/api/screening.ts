@@ -8,6 +8,8 @@ export interface ScreeningRow {
   market: string | null;
   sector: string | null;
   as_of: string;
+  roe: number | null; // 핵심지표(AC3) — null=지표 없음
+  pbr: number | null;
   execution_score: number | null;
   washing_flag: boolean | null; // true=워싱의심 / false=근거없음 / null=판단불가
   buyback_status: string | null;
@@ -34,6 +36,14 @@ export interface ScreeningParams {
   max_execution_score?: number;
   min_mna_score?: number;
   max_mna_score?: number;
+  // 지표 범위 필터(AC2, 3.3 리뷰 반영)
+  min_roe?: number;
+  max_pbr?: number;
+  max_ev_ebitda?: number;
+  max_debt_ratio?: number;
+  // 시총구간(KRW 원)
+  min_market_cap?: number;
+  max_market_cap?: number;
   washing_only?: boolean;
   buyback_executed?: boolean;
   sort?: string; // field / -field

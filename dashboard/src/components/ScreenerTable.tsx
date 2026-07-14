@@ -77,6 +77,29 @@ export function ScreenerTable({
           </div>
         ),
       }),
+      // 핵심지표(AC3, 3.3 리뷰 반영) — null=지표 없음("—", 0으로 표시 금지)
+      col.accessor("roe", {
+        header: () => <span className="block text-right">ROE</span>,
+        cell: (c) => {
+          const v = c.getValue();
+          return (
+            <div className="text-right text-xs text-gray-700">
+              {v === null ? <span className="text-gray-300">—</span> : `${v.toFixed(1)}%`}
+            </div>
+          );
+        },
+      }),
+      col.accessor("pbr", {
+        header: () => <span className="block text-right">PBR</span>,
+        cell: (c) => {
+          const v = c.getValue();
+          return (
+            <div className="text-right text-xs text-gray-700">
+              {v === null ? <span className="text-gray-300">—</span> : `${v.toFixed(2)}x`}
+            </div>
+          );
+        },
+      }),
       col.accessor("washing_flag", {
         header: () => <span>워싱</span>,
         cell: (c) => <WashingBadge flag={c.getValue()} />,
@@ -118,7 +141,7 @@ export function ScreenerTable({
         <tbody>
           {rows.length === 0 && !loading && (
             <tr>
-              <td colSpan={5} className="px-4 py-10 text-center text-sm text-gray-400">
+              <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-400">
                 조건에 맞는 종목이 없습니다
               </td>
             </tr>

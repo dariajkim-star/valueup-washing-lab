@@ -8,14 +8,25 @@ const DEFAULT_SORT: Record<ScoreMode, string> = {
   mna: "-mna_target_score", // 인수 매력 높은 순(내림차순)
 };
 
-interface FilterState {
+// 시총구간 버킷(KRW 원): 대형 ≥10조 / 중형 1~10조 / 소형 <1조
+export type McapBucket = "all" | "large" | "mid" | "small";
+const TRILLION = 1_000_000_000_000;
+export const MCAP_BOUNDS: Record<McapBucket, { min?: number; max?: number }> = {
+  all: {},
+  large: { min: 10 * TRILLION },
+  mid: { min: 1 * TRILLION, max: 10 * TRILLION },
+  small: { max: 1 * TRILLION },
+};
+
+export interface FilterState {
   scoreMode: ScoreMode;
   market?: string; // "KOSPI" | "KOSDAQ" | undefined(전체)
   sector?: string; // KSIC prefix
-  minExecutionScore?: number;
-  maxExecutionScore?: number;
-  minMnaScore?: number;
-  maxMnaScore?: number;
+  mcapBucket: McapBucket;
+  minRoe?: number; // %
+  maxPbr?: number; // x
+  maxEvEbitda?: number; // x
+  maxDebtRatio?: number; // %
   washingOnly: boolean;
   buybackExecuted?: boolean;
   sort: string;
@@ -23,21 +34,26 @@ interface FilterState {
   size: number;
   setScoreMode: (m: ScoreMode) => void;
   setMarket: (m?: string) => void;
+  setSector: (s?: string) => void;
+  setMcapBucket: (b: McapBucket) => void;
   setWashingOnly: (v: boolean) => void;
   setSort: (s: string) => void;
   setPage: (p: number) => void;
-  patch: (p: Partial<FilterState>) => void;
+  patch: (p: Partial<FilterState>) => void; // 필터류 일괄 갱신(page 1 리셋)
 }
 
 export const useFilters = create<FilterState>((set) => ({
   scoreMode: "valueup",
+  mcapBucket: "all",
   washingOnly: false,
   sort: DEFAULT_SORT.valueup,
   page: 1,
   size: 20,
-  // 스코어 모드 전환 시 기본 정렬을 그 모드의 관점으로 스왑 + 1페이지로(6번 AC)
+  // 스코어 모드 전환 시 기본 정렬을 그 모드의 관점으로 스왑 + 1페이지로(AC6)
   setScoreMode: (m) => set({ scoreMode: m, sort: DEFAULT_SORT[m], page: 1 }),
   setMarket: (market) => set({ market, page: 1 }),
+  setSector: (sector) => set({ sector, page: 1 }),
+  setMcapBucket: (mcapBucket) => set({ mcapBucket, page: 1 }),
   setWashingOnly: (washingOnly) => set({ washingOnly, page: 1 }),
   setSort: (sort) => set({ sort, page: 1 }),
   setPage: (page) => set({ page }),
@@ -46,13 +62,16 @@ export const useFilters = create<FilterState>((set) => ({
 
 // 스토어 상태 → API 파라미터(미선택은 client.ts가 걸러냄)
 export function toParams(s: FilterState): ScreeningParams {
+  const mcap = MCAP_BOUNDS[s.mcapBucket];
   return {
     market: s.market,
     sector: s.sector,
-    min_execution_score: s.minExecutionScore,
-    max_execution_score: s.maxExecutionScore,
-    min_mna_score: s.minMnaScore,
-    max_mna_score: s.maxMnaScore,
+    min_roe: s.minRoe,
+    max_pbr: s.maxPbr,
+    max_ev_ebitda: s.maxEvEbitda,
+    max_debt_ratio: s.maxDebtRatio,
+    min_market_cap: mcap.min,
+    max_market_cap: mcap.max,
     washing_only: s.washingOnly || undefined,
     buyback_executed: s.buybackExecuted,
     sort: s.sort,

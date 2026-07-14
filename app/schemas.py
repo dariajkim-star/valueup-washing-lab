@@ -54,6 +54,9 @@ class ScreeningOut(BaseModel):
     market: str | None = None
     sector: str | None = None
     as_of: str
+    # 핵심지표(AC3, 3.3 리뷰 반영) — look-ahead 안전 최신값, null=지표 없음
+    roe: float | None = None
+    pbr: float | None = None
     has_valueup_score: bool
     has_mna_score: bool
     execution_score: float | None = None
