@@ -14,10 +14,24 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Company, MacroIndicator, MnaScore, ValueupScore
+
+
+def latest_common_as_of(session: Session) -> str | None:
+    """두 엔진 **모두** 실행된 최신 as_of(교집합 max). 없으면 None.
+
+    screening의 latest_as_of(두 max 중 큰 쪽)는 API에선 옳지만 — 없는 쪽이
+    null로 정직 노출됨 — 정적 export에선 한 엔진 CSV가 통째로 0행이 되며
+    조용히 성공한다(GPT 리뷰 High). export는 교집합 기준일만 쓴다.
+    """
+    return session.scalar(
+        select(func.max(ValueupScore.as_of)).where(
+            ValueupScore.as_of.in_(select(MnaScore.as_of).distinct())
+        )
+    )
 
 
 def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
@@ -129,10 +143,30 @@ def roe_pbr_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
     return out
 
 
+def period_buyback_status(
+    buyback_amount: int | None, buyback_retired_amount: int | None
+) -> str | None:
+    """해당 기간의 자사주 상태를 그 기간의 원천 수량에서 계산.
+
+    현재 스냅숏의 ValueupScore.buyback_status를 과거 전 연도에 반복하면
+    "2023년에도 소각했다"로 오독된다(GPT 리뷰 High) — 시계열 뷰의 상태는
+    반드시 그 행의 기간 데이터에서 나와야 한다. 둘 다 관측 없음(null)이면
+    null — "활동 없음(none)"과 "관측 없음"을 구분(1.8 계보).
+    """
+    if buyback_retired_amount is not None and buyback_retired_amount > 0:
+        return "retired"
+    if buyback_amount is not None and buyback_amount > 0:
+        return "purchased_only"
+    if buyback_amount is not None or buyback_retired_amount is not None:
+        return "none"
+    return None
+
+
 def dividend_buyback_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
-    """뷰 4(배당/자사주): financials 연도별 환원 원천 + valuation_metrics.payout_ratio
-    ⋈ valueup_score(as_of 고정)의 buyback_status. 시계열 축(year)을 가진 유일한 뷰 —
-    look-ahead 규칙은 지표 뷰와 동일하게 적용(같은 해 사업보고서 배제).
+    """뷰 4(배당/자사주): financials 연도별 환원 원천 + valuation_metrics.payout_ratio.
+    시계열 축(year)을 가진 유일한 뷰 — look-ahead 규칙은 지표 뷰와 동일하게
+    적용(같은 해 사업보고서 배제). 기간별 상태는 period_buyback_status로 계산
+    (스냅숏 상태의 시계열 반복 금지).
     """
     as_of_year = int(as_of[:4])
     fin = session.execute(
@@ -150,14 +184,9 @@ def dividend_buyback_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
     names = {
         r["corp_code"]: r
         for r in session.execute(
-            select(Company.corp_code, Company.corp_name, Company.sector).order_by(Company.corp_code)
-        ).mappings()
-    }
-    status = {
-        r["corp_code"]: r["buyback_status"]
-        for r in session.execute(
-            select(ValueupScore.corp_code, ValueupScore.buyback_status)
-            .where(ValueupScore.as_of == as_of)
+            select(
+                Company.corp_code, Company.corp_name, Company.market, Company.sector
+            ).order_by(Company.corp_code)
         ).mappings()
     }
     out: list[dict[str, Any]] = []
@@ -167,13 +196,15 @@ def dividend_buyback_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
             continue
         out.append({
             "corp_code": f["corp_code"], "corp_name": c["corp_name"],
-            "sector": c["sector"], "as_of": as_of,
+            "market": c["market"], "sector": c["sector"], "as_of": as_of,
             "year": f["year"], "quarter": f["quarter"],
             "dividend_total": f["dividend_total"],
             "payout_ratio": f["payout_ratio"],
             "buyback_amount": f["buyback_amount"],
             "buyback_retired_amount": f["buyback_retired_amount"],
-            "buyback_status": status.get(f["corp_code"]),
+            "period_buyback_status": period_buyback_status(
+                f["buyback_amount"], f["buyback_retired_amount"]
+            ),
         })
     return out
 

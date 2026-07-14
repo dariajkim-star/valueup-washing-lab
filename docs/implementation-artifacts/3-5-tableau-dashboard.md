@@ -112,7 +112,25 @@ claude-fable-5 (bmad-create-story + bmad-dev-story, 2026-07-14)
 - `.gitignore` (UPDATE: exports/ 제외)
 - `exports/tableau/*.csv` (생성물, gitignore — 재생성 가능)
 
+### Review Findings (code review 2026-07-14, GPT — High 3·Med 4·Low 1, patch 7/리드결정 1)
+
+- [x] [Patch][High] **latest_as_of가 두 엔진 공존 기준일을 보장 안 함** — screening의 max(v,m)를 그대로 써서, 한 엔진만 최신이면 다른 쪽 CSV가 통째로 0행인 채 "완료" 로그가 나올 수 있었음. `latest_common_as_of`(교집합 max) 신설, 교집합 없으면 NoScoreDataError. 테스트 2종(valueup만 최신 → 공통일 선택 / mna 전무 → 거부).
+- [x] [Patch][High] **5개 CSV 기록 비원자성** — 세 번째 파일 실패 시 신·구 세대가 섞인 디렉터리가 남았음. staging 디렉터리에 5개+**manifest.json**(as_of·generated_at·행수) 전부 성공 시에만 교체, 실패 시 staging 폐기·기존 스냅숏 무손상. 부분 실패 보존 테스트(monkeypatch로 3번째 실패 유발 → 바이트 단위 불변 확인).
+- [x] [Patch][High] **현재 buyback_status를 과거 전 연도에 반복** — 2026 스냅숏 상태(retired)가 2023 행에도 칠해져 "그때도 소각했다"로 오독. `period_buyback_status(amount, retired_amount)` 순수함수로 **그 연도 원천에서 계산**(retired/purchased_only/none/무관측 null), ValueupScore 조인 제거. 실데이터 실증: 고려아연 2023=purchased_only(스냅숏은 retired). 스펙 문서도 시계열 색상 소스를 이 컬럼으로 교체.
+- [x] [Patch][Med] **dividend_buyback에 market 부재** — 전역 시장 필터 불가였음. Company.market 조인+컬럼 추가+테스트.
+- [x] [Patch][Med] **_write_csv가 누락 키를 빈 셀로 세탁** — extrasaction="raise"는 추가 키만 잡음. row 키 집합 == 스키마 직접 검사, 불일치 시 ExportSchemaError(missing/extra 명시)+테스트.
+- [x] [Patch][Med] **CSV의 null 정직성이 Tableau에서 다시 숨겨짐** — 트리맵 크기 null 종목은 화면에서 통째로 사라짐. 스펙 문서에 "미산정 KPI 시트"를 **필수**로 격상(산출 N/미산정 M + 종목 목록, 산점도 좌표 결측 포함), 검증 기준에 "산출+미산정=manifest 행수" 추가.
+- [x] [Patch][Low] **Tableau 타입 추론 위험** — corp_code `00155319`→`155319` 소실. 스펙에 필드별 타입 강제 표(String/Date/Whole Number) 신설, 테스트 시드를 실데이터형 숫자 코드 sector로 교체해 문자열 보존 검증. 조립 후 검증 기준에 선행 0 확인 추가.
+- [x] [Patch][스펙 추가지적] **buyback_amount+retired 합산 금지·단위 분리** — 소각량이 취득량 부분집합이면 중복 계산 + 금액(KRW) vs 수량(주) 혼합. 스펙에서 별도 라인·축 제목 분리로 수정.
+- [ ] [리드 결정 필요][Med] **AC 일탈의 공식 승인** — "근거 문서화 ≠ AC 변경 승인" 지적은 타당. epics.md의 AC 원문("PostgreSQL에 연결")을 "export 스크립트가 생성한 CSV/Extract를 소스로 연결(원자적 스냅숏+manifest)"로 개정하는 안을 제안 — **리드(사용자) 승인 시 epics.md 수정 + 본 항목 체크 후 done 처리**.
+
+### 2차 검증 (리뷰 반영 후)
+
+- pytest **242 passed**(신규 5: 공통 as_of 2종·원자성·스키마 강제·기간별 상태 단위테스트, 회귀 0).
+- 실데이터 재실행: 교집합 as_of=2026-07-13(두 엔진 공존 확인), manifest.json 생성(5뷰 행수 기록), dividend_buyback에 market·period_buyback_status 컬럼 실증.
+
 ## Change Log
 
 - 2026-07-14: Story 3.5 생성 — AC의 "PostgreSQL 연결"과 실제 스택(SQLite+Tableau Public) 불일치 발견, CSV export 레이어로 해소하는 방향 제시(스토리오너 결정 필요 표기). 산출물 3종(export 스크립트·뷰 스펙 문서·API-CSV 패리티 검증) 정의.
 - 2026-07-14: Story 3.5 구현 — export 레이어(repository+CLI)·테스트 6종·Tableau 스펙 문서. 실데이터 5개 CSV 생성 + /stats/* 패리티 실증. 237 passed. Status → review(GPT 교차리뷰 대기).
+- 2026-07-14: **GPT 리뷰**(Changes Requested, High3·Med4·Low1) triage·반영 — 교집합 as_of·원자적 스냅숏+manifest·기간별 자사주 상태(3 High 전부 patch), market 컬럼·스키마 강제·null 가시성 시트 필수화·타입 강제 표·축 단위 분리 patch. 242 passed. 잔여 1건: AC 개정 리드 승인 대기.
