@@ -148,6 +148,8 @@ def list_scores(
     세분류 코드(4~5자리)를 사용자가 알 수 없어 필터가 사실상 죽는다.
     """
     conds = [MnaScore.as_of == filters["as_of"]]
+    if filters.get("corp_code") is not None:  # 3.4 상세화면 단건 조회용(정확일치)
+        conds.append(Company.corp_code == filters["corp_code"])
     # `is not None`(truthiness 아님): 빈 문자열이 "필터 없음"으로 새는 것을 repo 층에서도
     # 차단(GPT 리뷰 Med — 1차 방어는 라우터 min_length=1의 422).
     if filters.get("market") is not None:

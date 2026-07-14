@@ -99,6 +99,17 @@ def test_filters_market_and_min_progress(client) -> None:
     assert {i["corp_code"] for i in r2.json()["items"]} == {"00000001", "00000002"}
 
 
+def test_corp_code_filter(client) -> None:
+    """[3.4] 상세화면 단건 조회 — corp_code 정확일치 필터."""
+    r = client.get("/valueup/gap-analysis", params={"corp_code": "00000001"})
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["corp_code"] == "00000001"
+    assert body["items"][0]["roe_gap"] == -7.0
+    r2 = client.get("/valueup/gap-analysis", params={"corp_code": "00000099"})
+    assert r2.json()["total"] == 0  # 존재하지 않는 종목 → 빈 결과(404 아님)
+
+
 def test_explicit_as_of(client) -> None:
     """AC3: as_of 명시 조회(과거 스냅샷)."""
     r = client.get("/valueup/gap-analysis", params={"as_of": "2025-12-31"})

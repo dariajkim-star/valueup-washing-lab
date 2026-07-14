@@ -109,6 +109,17 @@ def test_filters_market_and_sector_prefix(client) -> None:
     assert [i["corp_code"] for i in r3.json()["items"]] == ["00000001"]
 
 
+def test_corp_code_filter(client) -> None:
+    """[3.4] 상세화면 단건 조회 — corp_code 정확일치 필터."""
+    r = client.get("/mna/ranking", params={"corp_code": "00000001"})
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["corp_code"] == "00000001"
+    assert body["items"][0]["mna_target_score"] == 82.5
+    r2 = client.get("/mna/ranking", params={"corp_code": "00000099"})
+    assert r2.json()["total"] == 0  # 존재하지 않는 종목 → 빈 결과(404 아님)
+
+
 def test_explicit_as_of_and_pagination(client) -> None:
     """AC2/5: as_of 스냅샷 + 페이지네이션 + 무효 날짜 422."""
     r = client.get("/mna/ranking", params={"as_of": "2025-12-31"})

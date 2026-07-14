@@ -143,6 +143,8 @@ def list_scores(
     from app.models import Company
 
     conds = [ValueupScore.as_of == filters["as_of"]]
+    if filters.get("corp_code") is not None:  # 3.4 상세화면 단건 조회용(정확일치)
+        conds.append(Company.corp_code == filters["corp_code"])
     # `is not None`: 빈 문자열이 "필터 없음"으로 새지 않게(2-5 리뷰 패리티 — 1차 방어는
     # 라우터 min_length=1의 422)
     if filters.get("market") is not None:

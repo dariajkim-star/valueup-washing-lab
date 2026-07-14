@@ -30,6 +30,7 @@ export interface Page<T> {
 export type ScoreMode = "valueup" | "mna";
 
 export interface ScreeningParams {
+  corp_code?: string; // 3.4 상세화면 단건 조회용
   market?: string;
   sector?: string;
   min_execution_score?: number;
@@ -56,5 +57,16 @@ export function useScreening(params: ScreeningParams) {
     queryKey: ["screening", params],
     queryFn: () => apiGet<Page<ScreeningRow>>("/screening", params as Record<string, unknown>),
     placeholderData: keepPreviousData, // 필터 변경 시 깜빡임 방지
+  });
+}
+
+// 상세화면 헤더용 단건 조회(3.4) — 목록 API를 corp_code 필터+size=1로 재사용(신규
+// 엔드포인트 회피). 종목이 스코어 미보유일 수 있어 total=0(빈 결과)이 정상 케이스.
+export function useScreeningDetail(corpCode: string | undefined) {
+  return useQuery({
+    queryKey: ["screening-detail", corpCode],
+    queryFn: () => apiGet<Page<ScreeningRow>>("/screening", { corp_code: corpCode, size: 1 }),
+    enabled: !!corpCode,
+    select: (page) => page.items[0] ?? null,
   });
 }

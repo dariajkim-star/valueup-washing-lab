@@ -59,7 +59,7 @@ development_status:
   3-1-stats-macro-api: done  # 2026-07-13: GPT 리뷰 High1·Med3·Low1 전건 patch, 221 passed
   3-2-figma-screener-design: done  # 2026-07-13: Figma 시안(스크리너·상세·범례) + null 시각언어 확정
   3-3-screener-filter-list: done  # 2026-07-13: 반려→재작업→재리뷰 반영(look-ahead 기각·나머지 patch), 228+29 passed
-  3-4-detail-investment-card: backlog
+  3-4-detail-investment-card: review  # 2026-07-13: 백엔드 231+프론트 44 passed, 라이브 검증(딥링크·null전파·태깅 실증)
   3-5-tableau-dashboard: backlog
   epic-3-retrospective: optional
 

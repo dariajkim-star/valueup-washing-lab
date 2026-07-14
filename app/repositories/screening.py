@@ -128,6 +128,8 @@ def list_screening(
     """
     as_of = filters["as_of"]
     conds: list[Any] = []
+    if filters.get("corp_code") is not None:  # 3.4 상세화면 단건 조회용(정확일치)
+        conds.append(Company.corp_code == filters["corp_code"])
     if filters.get("market") is not None:
         conds.append(Company.market == filters["market"])
     if filters.get("sector") is not None:

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   createColumnHelper,
   flexRender,
@@ -43,6 +44,7 @@ export function ScreenerTable({
   error: unknown;
 }) {
   const { scoreMode, page, size, setPage } = useFilters();
+  const navigate = useNavigate(); // AC1/AC6: 행 클릭 → /company/:corpCode 딥링크 라우트
 
   const columns = useMemo(
     () => [
@@ -154,7 +156,8 @@ export function ScreenerTable({
           {table.getRowModel().rows.map((r) => (
             <tr
               key={r.id}
-              className="border-b border-gray-50"
+              onClick={() => navigate(`/company/${r.original.corp_code}`)}
+              className="cursor-pointer border-b border-gray-50 hover:bg-gray-50/70"
               style={{ background: r.original.washing_flag === true ? "#fffbfa" : undefined }}
             >
               {r.getVisibleCells().map((cell) => (

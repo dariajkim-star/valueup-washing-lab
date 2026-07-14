@@ -157,6 +157,16 @@ def test_sort_whitelist_and_null_last(client) -> None:
     assert r3.json()["code"] == "INVALID_SORT"
 
 
+def test_corp_code_filter(client) -> None:
+    """[3.4] 상세화면 단건 조회 — corp_code 정확일치 필터."""
+    r = client.get("/screening", params={"corp_code": "00000001"})
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["corp_code"] == "00000001"
+    r2 = client.get("/screening", params={"corp_code": "00000099"})
+    assert r2.json()["total"] == 0  # 존재하지 않는 종목 → 빈 결과(404 아님)
+
+
 def test_market_sector_blank_rejected_and_pagination(client) -> None:
     """AC2/4: market/sector 필터 + 빈 문자열 422 + 페이지네이션."""
     r = client.get("/screening", params={"market": "KOSDAQ"})
