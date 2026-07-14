@@ -22,3 +22,6 @@ dashboard/.vite/
 
 # BMAD 내부 워크플로우 로그(deliverable 아님)
 **/.memlog.md
+
+# Tableau export 산출물(3.5) — 재생성 가능
+exports/
