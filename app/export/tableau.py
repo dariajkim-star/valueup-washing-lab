@@ -100,12 +100,24 @@ VIEW_COLUMNS: dict[str, list[str]] = {
 }
 
 
-def export_all(session: Session, out_dir: Path) -> dict[str, int]:
-    """5개 CSV + manifest.json을 staging에 쓴 뒤 out_dir로 원자적 교체.
+def _resolve_as_of(session: Session, requested: str | None) -> str:
+    """스냅숏 기준일 결정 + 조용한 과거 후퇴 경고.
 
-    실패 시 out_dir의 기존 스냅숏은 그대로 남는다(세대 혼합·부분 갱신 금지 —
-    GPT 리뷰 High). 반환: {뷰: 행수}.
+    requested가 있으면 두 엔진 모두에 실재하는지 검증(과거 시점 재현용 —
+    반쪽 스냅숏은 최신·과거 구분 없이 거부). 없으면 교집합 최신을 쓰되,
+    어느 엔진이 그보다 최신이면 "그 데이터는 이번 스냅숏에 없다"고 경고
+    — 경고 없이는 사용자가 대시보드에 어제 엔진 결과가 왜 없는지 알 수 없다.
     """
+    if requested is not None:
+        present = export_repo.as_of_exists_in_both(session, requested)
+        missing = [k for k, ok in present.items() if not ok]
+        if missing:
+            raise NoScoreDataError(
+                f"--as-of {requested}가 {'/'.join(missing)} 엔진에 없습니다 — "
+                "두 엔진 모두 존재하는 기준일만 스냅숏으로 만들 수 있습니다."
+            )
+        return requested
+
     as_of = export_repo.latest_common_as_of(session)
     if as_of is None:
         raise NoScoreDataError(
@@ -113,13 +125,41 @@ def export_all(session: Session, out_dir: Path) -> dict[str, int]:
             "같은 기준일로 실행한 뒤 export하세요(한쪽만 최신이면 그 날짜의 다른 쪽 "
             "CSV가 0행이 되므로 거부)."
         )
+    for engine, latest in export_repo.engine_latest_as_of(session).items():
+        if latest is not None and latest > as_of:
+            logger.warning(
+                "%s 엔진 최신 as_of=%s가 공통 기준일=%s보다 최신 — 해당 실행분은 "
+                "이번 스냅숏에 포함되지 않습니다(다른 엔진도 같은 날짜로 재실행 필요).",
+                engine, latest, as_of,
+            )
+    return as_of
+
+
+def export_all(
+    session: Session, out_dir: Path, as_of: str | None = None
+) -> dict[str, int]:
+    """5개 CSV + manifest.json을 staging에 쓴 뒤 out_dir로 교체.
+
+    실패 시 out_dir의 기존 스냅숏은 그대로 남는다(세대 혼합·부분 갱신 금지 —
+    GPT 리뷰 High). as_of를 넘기면 그 기준일로 과거 스냅숏 재현(두 엔진 모두
+    존재해야 함). 반환: {뷰: 행수}.
+    """
+    as_of = _resolve_as_of(session, as_of)
     logger.info("export as_of=%s → %s", as_of, out_dir)
 
+    metrics = export_repo._latest_metrics_map(session, as_of)
+    companies = export_repo._companies(session)
     rows_by_view: dict[str, list[dict[str, Any]]] = {
         "valueup_scores": export_repo.valueup_scores_rows(session, as_of),
-        "sector_valuation_map": export_repo.sector_valuation_rows(session, as_of),
-        "roe_pbr_scatter": export_repo.roe_pbr_rows(session, as_of),
-        "dividend_buyback": export_repo.dividend_buyback_rows(session, as_of),
+        "sector_valuation_map": export_repo.sector_valuation_rows(
+            session, as_of, metrics=metrics, companies=companies
+        ),
+        "roe_pbr_scatter": export_repo.roe_pbr_rows(
+            session, as_of, metrics=metrics, companies=companies
+        ),
+        "dividend_buyback": export_repo.dividend_buyback_rows(
+            session, as_of, companies=companies
+        ),
         "macro_layer": export_repo.macro_rows(session),
     }
 
@@ -127,6 +167,7 @@ def export_all(session: Session, out_dir: Path) -> dict[str, int]:
     if staging.exists():
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
+    old = out_dir.parent / f".{out_dir.name}.old"
     try:
         counts: dict[str, int] = {}
         for view, rows in rows_by_view.items():
@@ -140,14 +181,20 @@ def export_all(session: Session, out_dir: Path) -> dict[str, int]:
         (staging / MANIFEST_NAME).write_text(
             json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
         )
-        # 전부 성공했을 때만 교체 — Windows에서 rename은 대상 존재 시 실패하므로
-        # rmtree 후 rename(그 사이 크래시면 스냅숏이 사라질 수 있으나, 섞인
-        # 세대가 남는 것보다 "없음"이 안전 — manifest 부재로 즉시 식별됨).
+        # 전부 성공했을 때만 교체. Windows rename은 대상 존재 시 실패하므로
+        # 기존 스냅숏을 지우는 대신 .old로 비켜두고(rename=빠름·데이터 보존)
+        # 새 스냅숏이 자리잡은 뒤에만 .old를 삭제 — 어느 시점에 크래시해도
+        # 완전한 스냅숏이 최소 하나(.old 또는 out_dir)는 디스크에 남는다.
+        if old.exists():
+            shutil.rmtree(old)
         if out_dir.exists():
-            shutil.rmtree(out_dir)
+            out_dir.rename(old)
         staging.rename(out_dir)
+        shutil.rmtree(old, ignore_errors=True)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
+        if old.exists() and not out_dir.exists():
+            old.rename(out_dir)  # 교체 도중 실패 — 기존 스냅숏 원위치
         raise
     return counts
 
@@ -156,12 +203,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Tableau Public용 CSV export")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT_DIR,
                         help=f"출력 디렉터리 (기본 {DEFAULT_OUT_DIR})")
+    parser.add_argument("--as-of", dest="as_of", default=None,
+                        help="과거 스냅숏 재현용 기준일(YYYY-MM-DD, 두 엔진 모두 존재해야 함). "
+                             "생략 시 두 엔진 공통 최신일.")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     session = SessionLocal()
     try:
-        counts = export_all(session, args.out)
+        counts = export_all(session, args.out, as_of=args.as_of)
     finally:
         session.close()
     total = sum(counts.values())

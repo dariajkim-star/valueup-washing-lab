@@ -129,6 +129,50 @@ def test_common_as_of_prefers_date_both_engines_share(session, tmp_path):
     assert alpha["mna_target_score"] != ""  # 공통일이라 M&A 컬럼이 채워짐
 
 
+def test_stale_engine_warns(session, tmp_path, caplog):
+    """공통일보다 최신인 엔진 실행분이 있으면 경고 — 조용한 과거 후퇴 방지."""
+    _seed(session)
+    session.add(ValueupScore(corp_code="00000001", as_of=AS_OF_NEWER,
+                             execution_score=99.0, washing_flag=False))
+    session.commit()
+    with caplog.at_level("WARNING"):
+        export_all(session, _out(tmp_path))
+    assert any(AS_OF_NEWER in r.message and "포함되지 않습니다" in r.message
+               for r in caplog.records)
+
+
+def test_explicit_as_of_reproduces_past_snapshot(session, tmp_path):
+    """--as-of로 과거 기준일 스냅숏 재현(두 엔진 모두 존재 시)."""
+    _seed(session)
+    session.add(MnaScore(corp_code="00000001", as_of=AS_OF_OLD,
+                         mna_target_score=50.0, valuation_score=0.5))
+    session.commit()
+    out = _out(tmp_path)
+    export_all(session, out, as_of=AS_OF_OLD)
+    manifest = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["as_of"] == AS_OF_OLD
+    vs = _read(out / "valueup_scores.csv")
+    alpha = next(r for r in vs if r["corp_code"] == "00000001")
+    assert alpha["execution_score"] == "10.0"  # 과거 행(최신 72.5 아님)
+
+
+def test_explicit_as_of_missing_in_one_engine_raises(session, tmp_path):
+    """--as-of가 한 엔진에만 있으면 거부 — 과거라도 반쪽 스냅숏 금지."""
+    _seed(session)  # AS_OF_OLD는 valueup에만 존재
+    with pytest.raises(NoScoreDataError, match="mna"):
+        export_all(session, _out(tmp_path), as_of=AS_OF_OLD)
+
+
+def test_old_dir_cleaned_after_successful_swap(session, tmp_path):
+    """재실행 성공 시 .old 임시 디렉터리가 남지 않고 새 스냅숏만 존재."""
+    _seed(session)
+    out = _out(tmp_path)
+    export_all(session, out)
+    export_all(session, out)  # 기존 스냅숏 위에 재실행
+    assert not (out.parent / f".{out.name}.old").exists()
+    assert (out / "manifest.json").exists()
+
+
 def test_no_common_as_of_raises(session, tmp_path):
     """한 엔진만 실행된 DB — 빈 반쪽 CSV로 조용히 성공하면 안 됨."""
     _seed(session)

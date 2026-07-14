@@ -34,6 +34,27 @@ def latest_common_as_of(session: Session) -> str | None:
     )
 
 
+def engine_latest_as_of(session: Session) -> dict[str, str | None]:
+    """엔진별 개별 최신 as_of — 교집합보다 최신인 엔진이 있으면 호출자가
+    "그 데이터는 이번 스냅숏에 없다"고 경고하기 위한 조회(조용한 과거 후퇴 방지)."""
+    return {
+        "valueup": session.scalar(select(func.max(ValueupScore.as_of))),
+        "mna": session.scalar(select(func.max(MnaScore.as_of))),
+    }
+
+
+def as_of_exists_in_both(session: Session, as_of: str) -> dict[str, bool]:
+    """명시 as_of가 두 엔진에 실재하는지 — --as-of 오버라이드 검증용."""
+    return {
+        "valueup": session.scalar(
+            select(func.count()).where(ValueupScore.as_of == as_of)
+        ) > 0,
+        "mna": session.scalar(
+            select(func.count()).where(MnaScore.as_of == as_of)
+        ) > 0,
+    }
+
+
 def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     """corp별 look-ahead 부분 차단 최신 지표 행(전 컬럼). screening._latest_metrics_map과
     같은 규칙이지만 산점도·업종맵이 쓰는 컬럼이 더 넓어(year·quarter 포함) 독립 작성
@@ -56,6 +77,18 @@ def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any
     return latest
 
 
+def _companies(session: Session) -> list[dict[str, Any]]:
+    """company 4컬럼 전체(corp_code 정렬). 뷰 2·3·4가 공유 — 호출자(export_all)가
+    한 번 조회해 주입할 수 있게 분리(같은 쿼리 3회 반복 제거)."""
+    return [
+        dict(r)
+        for r in session.execute(
+            select(Company.corp_code, Company.corp_name, Company.market, Company.sector)
+            .order_by(Company.corp_code)
+        ).mappings()
+    ]
+
+
 def valueup_scores_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
     """뷰 1(밸류업 점수): valueup_score(as_of 고정) ⋈ company."""
     rows = session.execute(
@@ -72,17 +105,23 @@ def valueup_scores_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def sector_valuation_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
+def sector_valuation_rows(
+    session: Session,
+    as_of: str,
+    metrics: dict[str, dict[str, Any]] | None = None,
+    companies: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """뷰 2(업종별 저평가 맵): 최신 지표 ⋈ company ⋈ mna_score(as_of 고정).
 
     mna_score가 없는 종목(미지원 업종 등)도 지표가 있으면 행을 남기고 스코어는
     빈 값 — null을 조인으로 감추지 않는다(스크리닝 저장소와 같은 정직 노출).
+    metrics/companies는 호출자가 미리 조회해 주입 가능(뷰 간 중복 쿼리 제거) —
+    미주입 시 자체 조회(단독 사용 호환).
     """
-    metrics = _latest_metrics_map(session, as_of)
-    companies = session.execute(
-        select(Company.corp_code, Company.corp_name, Company.market, Company.sector)
-        .order_by(Company.corp_code)
-    ).mappings().all()
+    if metrics is None:
+        metrics = _latest_metrics_map(session, as_of)
+    if companies is None:
+        companies = _companies(session)
     mna = {
         r["corp_code"]: r
         for r in session.execute(
@@ -110,13 +149,18 @@ def sector_valuation_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
     return out
 
 
-def roe_pbr_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
-    """뷰 3(ROE-PBR 산점도): 최신 지표 ⋈ company ⋈ valueup_score(as_of 고정, 색·모양 인코딩용)."""
-    metrics = _latest_metrics_map(session, as_of)
-    companies = session.execute(
-        select(Company.corp_code, Company.corp_name, Company.market, Company.sector)
-        .order_by(Company.corp_code)
-    ).mappings().all()
+def roe_pbr_rows(
+    session: Session,
+    as_of: str,
+    metrics: dict[str, dict[str, Any]] | None = None,
+    companies: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """뷰 3(ROE-PBR 산점도): 최신 지표 ⋈ company ⋈ valueup_score(as_of 고정, 색·모양 인코딩용).
+    metrics/companies 주입 규약은 sector_valuation_rows와 동일."""
+    if metrics is None:
+        metrics = _latest_metrics_map(session, as_of)
+    if companies is None:
+        companies = _companies(session)
     vs = {
         r["corp_code"]: r
         for r in session.execute(
@@ -162,11 +206,15 @@ def period_buyback_status(
     return None
 
 
-def dividend_buyback_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
+def dividend_buyback_rows(
+    session: Session,
+    as_of: str,
+    companies: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     """뷰 4(배당/자사주): financials 연도별 환원 원천 + valuation_metrics.payout_ratio.
     시계열 축(year)을 가진 유일한 뷰 — look-ahead 규칙은 지표 뷰와 동일하게
     적용(같은 해 사업보고서 배제). 기간별 상태는 period_buyback_status로 계산
-    (스냅숏 상태의 시계열 반복 금지).
+    (스냅숏 상태의 시계열 반복 금지). companies 주입 규약은 뷰 2·3과 동일.
     """
     as_of_year = int(as_of[:4])
     fin = session.execute(
@@ -181,14 +229,9 @@ def dividend_buyback_rows(session: Session, as_of: str) -> list[dict[str, Any]]:
         ),
         {"yr": as_of_year},
     ).mappings().all()
-    names = {
-        r["corp_code"]: r
-        for r in session.execute(
-            select(
-                Company.corp_code, Company.corp_name, Company.market, Company.sector
-            ).order_by(Company.corp_code)
-        ).mappings()
-    }
+    if companies is None:
+        companies = _companies(session)
+    names = {c["corp_code"]: c for c in companies}
     out: list[dict[str, Any]] = []
     for f in fin:
         c = names.get(f["corp_code"])
