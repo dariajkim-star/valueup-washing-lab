@@ -190,7 +190,7 @@ def test_partial_failure_preserves_previous_snapshot(session, tmp_path, monkeypa
     export_all(session, out)
     before = {p.name: p.read_bytes() for p in out.iterdir()}
 
-    def boom(session_, as_of):
+    def boom(*args, **kwargs):
         raise RuntimeError("disk error")
     monkeypatch.setattr(tableau_mod.export_repo, "roe_pbr_rows", boom)
     with pytest.raises(RuntimeError):

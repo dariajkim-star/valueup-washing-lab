@@ -133,5 +133,6 @@ claude-fable-5 (bmad-create-story + bmad-dev-story, 2026-07-14)
 
 - 2026-07-14: Story 3.5 생성 — AC의 "PostgreSQL 연결"과 실제 스택(SQLite+Tableau Public) 불일치 발견, CSV export 레이어로 해소하는 방향 제시(스토리오너 결정 필요 표기). 산출물 3종(export 스크립트·뷰 스펙 문서·API-CSV 패리티 검증) 정의.
 - 2026-07-14: Story 3.5 구현 — export 레이어(repository+CLI)·테스트 6종·Tableau 스펙 문서. 실데이터 5개 CSV 생성 + /stats/* 패리티 실증. 237 passed. Status → review(GPT 교차리뷰 대기).
+- 2026-07-14(post-done 보완, 셀프리뷰 4건): ①공통일보다 최신인 엔진 실행분이 있으면 WARNING(조용한 과거 후퇴 방지 — `engine_latest_as_of`) ②`--as-of` CLI(과거 스냅숏 재현, 두 엔진 실재 검증) ③스냅숏 교체를 rmtree→rename에서 **.old 대피 후 rename**으로 변경(어느 시점 크래시에도 완전한 스냅숏 최소 1개 보존, 실패 시 .old 원위치 복구) ④뷰 간 중복 쿼리 제거(metrics/companies를 export_all에서 1회 조회해 주입, 미주입 시 자체 조회 호환). 테스트 +4, 246 passed.
 - 2026-07-14: **GPT 리뷰**(Changes Requested, High3·Med4·Low1) triage·반영 — 교집합 as_of·원자적 스냅숏+manifest·기간별 자사주 상태(3 High 전부 patch), market 컬럼·스키마 강제·null 가시성 시트 필수화·타입 강제 표·축 단위 분리 patch. 242 passed. 잔여 1건: AC 개정 리드 승인 대기.
 - 2026-07-14: AC 개정 리드 승인 → epics.md 3.5 AC를 CSV 스냅숏 연결로 공식 개정(개정 주석 포함). 전 리뷰 항목 해소 — Status → done.
