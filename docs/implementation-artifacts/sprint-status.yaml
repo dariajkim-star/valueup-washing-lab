@@ -103,20 +103,20 @@ action_items:
   - epic: 3
     action: "score_run 배치 메타데이터 착수 여부 최종 결정(마감 전 — UI 노출로 리스크 최대 구간)"
     owner: "리드"
-    status: open
+    status: done  # 2026-07-14 리드 결정: 기록으로 마감(단일 사용자 로컬 + 교집합 as_of·manifest·has_* 완화 장치 기구축) — README 한계 §2 명시
   - epic: 3
     action: "Tableau 워크북(.twb) 보존 경로 결정(gitignore 밖 이동) + 다듬기(탭명·미산정 KPI 시트·제목 as_of)"
     owner: "리드+AI"
-    status: open
+    status: in-progress  # 2026-07-14 보존: docs/tableau/valueup_dashboard.twb 복사(git 추적, 데이터 경로 절대참조라 이동 무해). 다듬기(탭명·KPI 시트·as_of 제목)는 GUI 잔여 — 게시 전 처리
   - epic: 3
     action: "README·마감 문서 작성(실행 경로 3종·AD 요약·한계 섹션·발표 역순 내러티브)"
     owner: "리드+AI"
-    status: open
+    status: done  # 2026-07-14 README.md 신규 작성(기존 API 명세는 docs/API_SPEC.md로 이동), requirements.txt dart-fss 제거(REST 전환 서사 정합)
   - epic: 3
     action: "프론트 스토리 DoD에 배선 실증(네트워크 로그·라이브 조작) 명문화 — 다음 프로젝트 템플릿 반영"
     owner: "AI"
-    status: open
+    status: done  # 2026-07-14 epic-3 회고 핵심교훈 + AI 영구 메모리(feedback)에 기록 — 다음 프로젝트 스토리 생성 시 자동 적용
   - epic: 3
     action: "execution_score 커버리지 개선 vs 정직성 프레임 마감 판단"
     owner: "리드"
-    status: open
+    status: done  # 2026-07-14 리드 결정: 정직성 프레임으로 마감(원천 자유서식 한계, 파서 24→42% 개선 실적 보유, washing_flag 19종목 작동) — README 한계 §1 명시

@@ -1,356 +1,104 @@
-# 밸류업 워싱 탐지 대시보드 — API 명세서
+# 밸류업 워싱 스크리너 (Value-up Washing Screener)
 
-- 버전: v0.1
-- Base URL: `http://localhost:8000/api/v1`
-- 포맷: JSON (UTF-8)
-- 인증: v1 없음 (내부 도구). v2에서 API Key 헤더 예정.
-- 자동 문서: `/docs` (Swagger), `/redoc`
+상장사의 **밸류업 계획 공시**(목표 ROE·배당성향·자사주)와 **실제 실적**을 금융감독원 OpenDART·KRX·한국은행 ECOS 실데이터로 대조해, "말만 하고 지키지 않는" 기업을 정량 스코어링·랭킹하는 스크리너입니다. 밸류업 이행 점수와 별도로 **M&A 타겟 스코어**(저평가·인수여력·지배구조·매크로)를 함께 제공합니다.
 
----
+> 정책 맥락(2026): 밸류업 공시 사실상 의무화(718개사), 상법 개정 자사주 의무소각, 코스피 PBR 1.3배 vs 글로벌 2.3배 — "공시 대비 이행 갭"이 실제 투자·심사 판단의 재료가 되는 시점.
 
-## 0. 공통 규약
+## 무엇을 볼 수 있나 (화면부터)
 
-### 응답 봉투
-목록형 응답은 페이지네이션 메타를 포함한다.
+**① 애널리스트 스크리너 (React SPA)** — 시장·업종·시총·지표(ROE/PBR/EV/EBITDA/부채비율) 필터와 워싱 토글로 종목을 좁히고, Value-up ↔ M&A 스코어 모드를 전환하며 탐색합니다.
 
-```json
-{
-  "items": [ ... ],
-  "total": 718,
-  "page": 1,
-  "size": 20
-}
+**② 종목 상세 & 투자 포인트 카드** — 지표 시계열, "계획 vs 실제" 갭 카드, M&A 4요소 분해, 자동 태깅(고ROE·저PBR·자사주 실이행 / 저평가·저부채·낮은 지분율). 근거 지표가 null이면 태그를 만들지 않습니다.
+
+**③ Tableau 대시보드** — 밸류업 점수·업종 저평가 맵·ROE-PBR 산점도·배당/자사주 4개 뷰 + ECOS 매크로 레이어. CSV 스냅숏(원자적 교체 + manifest)을 소스로 사용합니다.
+
+**④ 그 아래** — FastAPI 5개 라우터(`/screening`·`/valueup`·`/mna`·`/metrics`·`/stats`), 2개 스코어링 엔진(gap_engine·mna_engine), SQL VIEW 기반 파생지표, 3개 소스 수집 어댑터.
+
+## 설계 원칙 하나만 꼽는다면: 정직한 null
+
+이 프로젝트의 관통 원칙은 **"판단할 수 없는 것을 판단한 척하지 않는다"**입니다.
+
+- 워싱 판정은 Kleene 3치 논리 — 소각을 확정한 기업은 진척률을 몰라도 확정 False, 근거가 부족하면 True/False가 아니라 **null("판단 불가")**. 실데이터 33종목에서 False 18 / 판단 불가 8 / True 0으로 설계대로 작동함을 검증했습니다.
+- 이 null이 **DB → API → React 화면 → CSV → Tableau까지 다섯 레이어를 관통**합니다. API는 `has_valueup_score`/`has_mna_score`로 "엔진 미실행"과 "판정 불가"를 구분하고, 화면은 6가지 상태(판단불가·산출불가·미집계·미지원업종 등)를 각각 다른 시각 언어로 그리며, CSV는 null을 빈 셀로 보존하고(0 치환 금지), Tableau 트리맵은 미산정 종목 수를 명시 노출합니다.
+- 신용평가·심사 도메인에서 "불확실을 확실로 세탁하지 않는 것"은 스타일이 아니라 요구사항이라고 판단했습니다.
+
+## 실행 방법
+
+요구사항: Python 3.11+(.venv), Node 20+, `.env`에 `DART_API_KEY`·`ECOS_API_KEY`·`KRX_ID`/`KRX_PW`(수집 시에만 필요 — 테스트는 키 없이 전부 통과).
+
+```bash
+# 0) 설치
+python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
+cd dashboard && npm install && cd ..
+
+# 1) 백엔드 API  →  http://localhost:8000/docs
+.venv/Scripts/uvicorn app.main:app --reload
+
+# 2) 프론트 대시보드  →  http://localhost:5175 (Vite proxy → :8000)
+cd dashboard && npm run dev
+
+# 3) Tableau용 CSV 스냅숏  →  exports/tableau/*.csv + manifest.json
+.venv/Scripts/python -m app.export.tableau            # 두 엔진 공통 최신 기준일
+.venv/Scripts/python -m app.export.tableau --as-of 2026-07-13   # 과거 시점 재현
 ```
 
-### 공통 쿼리 파라미터 (목록)
-| 파라미터 | 타입 | 기본 | 설명 |
-|---|---|---|---|
-| `page` | int | 1 | 페이지 번호 (1-base) |
-| `size` | int | 20 | 페이지 크기 (max 100) |
-| `sort` | string | - | `field` 또는 `-field`(내림차순). 예: `-execution_score` |
+데이터 수집·스코어링은 Python API로 실행합니다(단일 사용자 로컬 도구라 별도 CLI 대신 함수 직접 호출):
 
-### 에러 포맷
-```json
-{ "detail": "company not found", "code": "NOT_FOUND" }
-```
-| HTTP | code | 상황 |
-|---|---|---|
-| 400 | `BAD_REQUEST` | 잘못된 파라미터 |
-| 404 | `NOT_FOUND` | 리소스 없음 |
-| 422 | `VALIDATION_ERROR` | 스키마 검증 실패 (FastAPI 기본) |
-| 500 | `INTERNAL` | 서버 오류 |
+```python
+from app.db import SessionLocal
+from app.ingest import run as ingest          # ingest_financials / prices / macro / valueup_plans / ownership
+from app.analysis import gap_engine, mna_engine
 
----
-
-## 1. 데이터 스키마 (엔티티)
-
-### Company
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `corp_code` | string(8) | DART 고유 기업코드 (PK) |
-| `stock_code` | string(6) | 종목코드 |
-| `corp_name` | string | 회사명 |
-| `market` | enum | `KOSPI` \| `KOSDAQ` |
-| `sector` | string | 업종 |
-| `market_cap` | int | 시가총액(원) |
-| `has_valueup_plan` | bool | 밸류업 계획 공시 여부 |
-
-### ValueupPlan
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `plan_id` | int | PK |
-| `corp_code` | string(8) | FK → Company |
-| `disclosure_date` | date | 공시일 |
-| `target_roe` | float\|null | 목표 ROE(%) |
-| `target_payout_ratio` | float\|null | 목표 배당성향(%) |
-| `target_pbr` | float\|null | 목표 PBR(배) |
-| `period_start` | date\|null | 목표 기간 시작 |
-| `period_end` | date\|null | 목표 기간 종료 |
-| `buyback_planned` | bool | 자사주 매입/소각 계획 명시 |
-| `raw_text` | string | 공시 원문 발췌 |
-
-### Financial (원천 재무제표 — 테이블 `financials`)
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `corp_code` | string(8) | FK |
-| `year` | int | 사업연도 |
-| `quarter` | int | 1~4 |
-| `revenue` | int\|null | 매출액 |
-| `net_income` | int\|null | 당기순이익 |
-| `equity` | int\|null | 자본총계 |
-| `total_assets` | int\|null | 자산총계 |
-| `total_liabilities` | int\|null | 부채총계 |
-| `dividend_total` | int\|null | 배당총액 |
-| `buyback_amount` | int\|null | 자사주 취득 수량(주) — 워싱 presence 신호(>0), KRW 액 아님(1.8) |
-
-### ValuationMetric (파생 지표 — **SQL VIEW** `valuation_metrics`, 조회 시 즉석 계산)
-| 필드 | 타입 | 산식 |
-|---|---|---|
-| `corp_code` | string(8) | FK |
-| `year` / `quarter` | int | 기준 분기 |
-| `roe` | float\|null | 당기순이익 / 자본총계 |
-| `roa` | float\|null | 당기순이익 / 자산총계 |
-| `pbr` | float\|null | 시가총액 / 자본총계 |
-| `per` | float\|null | 시가총액 / 순이익(TTM) |
-| `debt_ratio` | float\|null | 부채총계 / 자본총계 |
-| `payout_ratio` | float\|null | 배당총계 / 순이익 |
-| `yoy_revenue_growth` | float\|null | 매출 전년동기 대비 성장률 |
-| `yoy_income_growth` | float\|null | 순이익 전년동기 대비 성장률 |
-
-### ValueupScore (분석 산출 — 테이블 `valueup_score`)
-| 필드 | 타입 | 설명 |
-|---|---|---|
-| `corp_code` | string(8) | FK |
-| `as_of` | date | 산출 기준일 |
-| `achievement_rate` | float | 목표 대비 달성률(0~1+) |
-| `progress_rate` | float | 목표기간 경과 대비 진척률(0~1) |
-| `washing_flag` | bool | 워싱 의심 여부 |
-| `execution_score` | float | 밸류업 실행 점수(0~100) |
-| `buyback_executed` | bool | 실제 자사주 이행 여부 |
-
----
-
-## 2. 엔드포인트
-
-### 2.1 기업 (Companies)
-
-#### `GET /companies`
-기업 목록/필터.
-
-쿼리: `market`, `sector`, `has_valueup_plan`(bool), `q`(회사명 검색) + 공통.
-
-```json
-// 200
-{
-  "items": [
-    {
-      "corp_code": "00126380",
-      "stock_code": "005930",
-      "corp_name": "삼성전자",
-      "market": "KOSPI",
-      "sector": "반도체",
-      "market_cap": 450000000000000,
-      "has_valueup_plan": true
-    }
-  ],
-  "total": 718, "page": 1, "size": 20
-}
+s = SessionLocal()
+gap_engine.run(s, as_of="2026-07-13")         # valueup_score 계산·upsert (유일 writer)
+mna_engine.run(s, as_of="2026-07-13")         # mna_score 계산·upsert (유일 writer)
 ```
 
-#### `GET /companies/{corp_code}`
-기업 상세 (계획 + 최근 실적 + 갭스코어 포함).
+테스트: `pytest -q`(백엔드 246) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0011).
 
-```json
-// 200
-{
-  "corp_code": "00126380",
-  "corp_name": "삼성전자",
-  "market": "KOSPI",
-  "valueup_plan": { "target_roe": 15.0, "target_payout_ratio": 35.0, "buyback_planned": true, "period_end": "2027-12-31" },
-  "latest_financial": { "year": 2026, "quarter": 1, "actual_roe": 11.2, "actual_payout_ratio": 28.0 },
-  "gap_score": { "achievement_rate": 0.75, "progress_rate": 0.40, "washing_flag": false, "execution_score": 72.5 }
-}
-// 404 NOT_FOUND
-```
+## 아키텍처 (AD 요약)
 
----
+Layered 서빙 + Pipes-and-Filters 수집. 전체 규칙은 [ARCHITECTURE-SPINE](docs/planning-artifacts/architecture/architecture-valueup-washing-2026-07-08/ARCHITECTURE-SPINE.md), API 계약은 [API_SPEC](docs/API_SPEC.md).
 
-### 2.2 밸류업 분석 (Valueup) — 프로젝트 핵심
+| 결정 | 규칙 |
+|---|---|
+| AD-1 | 파생지표(ROE·PBR·EV/EBITDA…)는 **DB SQL VIEW**(`valuation_metrics`)로만 — 앱코드 재계산 금지 |
+| AD-2 | SQL은 repository 레이어에서만, 의존은 단방향(routers→services→repositories) |
+| AD-3/4/10 | 원천 테이블 writer는 수집 어댑터뿐, `valueup_score`/`mna_score` writer는 각 엔진뿐 |
+| AD-5 | `corp_code`(DART 8자리)가 정식 엔티티 키 |
+| AD-6 | 응답 봉투(`items/total/page/size`)·에러 계약(`{detail, code}`) 전 라우터 공통 |
+| AD-7 | 수집 적재는 멱등 upsert |
+| AD-8 | 스코어에 `as_of` 신선도 스탬프 — 시스템 시계 대신 명시 기준일 |
+| AD-11 | 프론트는 REST API로만 데이터 접근(DB 직접 접근 금지), 서버상태 TanStack Query·UI상태 zustand 분리 |
 
-#### `GET /valueup/plans`
-공시된 밸류업 계획 목록. 쿼리: `market`, `buyback_planned`, `disclosed_from`, `disclosed_to`.
+스택: FastAPI + SQLAlchemy 2.0(SQLite 개발/PostgreSQL 지원) · React 19 + Vite + TanStack Query/Table + Recharts · Tableau(CSV 스냅숏) · 수집은 OpenDART **REST 직접 호출**(dart-fss는 XBRL 파싱 불안정으로 제거 — 실전 트러블슈팅 판단) + pykrx + ECOS REST.
 
-#### `GET /valueup/gap-analysis`
-**핵심 API.** 기업별 계획 대비 실제 이행 갭.
+## 개발 방식: AI 교차검증 워크플로우
 
-쿼리:
-| 파라미터 | 타입 | 설명 |
-|---|---|---|
-| `market` | enum | 시장 필터 |
-| `metric` | enum | `roe` \| `payout` \| `pbr` (기준 지표) |
-| `min_progress` | float | 최소 목표기간 진척률 (예 0.5 = 절반 이상 경과) |
+BMAD 스토리 단위(3에픽 22스토리)로 개발하고, 매 스토리를 **구현 모델(Claude)과 다른 모델(GPT)이 교차 리뷰**했습니다. 리뷰 번들에 코드 전문을 verbatim으로 넣는 것이 규칙이며(축약 금지), 발견 사항은 patch/defer/dismiss로 triage해 스토리 문서에 전량 기록했습니다.
 
-```json
-// 200
-{
-  "items": [
-    {
-      "corp_code": "00111722",
-      "corp_name": "신세계",
-      "market": "KOSPI",
-      "target_roe": 10.0,
-      "actual_roe": 6.1,
-      "achievement_rate": 0.61,
-      "progress_rate": 0.55,
-      "gap": -3.9,
-      "washing_flag": true
-    }
-  ],
-  "total": 200, "page": 1, "size": 20
-}
-```
+- 누적으로 매 스토리 실질 결함이 발견됨 — 예: pydantic ValidationError가 ValueError 하위라 내부 오류가 400으로 세탁되는 함정(2.6), 4개 API 병렬 호출의 기준일 혼합(3.4), 스냅숏 부분 실패 시 세대 혼합(3.5).
+- 리뷰가 반려한 스토리(3.3)는 재작업 후 3라운드까지 갔고, 라운드가 거듭될수록 지적이 구조적→세부로 수렴하는 패턴을 확인했습니다.
+- 리뷰어 처방을 그대로 따르지 않고 더 싼 해법을 택해 관철한 사례(3.4 as_of 체이닝, 3.5 교집합 기준일)와, 리뷰어 오탐을 사실관계로 반박·기각한 사례도 스토리 문서에 남아 있습니다.
 
-#### `GET /valueup/washing-ranking`
-**"말만 하고 안 하는 기업" 랭킹.** 워싱 스코어 높은 순.
+에픽별 회고: [Epic 1](docs/implementation-artifacts/epic-1-retro-2026-07-10.md) · [Epic 2](docs/implementation-artifacts/epic-2-retro-2026-07-13.md) · [Epic 3](docs/implementation-artifacts/epic-3-retro-2026-07-14.md)
 
-쿼리: `market`, `min_progress`(기본 0.5), `size`.
+## 한계와 판단 (의도적으로 안 한 것들)
 
-```json
-// 200
-{
-  "items": [
-    {
-      "rank": 1,
-      "corp_code": "00111722",
-      "corp_name": "○○기업",
-      "target_roe": 12.0,
-      "actual_roe": 4.5,
-      "achievement_rate": 0.375,
-      "progress_rate": 0.70,
-      "buyback_planned": true,
-      "buyback_executed": false,
-      "washing_flag": true,
-      "execution_score": 21.0
-    }
-  ],
-  "total": 50, "page": 1, "size": 20
-}
-```
+포트폴리오 프로젝트로서, 리스크를 식별하고도 **비용 대비 판단으로 미구현을 선택한 항목**을 명시합니다. 상세는 [deferred-work](docs/implementation-artifacts/deferred-work.md).
 
-#### `GET /valueup/screening`
-다중 조건 스크리닝 (밸류업 후보/워싱 양방향).
+1. **execution_score 커버리지가 낮다(실데이터 33종목 중 non-null 1종목)** — 원인은 코드가 아니라 원천 데이터: 밸류업 공시의 목표치가 자유서식(범위·서술형)이라 target 파싱이 구조적으로 어렵습니다. 파서 튜닝으로 24%→42%까지 개선한 실적이 있고, 남은 갭은 수확체감 구간으로 판단해 **낮은 커버리지를 숨기지 않고 정직하게 노출하는 쪽을 설계 원칙으로 채택**했습니다. 워싱 판정의 핵심 신호(washing_flag)는 19종목에서 정상 작동합니다.
+2. **score_run 배치 메타데이터 미구현** — 엔진 부분 실행이 `latest_as_of`를 오염시킬 수 있는 리스크를 인지했으나, 단일 사용자 로컬 도구라는 운용 조건과 이미 구축된 완화 장치(Tableau 교집합 기준일+manifest, API의 `has_*_score` 플래그)를 고려해 기록으로 마감했습니다. 운영 서비스화 시에는 실행 단위 메타데이터 테이블이 정답입니다.
+3. **가격 point-in-time 미보장** — `valuation_metrics` 뷰가 과거 `as_of` 조회에도 전역 최신가를 사용합니다. 과거 시점 백테스트 용도로는 부적합하며, 해소하려면 가격 이력 조인 재설계가 필요합니다.
+4. **look-ahead "부분 차단"** — 같은 해 사업보고서(확정적으로 미래 공시)만 배제하고, 1~3분기 보고서의 동일 연도 시차는 실제 공시일(`available_at`) 데이터 없이는 차단할 수 없습니다. 전 엔드포인트가 동일 규칙을 공유해 API-CSV 패리티는 유지됩니다.
+5. **배포 envelope 없음** — 의도적 로컬 전용(아키텍처 결정). 운영 배포 시 SPA rewrite 설정·DB 전환(PostgreSQL 드라이버 동봉)이 필요합니다.
 
-쿼리:
-| 파라미터 | 타입 | 설명 |
-|---|---|---|
-| `market` | enum | 시장 |
-| `min_execution_score` | float | 실행 점수 하한 |
-| `max_execution_score` | float | 실행 점수 상한 |
-| `washing_only` | bool | 워싱 플래그만 |
-| `buyback_executed` | bool | 자사주 실이행 여부 |
-| `sort` | string | 기본 `-execution_score` |
-
----
-
-### 2.3 재무 & 지표 (Financials / Metrics)
-
-#### `GET /financials/{corp_code}`
-분기 원천 재무 시계열. 쿼리: `from_year`, `to_year`.
-
-```json
-// 200
-{
-  "corp_code": "00126380",
-  "items": [
-    { "year": 2026, "quarter": 1, "revenue": 70000000000000, "net_income": 8000000000000, "equity": 300000000000000, "buyback_amount": 3000000 }
-  ]
-}
-```
-
-#### `GET /metrics`
-계산된 밸류에이션 지표 목록/필터 — **애널리스트 스크리너의 기준 데이터**.
-
-쿼리: `market`, `sector`, `max_pbr`, `min_roe`, `max_debt_ratio`, `min_payout_ratio` + 공통.
-
-```json
-// 200
-{
-  "items": [
-    {
-      "corp_code": "00126380", "corp_name": "삼성전자", "market": "KOSPI", "sector": "반도체",
-      "roe": 11.2, "roa": 7.4, "pbr": 1.5, "per": 14.2,
-      "debt_ratio": 42.0, "payout_ratio": 28.0,
-      "yoy_revenue_growth": 12.3, "yoy_income_growth": 25.1
-    }
-  ],
-  "total": 718, "page": 1, "size": 20
-}
-```
-
-#### `GET /metrics/{corp_code}`
-종목별 지표 시계열(Tableau ROE-PBR 산점도·상세 차트용).
-
----
-
-### 2.4 통계 (Stats) — Tableau/Figma 피드용
-
-#### `GET /stats/market-comparison`
-시장(KOSPI/KOSDAQ)·시총구간별 평균 지표 집계. (아이디어 #3 확장 훅)
-
-```json
-// 200
-{
-  "as_of": "2026-06-30",
-  "groups": [
-    { "market": "KOSPI", "avg_roe": 9.8, "avg_pbr": 1.4, "washing_ratio": 0.18, "n": 480 },
-    { "market": "KOSDAQ", "avg_roe": 6.2, "avg_pbr": 0.9, "washing_ratio": 0.41, "n": 238 }
-  ]
-}
-```
-
-#### `GET /stats/summary`
-전체 대시보드 헤드라인 카드용 KPI.
-
-```json
-// 200
-{
-  "total_companies": 718,
-  "washing_count": 142,
-  "avg_execution_score": 58.3,
-  "buyback_execution_ratio": 0.63
-}
-```
-
----
-
-### 2.5 수집/운영 (Ingest)
-
-#### `POST /ingest/run`
-수동 데이터 수집 트리거 (관리자용).
-
-```json
-// 요청
-{ "source": "dart", "target": "financials", "year": 2026, "quarter": 1 }
-// 202 Accepted
-{ "job_id": "ing_20260708_01", "status": "queued" }
-```
-
-#### `GET /ingest/status/{job_id}`
-수집 잡 상태. `queued` \| `running` \| `done` \| `failed`.
-
----
-
-## 3. 갭 스코어 산식 (정의)
+## 저장소 안내
 
 ```
-달성률   achievement_rate = actual_metric / target_metric      (target>0)
-진척률   progress_rate    = (today - period_start) / (period_end - period_start)   [0,1] 클램프
-갭       gap              = actual_metric - target_metric
-
-워싱 플래그 washing_flag = (progress_rate >= 0.5)
-                        AND (achievement_rate < 0.6)
-                        AND (buyback_planned == true AND buyback_executed == false)
-                        # ↑ 절반 이상 시간 지났는데 목표 60% 미달 + 약속한 자사주 미이행
-
-실행점수 execution_score = 100 * clamp(
-                        0.5 * min(achievement_rate, 1.0)
-                      + 0.3 * (buyback_executed ? 1 : 0)
-                      + 0.2 * min(actual_payout/target_payout, 1.0)
-                      , 0, 1)
+app/            FastAPI·엔진·수집·export (ingest / analysis / repositories / services / routers / export)
+dashboard/      React SPA (스크리너 + 종목 상세)
+docs/           API_SPEC + 계획 아티팩트(PRD·아키텍처·에픽) + 구현 아티팩트(스토리 22건·리뷰 번들·회고 3건)
+exports/        Tableau CSV 스냅숏 + 워크북 (재생성 가능, gitignore)
+tests/          pytest 246 (합성 데이터 — API 키 없이 전부 통과)
 ```
-
-> 임계치(0.5, 0.6)·가중치(0.5/0.3/0.2)는 설정값(`config.py`)으로 노출해 튜닝 가능.
-
----
-
-## 4. 데이터 소스 매핑
-
-| 데이터 | 소스 | 라이브러리 |
-|---|---|---|
-| 기업 기본정보·재무제표 | DART 전자공시 OpenAPI | `dart-fss` |
-| 밸류업 계획 공시 | DART "기업가치제고계획" 공시 | `dart-fss` + 파서 |
-| 주가·시가총액 | KRX | `pykrx` |
-| 배당·상장기업 재무 보강 | 금융위 **금융공공데이터** 개방 API | `requests` |
-| 지표(ROE/ROA/PBR/PER/부채비율/배당성향/YoY) | `financials`×`prices` SQL 계산 | (내부 뷰) |
-
-API Key는 `.env`의 `DART_API_KEY`, `FINDATA_API_KEY`로 주입.
