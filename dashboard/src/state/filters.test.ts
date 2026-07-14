@@ -44,6 +44,19 @@ describe("filters store (3.3 리뷰 반영)", () => {
     expect(p.max_market_cap).toBe(MCAP_BOUNDS.mid.max);
   });
 
+  it("시총 버킷은 상호 배타 — 1조·10조 경계가 두 버킷에 걸리지 않는다(재리뷰 #2)", () => {
+    const TRILLION = 1_000_000_000_000;
+    // 정확히 1조: small(max) 미포함, mid(min) 포함
+    expect(MCAP_BOUNDS.small.max!).toBeLessThan(1 * TRILLION);
+    expect(MCAP_BOUNDS.mid.min!).toBe(1 * TRILLION);
+    // 정확히 10조: mid(max) 미포함, large(min) 포함
+    expect(MCAP_BOUNDS.mid.max!).toBeLessThan(10 * TRILLION);
+    expect(MCAP_BOUNDS.large.min!).toBe(10 * TRILLION);
+    // 인접 버킷 사이 빈 구간 없음(백엔드 비교가 포함(>=,<=)이므로 max+1 = 다음 min)
+    expect(MCAP_BOUNDS.small.max! + 1).toBe(MCAP_BOUNDS.mid.min!);
+    expect(MCAP_BOUNDS.mid.max! + 1).toBe(MCAP_BOUNDS.large.min!);
+  });
+
   it("toParams: washing_only=false는 undefined로(파라미터 미전송)", () => {
     const p = toParams(useFilters.getState());
     expect(p.washing_only).toBeUndefined();

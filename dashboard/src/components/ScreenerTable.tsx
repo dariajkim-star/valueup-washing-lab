@@ -111,6 +111,11 @@ export function ScreenerTable({
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
   const totalPages = Math.max(1, Math.ceil(total / size));
 
+  // AC6 강조 컬럼(재리뷰 #6): 활성 스코어 모드의 컬럼 전체를 배경 틴트로 강조
+  const highlightedCol = scoreMode === "valueup" ? "valueup" : "mna";
+  const highlightClass = (colId: string) =>
+    colId === highlightedCol ? (scoreMode === "valueup" ? "bg-emerald-50/70" : "bg-indigo-50/70") : "";
+
   if (error) {
     const msg =
       error instanceof ApiRequestError
@@ -131,7 +136,7 @@ export function ScreenerTable({
                 key={h.id}
                 className={`px-4 py-3 text-[11px] font-semibold text-gray-500 ${
                   h.id === "valueup" || h.id === "mna" ? "text-right" : "text-left"
-                }`}
+                } ${highlightClass(h.id)}`}
               >
                 {flexRender(h.column.columnDef.header, h.getContext())}
               </th>
@@ -153,7 +158,7 @@ export function ScreenerTable({
               style={{ background: r.original.washing_flag === true ? "#fffbfa" : undefined }}
             >
               {r.getVisibleCells().map((cell) => (
-                <td key={cell.id} className="px-4 py-3.5 align-middle">
+                <td key={cell.id} className={`px-4 py-3.5 align-middle ${highlightClass(cell.column.id)}`}>
                   {flexRender(cell.column.columnDef.cell, cell.getContext())}
                 </td>
               ))}

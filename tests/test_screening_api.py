@@ -63,13 +63,15 @@ def _seed(s: Session) -> None:
         mna_target_score=60.0, population_basis="market_fallback",
     ))
     s.commit()
-    # 지표·시총(3.3 리뷰 반영): 00000001=고ROE(20%)·저PBR, 00000002=저ROE(5%)·고PBR.
-    # 00000003/4는 지표 없음(roe/pbr null — 범위 필터 불통과 검증용).
+    # 지표·시총(3.3 리뷰 반영): 00000001=고ROE(20%)·저PBR·저부채(50%), 00000002=저ROE(5%)·
+    # 고PBR·고부채(200%). 00000003/4는 지표 없음(roe/pbr null — 범위 필터 불통과 검증용).
+    # ev_ebitda = (market_cap + total_debt - cash) / operating_income:
+    #   corp1 = (1000+500-100)/220 = 6.36 / corp2 = (5000+2000-100)/60 = 115.0
     s.execute(text(
         "INSERT INTO financials (corp_code, year, quarter, revenue, net_income, equity, "
-        "total_assets, total_liabilities, operating_income) VALUES "
-        "('00000001', 2025, 3, 1000, 200, 1000, 3000, 1000, 220), "
-        "('00000002', 2025, 3, 1000, 50, 1000, 3000, 1000, 60)"
+        "total_assets, total_liabilities, operating_income, total_debt, cash) VALUES "
+        "('00000001', 2025, 3, 1000, 200, 1000, 3000, 500, 220, 500, 100), "
+        "('00000002', 2025, 3, 1000, 50, 1000, 3000, 2000, 60, 2000, 100)"
     ))
     s.execute(text(
         "INSERT INTO prices (corp_code, date, close, volume, trading_value, market_cap) VALUES "
@@ -192,6 +194,53 @@ def test_metric_range_filters(client) -> None:
     # 스코어 필터와의 조합도 동작
     r4 = client.get("/screening", params={"min_roe": 1, "max_execution_score": 50})
     assert [i["corp_code"] for i in r4.json()["items"]] == ["00000001"]
+
+
+def test_ev_ebitda_and_debt_ratio_filters(client) -> None:
+    """[재리뷰 #7] 남은 지표 필터 2종 — max_ev_ebitda·max_debt_ratio."""
+    # corp1 ev_ebitda=6.36 / corp2=115.0
+    r = client.get("/screening", params={"max_ev_ebitda": 10})
+    assert [i["corp_code"] for i in r.json()["items"]] == ["00000001"]
+    # corp1 debt_ratio=50% / corp2=200%
+    r2 = client.get("/screening", params={"max_debt_ratio": 100})
+    assert [i["corp_code"] for i in r2.json()["items"]] == ["00000001"]
+    # 지표 없는 종목(00000003/4)은 불통과 확인(총 1건)
+    assert r2.json()["total"] == 1
+
+
+def test_filtered_count_and_pagination(client) -> None:
+    """[재리뷰 #7] 지표 필터 적용 상태의 total·페이지네이션 정합(2단계 IN 방식 검증)."""
+    r = client.get("/screening", params={"min_roe": 1, "page": 2, "size": 1})
+    body = r.json()
+    assert body["total"] == 2  # roe 있는 corp1(20%)·corp2(5%)
+    assert len(body["items"]) == 1  # 2페이지 1건
+    # 1·2페이지 합집합 = 두 종목 전부(중복·누락 없음)
+    r1 = client.get("/screening", params={"min_roe": 1, "page": 1, "size": 1})
+    codes = {r1.json()["items"][0]["corp_code"], body["items"][0]["corp_code"]}
+    assert codes == {"00000001", "00000002"}
+
+
+def test_metric_and_market_cap_combined(client) -> None:
+    """[재리뷰 #7] 지표 필터 × 시총 필터 동시 적용(두 IN 조건 AND)."""
+    # min_roe=1(corp1·2 통과) & max_market_cap=2000(corp1만) → corp1
+    r = client.get("/screening", params={"min_roe": 1, "max_market_cap": 2000})
+    assert [i["corp_code"] for i in r.json()["items"]] == ["00000001"]
+    # min_roe=10(corp1만) & min_market_cap=2000(corp2만) → 0건(교집합 공집합)
+    r2 = client.get("/screening", params={"min_roe": 10, "min_market_cap": 2000})
+    assert r2.json()["total"] == 0
+
+
+def test_market_cap_boundary_inclusive(client) -> None:
+    """[재리뷰 #2] 백엔드 비교는 포함(>=,<=) — 경계 배타는 프론트 버킷(-1)이 담당.
+
+    시총 정확히 1000(corp1): min=1000 포함, max=1000 포함, max=999 불포함.
+    """
+    assert "00000001" in {i["corp_code"] for i in client.get(
+        "/screening", params={"min_market_cap": 1000}).json()["items"]}
+    assert "00000001" in {i["corp_code"] for i in client.get(
+        "/screening", params={"max_market_cap": 1000}).json()["items"]}
+    assert "00000001" not in {i["corp_code"] for i in client.get(
+        "/screening", params={"max_market_cap": 999}).json()["items"]}
 
 
 def test_market_cap_filter(client) -> None:

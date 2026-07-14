@@ -51,11 +51,15 @@ def latest_as_of(session: Session) -> str | None:
 
 
 def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
-    """corp별 look-ahead 안전 최신 지표(roe·pbr·ev_ebitda·debt_ratio) — 3.3 리뷰 반영.
+    """corp별 look-ahead **부분 차단** 최신 지표(roe·pbr·ev_ebitda·debt_ratio) — 3.3 리뷰 반영.
 
     2.1/2.3/3.1과 동일한 사업보고서 배제 규칙 + Python dedupe(DISTINCT ON 회피, 이식성).
-    look-ahead 패턴 4번째 사용처 — 시그니처(선택 컬럼·조인)가 소비자마다 달라 억지 공통화
-    대신 명시적 반복을 유지(deferred-work의 공통 헬퍼 항목에 기록).
+    **"안전"이 아니라 "부분 차단"인 이유(재리뷰 정정)**: 같은 해 사업보고서(quarter=4)만
+    확정 배제 가능(항상 다음 해 공시). 1~3분기 보고서의 동일연도 시차는 실제 공시일
+    (`available_at`) 데이터가 없어 차단 불가 — 명시적 과거 as_of 조회 시 그 해의 이후
+    분기가 섞일 수 있다. 완전 해결은 공시일 수집 별도 스토리(deferred-work 2-1, 전 엔진·
+    stats·screening 공통 한계 — 여기만 달력 휴리스틱을 넣으면 엔드포인트 간 규칙이 갈라짐).
+    look-ahead 패턴 4번째 사용처 — 시그니처가 소비자마다 달라 공통화는 deferred.
     """
     as_of_year = int(as_of[:4])
     rows = session.execute(

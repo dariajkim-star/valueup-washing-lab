@@ -24,7 +24,10 @@ router = APIRouter(prefix="/screening", tags=["screening"])
         "mna_target_score: null=산출 불가(0점/최하위 표시 금지). "
         "buyback_executed 필터: true/false 모두 null(판단 불가)은 미포함. "
         "sort: `field`/`-field` 규약, 허용=execution_score·mna_target_score(기본=corp_code). "
-        "범위 필터는 null을 매칭하지 않는다(산출 불가는 조건 판단 불가)."
+        "범위 필터는 null을 매칭하지 않는다(산출 불가는 조건 판단 불가). "
+        "알려진 한계: roe/pbr 등 지표는 look-ahead 부분 차단(같은 해 사업보고서만 배제) — "
+        "명시적 과거 as_of 조회 시 그 해의 이후 분기 지표가 섞일 수 있음(공시일 수집 전까지, "
+        "전 엔드포인트 공통). 시총 필터는 최신가 기준(point-in-time 아님)."
     ),
 )
 def screening_list(

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useFilters, type McapBucket } from "../state/filters";
 
 // UX-DR1: 시장·업종·시총구간·지표 슬라이더·워싱 토글·스코어 모드 전환 — 전부 실배선
@@ -30,14 +30,17 @@ const SECTOR_OPTIONS: Array<{ value: string; label: string }> = [
 
 const MCAP_OPTIONS: Array<{ value: McapBucket; label: string }> = [
   { value: "all", label: "전체" },
-  { value: "large", label: "대형 (10조↑)" },
-  { value: "mid", label: "중형 (1~10조)" },
-  { value: "small", label: "소형 (1조↓)" },
+  { value: "large", label: "대형 (10조 이상)" },
+  { value: "mid", label: "중형 (1조 이상 10조 미만)" },
+  { value: "small", label: "소형 (1조 미만)" },
 ];
 
 // 실동작 슬라이더: 드래그 중엔 로컬 값만, 놓는 순간(commit) 스토어 반영 → 재요청.
 // (onChange마다 커밋하면 드래그 한 번에 요청 수십 발 — 커밋 시점 분리)
-function RangeFilter({
+// 재리뷰 #3 반영: pointercancel(터치 스크롤 개입)·blur(포커스 이탈) 경로 추가,
+// 클로저 스테일 방지 위해 currentTarget.valueAsNumber를 읽고, 외부 value 변경
+// (전체 초기화 등)에 로컬 상태를 동기화.
+export function RangeFilter({
   label,
   unit,
   min,
@@ -55,7 +58,12 @@ function RangeFilter({
   onCommit: (v?: number) => void;
 }) {
   const [local, setLocal] = useState<number | undefined>(value);
+  useEffect(() => setLocal(value), [value]); // 외부(스토어) 값 변경 동기화
   const active = local !== undefined;
+  // 미설정(local=undefined) 상태의 blur/pointerup은 no-op — input이 min을 폴백 표시할 뿐
+  // 사용자가 값을 만진 적이 없는데 valueAsNumber(=min)를 커밋하면 탭 통과만으로 필터가
+  // 활성화된다(리뷰어 제안 코드의 함정 — onChange가 선행된 경우에만 실값 커밋).
+  const commit = (v: number) => onCommit(local === undefined ? undefined : v);
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -77,13 +85,16 @@ function RangeFilter({
       </div>
       <input
         type="range"
+        aria-label={label}
         min={min}
         max={max}
         step={step}
         value={local ?? min}
-        onChange={(e) => setLocal(Number(e.target.value))}
-        onPointerUp={() => onCommit(local)}
-        onKeyUp={() => onCommit(local)}
+        onChange={(e) => setLocal(e.currentTarget.valueAsNumber)}
+        onPointerUp={(e) => commit(e.currentTarget.valueAsNumber)}
+        onPointerCancel={(e) => commit(e.currentTarget.valueAsNumber)}
+        onKeyUp={(e) => commit(e.currentTarget.valueAsNumber)}
+        onBlur={(e) => commit(e.currentTarget.valueAsNumber)}
         className="h-1 w-full accent-emerald-600"
       />
     </div>

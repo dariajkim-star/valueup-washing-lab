@@ -4,7 +4,7 @@ baseline_commit: bc8334f
 
 # Story 3.3: 스크리너 화면 — 필터 패널 & 종목 리스트
 
-Status: review
+Status: done
 
 ## Story
 
@@ -43,11 +43,12 @@ so that 원하는 종목군을 좁혀 탐색한다.
 - **스택** — React 19.2 / Vite 8.1 / TS / Tailwind 4.3(flood-escape-lab과 계열 일관) + TanStack Query(서버상태)·Table(리스트). shadcn-ui는 이 스토리에선 미도입(필요 최소 — 커스텀 경량 컴포넌트로 시안 재현, 과설치 회피). Recharts는 3.4(상세 시계열)에서.
 - **AD-11 준수** — 데이터는 `/screening` REST만. Vite dev proxy로 `/api` 프리픽스를 FastAPI(127.0.0.1:8000)에 넘겨 CORS·하드코딩 URL 회피. 서버상태=TanStack Query, UI상태(필터·모드)=zustand 로컬 — 두 관심사 분리.
 
-### 3.2 시안·API 매핑 (그대로 구현)
+### 3.2 시안·API 매핑 (재리뷰 #8로 최신화 — 1차 기록은 아래 historical note)
 
-- 리스트 행 = `/screening` ScreeningOut: corp_name·market·execution_score·mna_target_score·washing_flag·population_basis·**has_valueup_score·has_mna_score**·buyback_status·buyback_executed·sector.
-- null 배지 규칙(3.2 범례 node 11:2): washing_flag(true=워싱의심/false=근거없음/null=판단불가), mna null=산출불가, has_*_score=false→미집계(산출불가와 구분), 금융 등 sector→미지원업종, population_basis chip.
-- 필터→쿼리: market·sector·min/max_execution_score·min/max_mna_score·washing_only·buyback_executed·sort·page·size. 빈 문자열 필터는 보내지 않음(2.6이 빈 문자열 422 — 프론트가 미선택을 빈 문자열로 보내지 않게).
+- 리스트 행 = `/screening` ScreeningOut: corp_name·market·**roe·pbr**·execution_score·mna_target_score·washing_flag·population_basis·**has_valueup_score·has_mna_score**·buyback_status·buyback_executed·sector.
+- null 배지 규칙(3.2 범례 node 11:2): washing_flag(true=워싱의심/false=근거없음/null=판단불가), mna null=산출불가, has_*_score=false→미집계(산출불가와 구분), 금융 등 sector→미지원업종, population_basis chip. roe/pbr null="—".
+- 필터→쿼리: market·sector·**min_roe·max_pbr·max_ev_ebitda·max_debt_ratio·min/max_market_cap**·min/max_execution_score·min/max_mna_score·washing_only·buyback_executed·sort·page·size. 빈 문자열 필터는 보내지 않음(2.6이 빈 문자열 422). 시총 버킷은 프론트에서 배타 구간(-1)으로 변환.
+- **[historical note — 1차 구현 당시]** 원래 이 스토리는 "백엔드 코드 변경 없음(순수 소비, 221 pytest 불변)"으로 계획했으나, 1차 리뷰 반려로 `/screening` 백엔드 확장(지표·시총 필터 + roe/pbr 응답)이 이 스토리에 편입됨 — 최종 224 pytest. 아래 1차 계획 문구 중 "백엔드 무변경" 언급은 이 시점 이전 기록임.
 
 ### 아키텍처 가드레일
 
@@ -62,6 +63,18 @@ so that 원하는 종목군을 좁혀 탐색한다.
 
 - `company` 33종목 중 **한국전력공사(00159193, sector 35120)** 1종목이 `/screening`에서 제외됨 — 밸류업 공시가 없어 gap_engine이 행 미생성(2.1 설계) + M&A 3요소 전부 null이라 mna_engine도 행 미생성(2.3 설계) → **두 스코어 모두 없는 종목 제외**(2.6 AC1)가 정확히 적용된 결과. 파이프라인 버그 아님. 데이터 검증 쿼리로 확정(2026-07-13).
 - 화면 문구도 "33개 종목"이 아니라 API total(32)을 그대로 표시 — 이미 정합.
+
+### Review Findings — 재리뷰 (code review 2026-07-13, GPT — High 2·Med 5·Low 1)
+
+- [x] [Dismiss/문서정정][High] **과거 as_of 미래 분기 누수** — 사실관계는 맞으나 **2.1 리뷰에서 이미 발견·부분 수정·명시적 defer된 기존 한계의 재발견**(1~3분기 동일연도 시차, 완전 해결=공시일 available_at 수집 별도 스토리). 달력 휴리스틱을 screening에만 넣으면 gap/mna/stats와 규칙이 갈라져 기각. 리드 승인. 수용분: docstring "안전"→"부분 차단" 정정 + OpenAPI 설명에 한계 명시 + 번들 알려진 것 누락이 재발견 원인이었음을 기록.
+- [x] [Patch][High] **시총 버킷 경계 중복**(1조·10조가 두 버킷에) → mid.max=10조-1·small.max=1조-1(원 단위 정수), 문구 "이상/미만", 경계 테스트(프론트 배타성+백엔드 포함성).
+- [x] [Patch][Med] **슬라이더 커밋 경로** → pointercancel·blur 추가, currentTarget.valueAsNumber(클로저 스테일 방지), useEffect 외부 값 동기화. **+자체 발견**: 리뷰어 제안 코드는 미설정 상태 blur가 min값을 커밋해 탭 통과만으로 필터가 활성화되는 함정 — 미설정 가드 추가(테스트로 고정).
+- [x] [Patch][Med] **isPlaceholderData 미표시** → 오버레이(opacity 50%+pointer-events-none) + "새 조건으로 다시 계산 중" 배너.
+- [x] [Defer][Med] **2단계 IN 필터 확장성** — 현재 정합(리뷰어 확인), 유니버스 확대 시 ROW_NUMBER JOIN 전환(deferred-work 기록).
+- [x] [Patch][Med] **AC6 강조 컬럼 미구현** → 모드별 활성 스코어 컬럼 배경 틴트(emerald/indigo) 구현 — AC 문구 축소 대신 구현 선택(1차 반려 교훈).
+- [x] [Patch][Med] **테스트 공백** → 백엔드 4종(ev_ebitda·debt_ratio 필터, 필터+페이지네이션 total, 지표×시총 조합, 시총 경계 포함성) + 프론트 7종(RangeFilter 커밋 경로·동기화·미설정 가드, MCAP 경계 배타성). look-ahead 배제 테스트는 #1 defer에 묶여 제외(available_at 스토리 몫).
+- [x] [Patch][Low] **문서 모순** → historical note 격리("백엔드 무변경"은 1차 계획), 필터→쿼리 매핑 최신화.
+- 리뷰어 Clean 판정: 2단계 IN의 COUNT/페이지네이션 정합, empty IN 처리, query key 구성(객체 결정적 해시), scoreMode→sort 경유 재요청.
 
 ## Dev Agent Record
 
@@ -105,3 +118,4 @@ claude-opus-4-8 (bmad-create-story + 인라인 구현)
 - 2026-07-13: Story 3.3 구현(1차) — dashboard 스캐폴딩+필터패널+TanStack Table+null배지, 부분 검증. Status → review.
 - 2026-07-13: **GPT 리뷰 반려**(Changes Requested) — AC2 필터 미배선(BLOCKER)·ROE/PBR 컬럼 부재(High)·33vs32 미설명(High)·프론트 테스트 부재(Med)·체크박스 과대계상(Med). KSIC 판정 건은 전제 오류(sector=KSIC 코드 실증)로 기각, 백엔드 명시 status는 defer. Status → in-progress.
 - 2026-07-13: 리뷰 반영 재작업 — ① 백엔드 /screening 확장(지표 4종+시총 필터, roe/pbr 응답, 224 passed) ② 전 필터 실배선(업종·시총 select, 슬라이더 4종 커밋 방식) ③ ROE/PBR 컬럼 ④ vitest 22종 ⑤ 33vs32 문서화(한전 1종목, 설계대로) ⑥ 라이브 재검증(네트워크 로그 실증). Status → review(재리뷰 대기).
+- 2026-07-13: **재리뷰**(Changes Requested, High2·Med5·Low1) triage — look-ahead 건은 기존 defer 재발견으로 기각(리드 승인, 문서 정정만), 나머지 patch/defer(위 Review Findings). 시총 경계·슬라이더 경로·placeholder 오버레이·강조 컬럼·테스트 11종 추가. 백엔드 **228 passed**·vitest **29 passed**·tsc clean, 라이브 검증(강조 컬럼 모드 스왑 computed style 실증). Status → done.

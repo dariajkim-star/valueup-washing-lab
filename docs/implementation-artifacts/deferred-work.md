@@ -119,3 +119,9 @@ buyback 집계는 실공시 샘플 없이 보수적 규칙(총계 우선·상충
 
 - **valueup·metrics 라우터 HTTP 경계 정비(2.5와 패리티)** — 2.5 리뷰에서 잡힌 세 가지가 기존 라우터에도 동일하게 존재: ① 빈 문자열 필터(`?market=`)가 "필터 없음"으로 확대(truthiness), ② `page` 상한 없음(OFFSET 오버플로 → 500 가능), ③ (해소됨) 422 에러 계약 — 이것만은 main.py 전역 핸들러라 이미 전 라우터에 적용됨. ①②를 2.5와 동일 방식(min_length=1·le=1_000_000·repo `is not None`)으로 /valueup/*·/metrics/*에 적용하는 소규모 정비 스토리 또는 2-6에 편승.
 - **as_of 관대 파싱(Dismiss 기록)** — `as_of=2026-07-13T00:00:00`·epoch 문자열도 유효 날짜로 해석돼 200(pydantic v2 lax). 계약을 "달력상 유효한 날짜로 해석 가능한 입력"으로 정의하고 수용 — 유효 날짜로만 해석되고 500·오동작 없음, 2.4와 동작 일치 유지. 엄격 `YYYY-MM-DD` 강제가 필요해지면(외부 공개 등) 정규식 validator를 전 라우터 공통으로.
+
+## Deferred from: code review of story-3.3 재리뷰 (2026-07-13, GPT)
+
+- **2단계 IN 필터의 확장성** — /screening 지표·시총 필터가 "통과 corp_code 집합 → IN 조건" 방식. 현재 33종목 규모에선 정합(COUNT·페이지네이션 SQL 유지, 리뷰어도 확인)하나, 전체 KRX 유니버스로 확장 시 매 요청 전체 뷰 스캔·거대 IN 바인드·DB 파라미터 제한이 병목. 전환 방향: valuation_metrics를 selectable로 매핑하거나 `ROW_NUMBER() OVER (PARTITION BY corp_code ORDER BY year DESC, quarter DESC)` CTE로 메인 쿼리에 직접 JOIN. **유니버스 확대 스토리의 선행 조건.**
+- **1~3분기 동일연도 look-ahead(재확인)** — 재리뷰가 2-1 defer를 재발견(명시적 과거 as_of 조회 시 그 해 이후 분기 지표 혼입 가능). 상태 변화 없음: 완전 해결은 공시일(available_at) 수집 스토리 몫, 달력 분기 휴리스틱은 엔드포인트 간 규칙 분기를 만들어 기각. 이번에 docstring "안전"→"부분 차단" 정정 + OpenAPI 설명에 한계 명시로 과대표현만 해소.
+- **미지원 업종 판정의 백엔드 명시화(1차 리뷰 defer 유지)** — 프론트 KSIC prefix 추론 대신 백엔드가 score_status(UNSUPPORTED_SECTOR 등)를 내려주는 방향. 레벨2(업종별 변수세트) 스토리와 병합 후보.

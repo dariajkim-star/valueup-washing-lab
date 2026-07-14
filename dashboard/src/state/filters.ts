@@ -8,14 +8,15 @@ const DEFAULT_SORT: Record<ScoreMode, string> = {
   mna: "-mna_target_score", // 인수 매력 높은 순(내림차순)
 };
 
-// 시총구간 버킷(KRW 원): 대형 ≥10조 / 중형 1~10조 / 소형 <1조
+// 시총구간 버킷(KRW 원, 백엔드 비교는 포함(>=,<=)이라 max는 -1로 잘라 상호 배타 보장):
+// 대형 = 10조 이상 / 중형 = 1조 이상 10조 미만 / 소형 = 1조 미만 (재리뷰 #2 — 경계 중복 제거)
 export type McapBucket = "all" | "large" | "mid" | "small";
 const TRILLION = 1_000_000_000_000;
 export const MCAP_BOUNDS: Record<McapBucket, { min?: number; max?: number }> = {
   all: {},
   large: { min: 10 * TRILLION },
-  mid: { min: 1 * TRILLION, max: 10 * TRILLION },
-  small: { max: 1 * TRILLION },
+  mid: { min: 1 * TRILLION, max: 10 * TRILLION - 1 },
+  small: { max: 1 * TRILLION - 1 },
 };
 
 export interface FilterState {
