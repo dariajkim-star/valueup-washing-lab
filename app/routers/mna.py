@@ -27,7 +27,7 @@ router = APIRouter(prefix="/mna", tags=["mna"])
 )
 def mna_ranking(
     # 3.4 상세화면 단건 조회용(정확일치, 8자리)
-    corp_code: str | None = Query(None, min_length=8, max_length=8),
+    corp_code: str | None = Query(None, min_length=8, max_length=8, pattern=r"^\d{8}$"),
     # min_length=1: 빈 문자열(?market=)이 "필터 없음"으로 조용히 확대되지 않게 422
     # (2-5 GPT 리뷰 Med — 정확일치/prefix 계약상 빈 값은 무효 입력)
     market: str | None = Query(None, min_length=1),

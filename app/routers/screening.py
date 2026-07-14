@@ -32,7 +32,7 @@ router = APIRouter(prefix="/screening", tags=["screening"])
 )
 def screening_list(
     # 3.4 상세화면 단건 조회용(정확일치, 8자리)
-    corp_code: str | None = Query(None, min_length=8, max_length=8),
+    corp_code: str | None = Query(None, min_length=8, max_length=8, pattern=r"^\d{8}$"),
     market: str | None = Query(None, min_length=1),
     sector: str | None = Query(
         None, min_length=1, pattern=r"^\d{2,5}$",

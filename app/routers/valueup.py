@@ -25,7 +25,7 @@ router = APIRouter(prefix="/valueup", tags=["valueup"])
 )
 def gap_analysis(
     # 3.4 상세화면 단건 조회용(정확일치, 8자리)
-    corp_code: str | None = Query(None, min_length=8, max_length=8),
+    corp_code: str | None = Query(None, min_length=8, max_length=8, pattern=r"^\d{8}$"),
     # min_length=1·page 상한: 2-5 리뷰 패리티 정비(빈 필터 확대·OFFSET 오버플로 방지)
     market: str | None = Query(None, min_length=1),
     min_progress: float | None = Query(None, ge=0.0, le=1.0),

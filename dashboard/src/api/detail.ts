@@ -19,11 +19,15 @@ export interface GapDetail {
 }
 
 // 3.4: /valueup/gap-analysis를 corp_code 필터+size=1로 재사용(신규 엔드포인트 회피).
-export function useGapDetail(corpCode: string | undefined) {
+// as_of는 헤더(/screening)의 기준일로 체이닝(3.4 리뷰 High — 카드별로 서로 다른 최신일을
+// 섞어 한 화면에 합성하지 않기 위해 화면 전체가 header.as_of 단일 기준일로 수렴).
+// 그 기준일에 엔진이 안 돌았으면 빈 결과 = "미집계"가 그 기준일에 대한 정확한 표현.
+export function useGapDetail(corpCode: string | undefined, asOf: string | undefined) {
   return useQuery({
-    queryKey: ["gap-detail", corpCode],
-    queryFn: () => apiGet<Page<GapDetail>>("/valueup/gap-analysis", { corp_code: corpCode, size: 1 }),
-    enabled: !!corpCode,
+    queryKey: ["gap-detail", corpCode, asOf],
+    queryFn: () =>
+      apiGet<Page<GapDetail>>("/valueup/gap-analysis", { corp_code: corpCode, as_of: asOf, size: 1 }),
+    enabled: !!corpCode && !!asOf,
     select: (page) => page.items[0] ?? null,
   });
 }
@@ -43,12 +47,13 @@ export interface MnaDetail {
   population_basis: string | null;
 }
 
-// 3.4: /mna/ranking을 corp_code 필터+size=1로 재사용.
-export function useMnaDetail(corpCode: string | undefined) {
+// 3.4: /mna/ranking을 corp_code 필터+size=1로 재사용. as_of 체이닝은 useGapDetail과 동일.
+export function useMnaDetail(corpCode: string | undefined, asOf: string | undefined) {
   return useQuery({
-    queryKey: ["mna-detail", corpCode],
-    queryFn: () => apiGet<Page<MnaDetail>>("/mna/ranking", { corp_code: corpCode, size: 1 }),
-    enabled: !!corpCode,
+    queryKey: ["mna-detail", corpCode, asOf],
+    queryFn: () =>
+      apiGet<Page<MnaDetail>>("/mna/ranking", { corp_code: corpCode, as_of: asOf, size: 1 }),
+    enabled: !!corpCode && !!asOf,
     select: (page) => page.items[0] ?? null,
   });
 }

@@ -41,8 +41,9 @@ export function ValueUpCell({ row }: { row: ScreeningRow }) {
   );
 }
 
-// 은행·보험 등 M&A 스코어가 구조적으로 산출 불가한 업종(KSIC 64~66 금융·보험)
-function isUnsupportedSector(sector: string | null): boolean {
+// 은행·보험 등 M&A 스코어가 구조적으로 산출 불가한 업종(KSIC 64~66 금융·보험).
+// 리스트(MnaCell)와 상세(MnaBreakdown)가 같은 판정을 공유(3.4 리뷰 Med — 표현 불일치 방지).
+export function isUnsupportedSector(sector: string | null): boolean {
   if (!sector) return false;
   const p = sector.slice(0, 2);
   return p === "64" || p === "65" || p === "66";

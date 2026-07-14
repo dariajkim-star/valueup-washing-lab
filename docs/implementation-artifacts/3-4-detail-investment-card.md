@@ -4,7 +4,7 @@ baseline_commit: d1a5788
 
 # Story 3.4: 종목 상세 & 투자 포인트 카드
 
-Status: review
+Status: done
 
 ## Story
 
@@ -62,11 +62,31 @@ so that 개별 종목의 밸류업 이행과 인수 매력을 판단한다.
 - AD-2(SQL은 repository만), AD-6(에러 계약), AD-4/AD-10(valueup_score·mna_score 읽기 전용 — corp_code 필터는 읽기 조건 추가일 뿐 write 경로 아님).
 - 백엔드 변경은 **필터 파라미터 추가만**(응답 스키마 변경 없음) — 기존 2.4~2.6 테스트 전부 불변, 신규 테스트만 추가.
 
+### Review Findings (code review 2026-07-13, GPT — High 3·Med 3·Low 2, 수용 7.5/기각 0.5)
+
+- [x] [Patch][High] **as_of 시점 혼합** — 4개 API가 각자의 최신일로 조회돼 서로 다른 기준일 데이터가 한 화면·한 태그 세트에 합성될 수 있었음. **리뷰어 처방(전 API as_of 스레딩+/metrics 확장) 대신 더 싼 해법 채택**: ① 태그의 roe/pbr을 /metrics 시계열 마지막 행이 아니라 **/screening 행(헤더와 동일 as_of, 3.3의 look-ahead 부분차단 값)에서 취득** — 3.3이 만든 단일 소스를 두고 중복 소스를 쓴 설계 실수 교정 ② gap·mna 쿼리를 `header.as_of`로 체이닝(두 API 모두 as_of 파라미터 기존재 — **백엔드 무변경**). 화면 전체가 단일 기준일로 수렴, 시계열 차트만 예외(본질이 역사). 라이브 네트워크 로그로 as_of 전달 실증.
+- [x] [Patch][High] **0 falsy → "—" 세탁** — `gap.achievement_rate ? ...*100 : null`이 정상값 0%를 판단불가로 표시(1.8부터 지킨 null≠0 계약의 프론트 위반, 가장 뼈아픈 지적). 명시적 null 비교로 교체 + 0% 렌더 회귀 테스트.
+- [x] [Patch][High] **API 실패를 미집계로 세탁** — 4개 쿼리의 isError 미소비로 500이 "엔진 미집계/데이터 없음"으로 보였음(2.6의 예외 세탁 지적과 같은 계열). 카드별 4상태(로딩/요청오류/성공+빈결과/성공+null포함) 분리, "미집계"는 성공+빈결과에서만.
+- [x] [Patch][Med] **미지원 업종 미구분(상세)** — `isUnsupportedSector`를 badges.tsx에서 export해 MnaBreakdown 공유, 문구 분기 + 테스트.
+- [x] [Patch][Med] **InvestmentPoints 상태 뭉갬** — 3상태 분리(계산중/데이터부족 판단불가/기준미충족), `hasTagBasis` 순수함수 + 테스트.
+- [x] [기각 반+수용 반][Med] **딥링크 미검증 주장** — 사실관계 반박: 브라우저 navigate는 SPA 내부 이동이 아니라 주소창 풀 페이지 로드였고 Vite dev는 SPA fallback 내장(제 "새로고침 없이" 문구가 오해 유발 — 정정). 이번 라운드에 강력 새로고침 + 직접 진입 재검증 완료. 수용분: **운영 정적 호스팅의 rewrite 설정은 실재 공백** → 배포 스토리(아키텍처 Deferred "배포 envelope") 체크리스트로 기록.
+- [x] [Patch][Low] **corp_code 8글자≠8자리 숫자** — `pattern=^\d{8}$` 3개 라우터 + 비숫자 422 테스트 6종. (반영 중 sed가 백슬래시를 삼켜 `^d{8}$`가 되는 사고를 즉시 발견·수정 — 정규식 sed 주의.)
+- [x] [Patch][Low] **null 갭 빨간색** — null은 중립 회색(#9ca3af), 부정 신호로 오독 방지 + 색상 테스트.
+
+### 2차 검증 (리뷰 반영 후 — 라이브 valueup.db)
+
+- 신한금융지주(00382199) 딥링크 직접 진입 + **강력 새로고침** → 정상 렌더(리뷰어 #6 필수 검증).
+- **미지원 업종 문구 상세 표시**: "미지원 업종 — 현재 M&A 스코어 산식 적용 대상이 아닙니다(은행·보험 등)".
+- **as_of 체이닝 네트워크 실증**: `gap-analysis?corp_code=00382199&as_of=2026-07-13`·`mna/ranking?...&as_of=2026-07-13` — 헤더 기준일이 명시 전달됨.
+- 태그 정확성: 신한은 roe/pbr null → 저PBR 태그 미생성, buyback retired만 태깅(null 미태깅 원칙 실증).
+- corp_code=abcdefgh → 422 {detail,code} 라이브 확인.
+- 백엔드 **231 passed**(테스트 강화, 수량 불변), 프론트 vitest **56 passed**(+12), tsc clean.
+
 ## Dev Agent Record
 
 ### Agent Model Used
 
-claude-sonnet-5 (bmad-create-story + 인라인 구현)
+claude-sonnet-5 (bmad-create-story + 인라인 구현) / claude-fable-5 (리뷰 triage·반영)
 
 ### Debug Log References
 
@@ -102,3 +122,4 @@ claude-sonnet-5 (bmad-create-story + 인라인 구현)
 
 - 2026-07-13: Story 3.4 생성 — 종목 상세 화면. 기존 3개 목록 API에 corp_code 필터 추가(신규 엔드포인트 회피), React Router 도입, 자동 태깅 순수 함수(null 시 미생성 원칙).
 - 2026-07-13: Story 3.4 구현 — 백엔드 corp_code 필터 3곳(231 passed), 프론트 라우팅+상세 4개 컴포넌트+자동태깅(44 passed), 라이브 검증(딥링크·null 전파·태깅 임계치·필터보존 전부 실증). Status → review(GPT 교차리뷰 대기).
+- 2026-07-13: **GPT 리뷰**(Changes Requested, High3·Med3·Low2) triage·반영 — as_of 시점 혼합은 리뷰어 처방(전 API 스레딩+/metrics 확장) 대신 백엔드 무변경 해법(태그 소스를 /screening으로 단일화 + gap/mna를 header.as_of 체이닝) 채택. 0 falsy 세탁·에러 세탁·미지원업종 구분·3상태·corp_code 숫자 패턴·null 색상 전부 patch, 딥링크 미검증 주장은 사실관계 반박(운영 rewrite는 배포 defer 기록). 백엔드 231·프론트 56 passed, 라이브 재검증(강력 새로고침·as_of 네트워크 실증·미지원 문구). Status → done.

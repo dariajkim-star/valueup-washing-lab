@@ -1,5 +1,5 @@
 import type { MnaDetail } from "../../api/detail";
-import { PopulationBasisChip } from "../badges";
+import { isUnsupportedSector, PopulationBasisChip } from "../badges";
 
 // UX-DR3/UX-DR4 M&A 4요소 분해(3.2 시안 재현). null 계약은 리스트와 동일 —
 // mna_target_score null=산출 불가, population_basis chip 재사용.
@@ -32,7 +32,12 @@ export function MnaBreakdown({ mna }: { mna: MnaDetail | null }) {
         <PopulationBasisChip basis={mna.population_basis} />
       </div>
       {mna.mna_target_score === null && (
-        <p className="mb-3 text-xs text-gray-400">총점 산출 불가 — 요소 지표 결측(0점/최하위 아님)</p>
+        <p className="mb-3 text-xs text-gray-400">
+          {/* 구조적 미지원(금융·보험)과 개별 데이터 결측을 구분(3.4 리뷰 Med — 리스트와 동일 판정) */}
+          {isUnsupportedSector(mna.sector)
+            ? "미지원 업종 — 현재 M&A 스코어 산식 적용 대상이 아닙니다(은행·보험 등)"
+            : "총점 산출 불가 — 요소 지표 결측(0점/최하위 아님)"}
+        </p>
       )}
       <div className="flex flex-col gap-3">
         {FACTORS.map((f) => {

@@ -13,6 +13,9 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
   }
 
   const fmt = (v: number | null, unit = "%") => (v === null ? "—" : `${v.toFixed(1)}${unit}`);
+  // `v ? v*100 : null`은 정상값 0을 판단불가("—")로 세탁한다(3.4 리뷰 High — 백엔드가
+  // 1.8부터 지킨 null≠0 계약의 프론트 위반). 명시적 null 비교만 허용.
+  const percentage = (v: number | null) => (v === null ? null : v * 100);
 
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-5">
@@ -24,12 +27,13 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
         <Stat
           label="갭"
           value={gap.roe_gap === null ? "—" : `${gap.roe_gap >= 0 ? "+" : ""}${gap.roe_gap.toFixed(1)}%p`}
-          color={gap.roe_gap !== null && gap.roe_gap >= 0 ? "#0e9f6e" : "#dc2626"}
+          // null은 중립 회색 — 빨간색(적자·실패 의미)으로 표시하면 판단불가가 부정 신호로 오독됨
+          color={gap.roe_gap === null ? "#9ca3af" : gap.roe_gap >= 0 ? "#0e9f6e" : "#dc2626"}
         />
       </div>
       <div className="mt-4 flex gap-3">
-        <MiniStat label="달성률" value={fmt(gap.achievement_rate ? gap.achievement_rate * 100 : null)} />
-        <MiniStat label="진척률" value={fmt(gap.progress_rate ? gap.progress_rate * 100 : null)} />
+        <MiniStat label="달성률" value={fmt(percentage(gap.achievement_rate))} />
+        <MiniStat label="진척률" value={fmt(percentage(gap.progress_rate))} />
         <MiniStat label="자사주" value={buybackLabel(gap.buyback_status)} />
       </div>
       <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">

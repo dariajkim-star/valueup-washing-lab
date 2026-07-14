@@ -1,14 +1,34 @@
 import type { Tag } from "../../lib/investmentTags";
 
 // UX-DR4 투자 포인트 카드 — 자동 태깅 결과 표시(순수 로직은 lib/investmentTags.ts).
-export function InvestmentPoints({ tags }: { tags: Tag[] }) {
+// 3.4 리뷰 Med 반영: 3상태 구분 — ① 계산 중(입력 쿼리 미완료) ② 데이터 부족(근거 지표
+// 전부 null → 판단 불가) ③ 데이터는 있으나 태그 기준 미충족. 셋을 한 문구로 뭉개지 않는다.
+export function InvestmentPoints({
+  tags,
+  loading,
+  hasBasis,
+}: {
+  tags: Tag[];
+  loading: boolean;
+  hasBasis: boolean;
+}) {
   const valueup = tags.filter((t) => t.group === "valueup");
   const mna = tags.filter((t) => t.group === "mna");
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-gray-100 bg-white p-5 text-sm text-gray-400">
+        투자 포인트 계산 중…
+      </div>
+    );
+  }
 
   if (tags.length === 0) {
     return (
       <div className="rounded-xl border border-gray-100 bg-white p-5 text-sm text-gray-400">
-        자동 태깅할 만한 셀링포인트가 없습니다(근거 지표 부족)
+        {hasBasis
+          ? "현재 자동 태깅 기준을 충족한 투자 포인트가 없습니다"
+          : "데이터 부족으로 투자 포인트를 판단할 수 없습니다"}
       </div>
     );
   }

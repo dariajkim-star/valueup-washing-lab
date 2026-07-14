@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
-import { mnaTags, valueupTags } from "./investmentTags";
-import type { GapDetail, MetricPoint, MnaDetail } from "../api/detail";
+import { hasTagBasis, mnaTags, valueupTags } from "./investmentTags";
+import type { GapDetail, MnaDetail } from "../api/detail";
+import type { ScreeningRow } from "../api/screening";
 
-function metric(partial: Partial<MetricPoint>): MetricPoint {
+// 3.4 재리뷰 반영: roe/pbr 입력이 /metrics 시계열이 아니라 /screening 행(header)으로 변경 —
+// 화면 전체가 header.as_of 단일 기준일로 수렴(시점 혼합 차단).
+
+function header(partial: Partial<ScreeningRow>): ScreeningRow {
   return {
-    corp_code: "00000000", corp_name: null, market: null, sector: null,
-    year: 2025, quarter: 3, roe: null, roa: null, pbr: null, per: null,
-    ev_ebitda: null, debt_ratio: null, payout_ratio: null, net_cash: null,
-    ebitda_margin: null, yoy_revenue_growth: null, yoy_income_growth: null,
+    corp_code: "00000000", corp_name: "테스트", market: "KOSPI", sector: "26100",
+    as_of: "2026-07-13", roe: null, pbr: null, execution_score: null,
+    washing_flag: null, buyback_status: null, buyback_executed: null,
+    mna_target_score: null, population_basis: null,
+    has_valueup_score: true, has_mna_score: true,
     ...partial,
   };
 }
@@ -32,32 +37,32 @@ function mna(partial: Partial<MnaDetail>): MnaDetail {
 
 describe("valueupTags — null이면 태그 미생성", () => {
   it("roe·pbr·buyback_status 전부 null이면 태그 없음", () => {
-    expect(valueupTags(metric({}), gap({}))).toEqual([]);
+    expect(valueupTags(header({}), gap({}))).toEqual([]);
   });
   it("roe=10(경계값)은 고ROE — 임계 이상 포함", () => {
-    const tags = valueupTags(metric({ roe: 10 }), gap({}));
+    const tags = valueupTags(header({ roe: 10 }), gap({}));
     expect(tags).toEqual([{ label: "고ROE (10.0%)", group: "valueup" }]);
   });
   it("roe=9.9는 고ROE 아님", () => {
-    expect(valueupTags(metric({ roe: 9.9 }), gap({}))).toEqual([]);
+    expect(valueupTags(header({ roe: 9.9 }), gap({}))).toEqual([]);
   });
   it("pbr=1.0(경계값)은 저PBR — 임계 이하 포함", () => {
-    const tags = valueupTags(metric({ pbr: 1.0 }), gap({}));
+    const tags = valueupTags(header({ pbr: 1.0 }), gap({}));
     expect(tags).toEqual([{ label: "저PBR (1.00x)", group: "valueup" }]);
   });
   it("buyback_status='unknown'(판단불가)은 태그 없음 — retired일 때만", () => {
-    expect(valueupTags(metric({}), gap({ buyback_status: "unknown" }))).toEqual([]);
-    expect(valueupTags(metric({}), gap({ buyback_status: "retired" }))).toEqual([
+    expect(valueupTags(header({}), gap({ buyback_status: "unknown" }))).toEqual([]);
+    expect(valueupTags(header({}), gap({ buyback_status: "retired" }))).toEqual([
       { label: "자사주 실이행 (소각 확인)", group: "valueup" },
     ]);
   });
-  it("latestMetric 자체가 undefined(지표 없음)여도 크래시 없이 빈 배열", () => {
-    expect(valueupTags(undefined, gap({ buyback_status: "retired" }))).toEqual([
+  it("header 자체가 null(스크리닝 행 없음)이어도 크래시 없이 동작", () => {
+    expect(valueupTags(null, gap({ buyback_status: "retired" }))).toEqual([
       { label: "자사주 실이행 (소각 확인)", group: "valueup" },
     ]);
   });
   it("전 조건 충족 시 3개 태그", () => {
-    const tags = valueupTags(metric({ roe: 15, pbr: 0.8 }), gap({ buyback_status: "retired" }));
+    const tags = valueupTags(header({ roe: 15, pbr: 0.8 }), gap({ buyback_status: "retired" }));
     expect(tags).toHaveLength(3);
   });
 });
@@ -79,5 +84,20 @@ describe("mnaTags — null이면 태그 미생성, 산출불가(mna=null)는 완
     const tags = mnaTags(mna({ valuation_score: 0.9, capacity_score: 0.8, ownership_score: 0.75 }));
     expect(tags).toHaveLength(3);
     expect(tags.map((t) => t.label)).toEqual(["저평가", "저부채", "낮은 지분율"]);
+  });
+});
+
+describe("hasTagBasis — 데이터부족(판단불가) vs 기준미충족 구분(3.4 재리뷰 Med)", () => {
+  it("전 입력 null이면 근거 없음(데이터 부족)", () => {
+    expect(hasTagBasis(header({}), gap({}), mna({}))).toBe(false);
+    expect(hasTagBasis(null, null, null)).toBe(false);
+  });
+  it("지표가 있으나 임계 미달이면 근거 있음(기준 미충족으로 표시돼야)", () => {
+    // roe=5%(<10 임계) — 태그는 안 생기지만 판단 근거는 존재
+    expect(hasTagBasis(header({ roe: 5 }), gap({}), mna({}))).toBe(true);
+    expect(valueupTags(header({ roe: 5 }), gap({}))).toEqual([]);
+  });
+  it("buyback_status만 있어도(비록 unknown이라도) 근거 있음", () => {
+    expect(hasTagBasis(header({}), gap({ buyback_status: "none" }), mna({}))).toBe(true);
   });
 });

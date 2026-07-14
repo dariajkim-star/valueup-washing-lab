@@ -165,6 +165,9 @@ def test_corp_code_filter(client) -> None:
     assert body["items"][0]["corp_code"] == "00000001"
     r2 = client.get("/screening", params={"corp_code": "00000099"})
     assert r2.json()["total"] == 0  # 존재하지 않는 종목 → 빈 결과(404 아님)
+    # [3.4 재리뷰 Low] 8글자여도 비숫자면 422 — corp_code는 8자리 "숫자" 계약
+    assert client.get("/screening", params={"corp_code": "abcdefgh"}).status_code == 422
+    assert client.get("/screening", params={"corp_code": "12-45678"}).status_code == 422
 
 
 def test_market_sector_blank_rejected_and_pagination(client) -> None:
