@@ -4,8 +4,9 @@ import { RangeFilter } from "./FilterPanel";
 
 afterEach(cleanup);
 
-// 재리뷰 #3 — 슬라이더 커밋 경로(pointerup/keyup/blur/pointercancel)·외부 값 동기화·
-// 미설정 상태 가드(blur 통과만으로 min값이 커밋되면 안 됨).
+// 3차 재리뷰 반영 — 슬라이더 커밋 경로: pointerup/keyup/blur/pointercancel,
+// 미설정 상태의 완전 no-op(호출 자체 금지, undefined 커밋 허용 아님), 중복 커밋 방지,
+// 외부 값 동기화.
 
 function setup(value?: number) {
   const onCommit = vi.fn();
@@ -22,6 +23,7 @@ describe("RangeFilter", () => {
     fireEvent.change(input, { target: { value: "15" } });
     expect(onCommit).not.toHaveBeenCalled(); // 드래그 중엔 커밋 안 함
     fireEvent.pointerUp(input);
+    expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenCalledWith(15);
   });
 
@@ -39,14 +41,42 @@ describe("RangeFilter", () => {
     expect(onCommit).toHaveBeenCalledWith(5);
   });
 
-  it("미설정 상태에서 blur/pointerup 통과만으로는 필터가 활성화되지 않는다(min값 커밋 금지)", () => {
+  it("pointercancel 시 변경값을 커밋한다(터치 스크롤 개입 경로)", () => {
+    const { input, onCommit } = setup();
+    fireEvent.change(input, { target: { value: "12" } });
+    fireEvent.pointerCancel(input);
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(12);
+  });
+
+  it("미설정 상태에서 blur/pointerup 통과만으로는 커밋이 아예 발생하지 않는다(완전 no-op)", () => {
+    // GPT 재리뷰 지적 반영: 이전 버전은 onCommit(undefined)를 호출해 부모의 patch()가
+    // page를 리셋시켰다 — "호출 자체가 없어야" 진짜 no-op이다.
     const { input, onCommit } = setup(undefined);
-    fireEvent.blur(input); // 탭으로 지나가기만 함
+    fireEvent.blur(input);
     fireEvent.pointerUp(input);
-    // undefined 커밋(no-op)만 허용 — 숫자 커밋이 있으면 안 됨
-    for (const call of onCommit.mock.calls) {
-      expect(call[0]).toBeUndefined();
-    }
+    fireEvent.pointerCancel(input);
+    fireEvent.keyUp(input, { key: "Tab" });
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+
+  it("pointerup 후 blur가 이어져도 한 번만 커밋한다(중복 방지)", () => {
+    const { input, onCommit } = setup(10);
+    fireEvent.change(input, { target: { value: "15" } });
+    fireEvent.pointerUp(input);
+    fireEvent.blur(input); // 같은 상호작용 뒤 이어지는 종료 이벤트
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledWith(15);
+  });
+
+  it("커밋 후 재상호작용하면 다시 커밋된다(dedup 플래그가 다음 조작을 막지 않음)", () => {
+    const { input, onCommit } = setup();
+    fireEvent.change(input, { target: { value: "8" } });
+    fireEvent.pointerUp(input);
+    fireEvent.change(input, { target: { value: "20" } });
+    fireEvent.pointerUp(input);
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(onCommit).toHaveBeenNthCalledWith(2, 20);
   });
 
   it("외부 value 변경(전체 초기화 등)에 로컬 상태가 동기화된다", () => {
@@ -61,7 +91,7 @@ describe("RangeFilter", () => {
     expect(screen.getByText("전체")).toBeTruthy(); // local이 undefined로 동기화됨
   });
 
-  it("해제 버튼은 undefined 커밋", () => {
+  it("해제 버튼은 undefined 커밋(명시적 사용자 액션이므로 예외적으로 허용)", () => {
     const { onCommit } = setup(20);
     fireEvent.click(screen.getByText("해제"));
     expect(onCommit).toHaveBeenCalledWith(undefined);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFilters, type McapBucket } from "../state/filters";
 
 // UX-DR1: 시장·업종·시총구간·지표 슬라이더·워싱 토글·스코어 모드 전환 — 전부 실배선
@@ -37,9 +37,16 @@ const MCAP_OPTIONS: Array<{ value: McapBucket; label: string }> = [
 
 // 실동작 슬라이더: 드래그 중엔 로컬 값만, 놓는 순간(commit) 스토어 반영 → 재요청.
 // (onChange마다 커밋하면 드래그 한 번에 요청 수십 발 — 커밋 시점 분리)
-// 재리뷰 #3 반영: pointercancel(터치 스크롤 개입)·blur(포커스 이탈) 경로 추가,
-// 클로저 스테일 방지 위해 currentTarget.valueAsNumber를 읽고, 외부 value 변경
-// (전체 초기화 등)에 로컬 상태를 동기화.
+//
+// 재리뷰(3차) 반영 — 이전 버전(local===undefined 가드)의 결함 3건을 `interacted` ref로
+// 한 번에 해소:
+//   1. 가드가 완전한 no-op이 아니었음 — onCommit(undefined)는 여전히 호출돼 부모의
+//      patch()가 page를 1로 리셋(사용자가 아무것도 안 건드렸는데 페이지 이동).
+//   2. 미설정 상태에서 슬라이더가 이미 min 위치라 그 값을 "명시 선택"할 방법이 없었음
+//      (onChange 미발생 → 커밋 시 값 판별 불가).
+//   3. pointerup 이후 blur가 이어지면 동일 값으로 커밋이 중복 호출됨.
+// interacted=false(사용자가 change로 값을 만진 적 없음)면 모든 종료 이벤트에서 커밋을
+// 완전히 스킵(호출 자체 없음), interacted=true면 커밋 후 즉시 false로 되돌려 중복 방지.
 export function RangeFilter({
   label,
   unit,
@@ -58,12 +65,16 @@ export function RangeFilter({
   onCommit: (v?: number) => void;
 }) {
   const [local, setLocal] = useState<number | undefined>(value);
+  const interacted = useRef(false);
   useEffect(() => setLocal(value), [value]); // 외부(스토어) 값 변경 동기화
   const active = local !== undefined;
-  // 미설정(local=undefined) 상태의 blur/pointerup은 no-op — input이 min을 폴백 표시할 뿐
-  // 사용자가 값을 만진 적이 없는데 valueAsNumber(=min)를 커밋하면 탭 통과만으로 필터가
-  // 활성화된다(리뷰어 제안 코드의 함정 — onChange가 선행된 경우에만 실값 커밋).
-  const commit = (v: number) => onCommit(local === undefined ? undefined : v);
+
+  const commit = (v: number) => {
+    if (!interacted.current) return; // 사용자가 change로 값을 만진 적 없음 → 완전 no-op
+    interacted.current = false; // 커밋 즉시 리셋 — 후속 종료 이벤트의 중복 커밋 방지
+    onCommit(v);
+  };
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
@@ -73,6 +84,7 @@ export function RangeFilter({
           {active && (
             <button
               onClick={() => {
+                interacted.current = false;
                 setLocal(undefined);
                 onCommit(undefined);
               }}
@@ -90,7 +102,10 @@ export function RangeFilter({
         max={max}
         step={step}
         value={local ?? min}
-        onChange={(e) => setLocal(e.currentTarget.valueAsNumber)}
+        onChange={(e) => {
+          interacted.current = true;
+          setLocal(e.currentTarget.valueAsNumber);
+        }}
         onPointerUp={(e) => commit(e.currentTarget.valueAsNumber)}
         onPointerCancel={(e) => commit(e.currentTarget.valueAsNumber)}
         onKeyUp={(e) => commit(e.currentTarget.valueAsNumber)}

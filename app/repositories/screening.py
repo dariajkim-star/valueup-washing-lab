@@ -201,7 +201,9 @@ def list_screening(
             "market": company.market,
             "sector": company.sector,
             "as_of": as_of,
-            # 핵심지표(AC3, 3.3 리뷰 반영): look-ahead 안전 최신 지표. 없으면 null.
+            # 핵심지표(AC3, 3.3 리뷰 반영): look-ahead 부분 차단 최신 지표(재리뷰 정정 —
+            # 같은 해 사업보고서만 확정 배제, 1~3분기 동일연도 잔여 리스크는 기존 defer).
+            # 없으면 null.
             "roe": m.get("roe") if m else None,
             "pbr": m.get("pbr") if m else None,
             # has_* 플래그: "row 없음(엔진 미실행)"과 "row는 있으나 전부 null(엄격

@@ -53,7 +53,7 @@ so that 원하는 종목군을 좁혀 탐색한다.
 ### 아키텍처 가드레일
 
 - AD-11(REST만·상태 분리), AD-6 응답 봉투/정렬 규약/에러 계약 소비. 에러 계약: 400·422·404 응답의 `{detail,code}`를 화면이 토스트/빈 상태로 처리(크래시 금지).
-- 이 스토리는 **필터·리스트만**(상세=3.4, Tableau=3.5). 백엔드 코드 변경 없음(순수 소비) — 기존 221 pytest 불변.
+- 이 스토리는 **필터·리스트만**(상세=3.4, Tableau=3.5). [재리뷰 정정] 1차 계획은 "백엔드 무변경(순수 소비)"이었으나 1차 리뷰 반려로 `/screening` 확장이 편입됨 — 최종적으로 백엔드도 변경됨. pytest 이력: 1차 구현 221(불변, 계획대로) → 2차(1차 리뷰 반영) 224 → 3차(재리뷰 반영) 228.
 
 ### 검증 방식
 
@@ -76,6 +76,18 @@ so that 원하는 종목군을 좁혀 탐색한다.
 - [x] [Patch][Low] **문서 모순** → historical note 격리("백엔드 무변경"은 1차 계획), 필터→쿼리 매핑 최신화.
 - 리뷰어 Clean 판정: 2단계 IN의 COUNT/페이지네이션 정합, empty IN 처리, query key 구성(객체 결정적 해시), scoreMode→sort 경유 재요청.
 
+### Review Findings — 3차 검증 (code review 2026-07-13, GPT — High 0·Med 3·Low 2, Dismiss/Accept 4)
+
+- [x] [Accept] **look-ahead defer 유지 논리 타당** — GPT가 명시적으로 동의(달력 휴리스틱을 screening에만 넣으면 gap/mna/stats와 규칙 분기, 완전 해결은 available_at 수집). 잔여 지적 1건 반영: `repositories/screening.py` 응답 조립부에 남아있던 "look-ahead 안전 최신 지표" 주석을 "부분 차단"으로 정정(docstring은 이미 정정했었으나 인라인 주석 1곳 누락).
+- [x] [Patch][Med] **미설정 슬라이더 가드가 완전한 no-op이 아니었음** — 2차 수정(`local===undefined?undefined:v`)이 여전히 `onCommit(undefined)`를 호출해 부모의 `patch()`가 아무것도 안 건드렸는데 `page`를 1로 리셋시킴. `interacted` ref로 재설계: change 이벤트 없이는 커밋 함수가 **호출 자체를 스킵**(undefined 커밋조차 안 함). 테스트를 `call[0] toBeUndefined`(느슨, 호출 자체는 허용)에서 `not.toHaveBeenCalled()`(엄격)로 교체.
+- [x] [Patch][Med] **미설정 상태에서 슬라이더 최솟값을 명시 선택 불가** — `interacted` ref가 "change로 실제 조작했는가"를 값 자체와 분리해 판별하므로 동일 수정으로 해소(값이 이미 min과 같아도 change가 발생했다면 interacted=true → 커밋됨). 마우스만으로 값 이동 없이 정확히 min 위치를 클릭하는 극단적 경우는 여전히 onChange 자체가 안 뜨는 브라우저 네이티브 한계(GPT 제안 코드도 동일 한계) — 키보드(화살표)로는 항상 가능.
+- [x] [Patch][Med] **pointerup 이후 blur로 중복 커밋** — `interacted` ref를 커밋 직후 즉시 false로 리셋해 동일 상호작용의 후속 종료 이벤트(blur 등)가 재커밋하지 않도록 함. 테스트로 고정(pointerup→blur 시퀀스가 정확히 1회만 커밋).
+- [x] [Patch][Low] **pointercancel 미테스트** — 구현은 있었으나 테스트 누락. 추가.
+- [x] [Patch][Low] **placeholder 배너가 opacity 아래 흐려짐 + 헤더 total이 이전 조건 값 유지** — 배너를 opacity 래퍼 밖으로 이동(또렷하게 유지), 헤더는 `isPlaceholderData`일 때 total 대신 "새 조건 계산 중…" 표시(이전 조건 숫자를 새 조건 결과처럼 보여주지 않음 — 이 프로젝트의 null 정직성 원칙과 동일 이유).
+- [x] [Patch][Low] **문서 잔여 모순** — "백엔드 무변경·221 불변" 문구가 활성 섹션(아키텍처 가드레일·1차 Completion Notes)에 그대로 남아있던 것을 정정 + pytest 이력 명시(1차 221→2차 224→3차 228).
+- 리뷰어 Accept 판정(추가 조치 불필요): 시총 버킷 경계(중복·빈구간 없음), 2단계 IN 필터의 COUNT/페이지네이션 정합, query key 구성, AC6 강조 컬럼 컬럼id 매칭.
+- **라이브 재검증**: 미설정 슬라이더 2개를 Tab으로 통과 → 네트워크 요청 0건 추가(완전 no-op 실증). 정상 슬라이더 조작(min_roe=15) → 요청 1건만 발생.
+
 ## Dev Agent Record
 
 ### Agent Model Used
@@ -92,7 +104,7 @@ claude-opus-4-8 (bmad-create-story + 인라인 구현)
   - **워싱 필터** 동작: 워싱 토글 → 0종목(대형주 워싱 의심 0, 드레스 리허설과 정합) → 빈 상태 "조건에 맞는 종목이 없습니다".
   - 페이지네이션(20/32), 점선 배지 스타일(dashed border) 적용 확인. 콘솔·빌드 에러 0. **tsc -b clean**.
   - 스크린샷 캡처는 환경 렌더러 이슈로 타임아웃(read_page·클릭·JS 평가는 전부 정상 — 페이지 결함 아님). 시각 검증은 read_page 접근성 트리 + computed style로 대체.
-- 백엔드 코드 무변경(순수 소비) → **기존 221 pytest 불변**.
+- [1차 시점 기준] 백엔드 코드 무변경(순수 소비) → 기존 221 pytest 불변. **(이후 갱신됨 — 위 [재리뷰 정정] 배너 및 아키텍처 가드레일 섹션 참조: 최종 228 pytest, 백엔드도 변경됨)**
 - 슬라이더(ROE/PBR/EV·EBITDA/부채비율)·업종·시총 필터는 시안 UI만(배선은 후속) — 즉시 필터 핵심 경로(시장·워싱·모드·정렬·페이지)를 우선 검증.
 
 ### 2차 검증 (리뷰 반영 후, 2026-07-13 — 라이브 valueup.db)
@@ -119,3 +131,4 @@ claude-opus-4-8 (bmad-create-story + 인라인 구현)
 - 2026-07-13: **GPT 리뷰 반려**(Changes Requested) — AC2 필터 미배선(BLOCKER)·ROE/PBR 컬럼 부재(High)·33vs32 미설명(High)·프론트 테스트 부재(Med)·체크박스 과대계상(Med). KSIC 판정 건은 전제 오류(sector=KSIC 코드 실증)로 기각, 백엔드 명시 status는 defer. Status → in-progress.
 - 2026-07-13: 리뷰 반영 재작업 — ① 백엔드 /screening 확장(지표 4종+시총 필터, roe/pbr 응답, 224 passed) ② 전 필터 실배선(업종·시총 select, 슬라이더 4종 커밋 방식) ③ ROE/PBR 컬럼 ④ vitest 22종 ⑤ 33vs32 문서화(한전 1종목, 설계대로) ⑥ 라이브 재검증(네트워크 로그 실증). Status → review(재리뷰 대기).
 - 2026-07-13: **재리뷰**(Changes Requested, High2·Med5·Low1) triage — look-ahead 건은 기존 defer 재발견으로 기각(리드 승인, 문서 정정만), 나머지 patch/defer(위 Review Findings). 시총 경계·슬라이더 경로·placeholder 오버레이·강조 컬럼·테스트 11종 추가. 백엔드 **228 passed**·vitest **29 passed**·tsc clean, 라이브 검증(강조 컬럼 모드 스왑 computed style 실증). Status → done.
+- 2026-07-13: **3차 검증**(Changes Requested, High0·Med3·Low2, Accept4) — look-ahead defer 유지 논리는 명시적으로 Accept(잔여 주석 1곳만 정정). 슬라이더 재설계(`interacted` ref로 완전 no-op·최솟값 명시선택·중복커밋 3건 동시 해소 — 근본원인이 같아 한 번에 수정), placeholder 배너/헤더 정합(배너는 opacity 밖, 헤더는 계산중 표시로 이전값 은폐 방지), pointercancel 테스트 추가, 문서 잔여 모순 정정. vitest **32 passed**·백엔드 228 유지(주석만 변경)·tsc clean. 라이브 재검증: 미설정 슬라이더 Tab 통과 시 네트워크 요청 0건(완전 no-op 실증). Status: done 유지.
