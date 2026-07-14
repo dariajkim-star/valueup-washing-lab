@@ -60,7 +60,7 @@ development_status:
   3-2-figma-screener-design: done  # 2026-07-13: Figma 시안(스크리너·상세·범례) + null 시각언어 확정
   3-3-screener-filter-list: done  # 2026-07-13: 반려→재작업→재리뷰 반영(look-ahead 기각·나머지 patch), 228+29 passed
   3-4-detail-investment-card: done  # 2026-07-13: GPT 리뷰 High3·Med3·Low2 반영(as_of 체이닝·0세탁·에러세탁), 231+56 passed
-  3-5-tableau-dashboard: review  # 2026-07-14: CSV export 레이어로 구현(AC "PostgreSQL 연결"은 Tableau Public 미지원+실스택 SQLite로 의도적 일탈), 237 passed, /stats 패리티 실증 — GPT 교차리뷰 대기
+  3-5-tableau-dashboard: done  # 2026-07-14: CSV export 레이어(교집합 as_of·원자적 스냅숏+manifest·기간별 자사주 상태), GPT 리뷰 High3·Med4·Low1 전건 해소, AC는 CSV 스냅숏 연결로 공식 개정(리드 승인), 242 passed
   epic-3-retrospective: optional
 
 action_items:

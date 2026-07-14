@@ -406,6 +406,10 @@ So that 발표·리포트용 시각 자료를 얻는다.
 **Acceptance Criteria:**
 
 **Given** `/stats/*`와 지표·스코어·매크로 데이터(UX-DR5)
-**When** Tableau를 PostgreSQL에 연결하면
+**When** export 스크립트가 DB 뷰/테이블에서 생성한 CSV 스냅숏(원자적 교체 + manifest.json)을 Tableau에 연결하면
 **Then** 밸류업 점수·업종별 저평가 맵·ROE-PBR 산점도·배당/자사주 4개 뷰와 ECOS 매크로 레이어가 구성되고
-**And** 각 뷰가 API/DB 뷰를 소스로 갱신된다.
+**And** 각 뷰가 export 재실행 → 스냅숏 갱신 → Tableau 새로고침으로 DB 뷰를 소스 삼아 갱신된다.
+
+> AC 개정(2026-07-14, 리드 승인): 원문 "Tableau를 PostgreSQL에 연결"은 실스택
+> SQLite + Tableau Public(라이브 DB 연결 미지원) 제약으로 실현 불가 판명 —
+> CSV 스냅숏 연결로 대체. 근거·검증은 3-5 스토리 문서 참조.
