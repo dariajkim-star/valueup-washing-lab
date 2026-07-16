@@ -1156,7 +1156,7 @@
       </table>
       <simple-id uuid='{FF6FABA7-8BC9-47C0-9756-473084C90682}' />
     </worksheet>
-    <worksheet name='뷰3 ROE--BR 산점도'>
+    <worksheet name='뷰3 ROE-PBR 산점도'>
       <table>
         <view>
           <datasources>
@@ -1195,7 +1195,7 @@
       </table>
       <simple-id uuid='{F50E1E48-F9D2-4947-A76D-A72355E63A08}' />
     </worksheet>
-    <worksheet name='시트 4'>
+    <worksheet name='뷰4 배당/자사주'>
       <table>
         <view>
           <datasources>
@@ -1233,14 +1233,14 @@
     </worksheet>
   </worksheets>
   <dashboards>
-    <dashboard enable-sort-zone-taborder='true' name='대시보드 1'>
+    <dashboard enable-sort-zone-taborder='true' name='밸류업 워싱 스크리너'>
       <style />
       <size maxheight='800' maxwidth='1000' minheight='800' minwidth='1000' />
       <zones>
         <zone h='100000' id='4' type-v2='layout-basic' w='100000' x='0' y='0'>
           <zone h='49000' id='7' param='horz' type-v2='layout-flow' w='98400' x='800' y='1000'>
             <zone h='49000' id='5' type-v2='layout-basic' w='43700' x='800' y='1000'>
-              <zone h='24500' id='3' name='뷰3 ROE--BR 산점도' w='43700' x='800' y='1000'>
+              <zone h='24500' id='3' name='뷰3 ROE-PBR 산점도' w='43700' x='800' y='1000'>
                 <zone-style>
                   <format attr='border-color' value='#000000' />
                   <format attr='border-style' value='none' />
@@ -1266,7 +1266,7 @@
                 <format attr='margin' value='4' />
               </zone-style>
             </zone>
-            <zone h='49000' id='12' name='시트 4' w='7900' x='75300' y='1000'>
+            <zone h='49000' id='12' name='뷰4 배당/자사주' w='7900' x='75300' y='1000'>
               <layout-cache cell-count-w='2' non-cell-size-w='59' type-h='fixed' type-w='cell' />
               <zone-style>
                 <format attr='border-color' value='#000000' />
@@ -1276,7 +1276,7 @@
               </zone-style>
             </zone>
             <zone fixed-size='160' h='49000' id='6' is-fixed='true' param='vert' type-v2='layout-flow' w='16000' x='83200' y='1000'>
-              <zone h='8125' id='8' name='뷰3 ROE--BR 산점도' pane-specification-id='0' param='[federated.14iu6ux1r3jq1q10131fj1q9yrhy].[sum:execution_score:qk]' type-v2='color' w='16000' x='83200' y='1000'>
+              <zone h='8125' id='8' name='뷰3 ROE-PBR 산점도' pane-specification-id='0' param='[federated.14iu6ux1r3jq1q10131fj1q9yrhy].[sum:execution_score:qk]' type-v2='color' w='16000' x='83200' y='1000'>
                 <zone-style>
                   <format attr='border-color' value='#000000' />
                   <format attr='border-style' value='none' />
@@ -1292,7 +1292,7 @@
                   <format attr='margin' value='4' />
                 </zone-style>
               </zone>
-              <zone h='10750' id='13' name='시트 4' pane-specification-id='0' param='[federated.0spfcp51ul9iv610mzgia1afsczr].[none:period_buyback_status:nk]' type-v2='color' w='16000' x='83200' y='17250'>
+              <zone h='10750' id='13' name='뷰4 배당/자사주' pane-specification-id='0' param='[federated.0spfcp51ul9iv610mzgia1afsczr].[none:period_buyback_status:nk]' type-v2='color' w='16000' x='83200' y='17250'>
                 <zone-style>
                   <format attr='border-color' value='#000000' />
                   <format attr='border-style' value='none' />
@@ -1324,7 +1324,7 @@
           <zones>
             <zone h='100000' id='26' type-v2='layout-basic' w='100000' x='0' y='0'>
               <zone h='98000' id='25' param='vert' type-v2='layout-flow' w='98400' x='800' y='1000'>
-                <zone fixed-size='188' h='24500' id='3' is-fixed='true' name='뷰3 ROE--BR 산점도' w='43700' x='800' y='1000'>
+                <zone fixed-size='188' h='24500' id='3' is-fixed='true' name='뷰3 ROE-PBR 산점도' w='43700' x='800' y='1000'>
                   <zone-style>
                     <format attr='border-color' value='#000000' />
                     <format attr='border-style' value='none' />
@@ -1333,7 +1333,7 @@
                     <format attr='padding' value='0' />
                   </zone-style>
                 </zone>
-                <zone h='8125' id='8' name='뷰3 ROE--BR 산점도' pane-specification-id='0' param='[federated.14iu6ux1r3jq1q10131fj1q9yrhy].[sum:execution_score:qk]' type-v2='color' w='16000' x='83200' y='1000'>
+                <zone h='8125' id='8' name='뷰3 ROE-PBR 산점도' pane-specification-id='0' param='[federated.14iu6ux1r3jq1q10131fj1q9yrhy].[sum:execution_score:qk]' type-v2='color' w='16000' x='83200' y='1000'>
                   <zone-style>
                     <format attr='border-color' value='#000000' />
                     <format attr='border-style' value='none' />
@@ -1361,7 +1361,7 @@
                     <format attr='padding' value='0' />
                   </zone-style>
                 </zone>
-                <zone fixed-size='280' h='49000' id='12' is-fixed='true' name='시트 4' w='7900' x='75300' y='1000'>
+                <zone fixed-size='280' h='49000' id='12' is-fixed='true' name='뷰4 배당/자사주' w='7900' x='75300' y='1000'>
                   <layout-cache cell-count-w='2' non-cell-size-w='59' type-h='fixed' type-w='cell' />
                   <zone-style>
                     <format attr='border-color' value='#000000' />
@@ -1371,7 +1371,7 @@
                     <format attr='padding' value='0' />
                   </zone-style>
                 </zone>
-                <zone h='10750' id='13' name='시트 4' pane-specification-id='0' param='[federated.0spfcp51ul9iv610mzgia1afsczr].[none:period_buyback_status:nk]' type-v2='color' w='16000' x='83200' y='17250'>
+                <zone h='10750' id='13' name='뷰4 배당/자사주' pane-specification-id='0' param='[federated.0spfcp51ul9iv610mzgia1afsczr].[none:period_buyback_status:nk]' type-v2='color' w='16000' x='83200' y='17250'>
                   <zone-style>
                     <format attr='border-color' value='#000000' />
                     <format attr='border-style' value='none' />
@@ -1448,7 +1448,7 @@
       </viewpoint>
       <simple-id uuid='{30FCED1C-D431-43F6-85D3-05670B63840C}' />
     </window>
-    <window class='worksheet' name='뷰3 ROE--BR 산점도'>
+    <window class='worksheet' name='뷰3 ROE-PBR 산점도'>
       <cards>
         <edge name='left'>
           <strip size='160'>
@@ -1520,7 +1520,7 @@
       </viewpoint>
       <simple-id uuid='{712C9430-39B9-4020-9713-49172064CBA0}' />
     </window>
-    <window class='worksheet' name='시트 4'>
+    <window class='worksheet' name='뷰4 배당/자사주'>
       <cards>
         <edge name='left'>
           <strip size='160'>
@@ -1588,17 +1588,17 @@
       </viewpoint>
       <simple-id uuid='{AE62AFD8-A187-468C-90B3-D2D2EA2438B0}' />
     </window>
-    <window class='dashboard' maximized='true' name='대시보드 1'>
+    <window class='dashboard' maximized='true' name='밸류업 워싱 스크리너'>
       <viewpoints>
         <viewpoint name='매크로 레이어'>
           <zoom type='entire-view' />
         </viewpoint>
         <viewpoint name='뷰1 밸류업점수' />
         <viewpoint name='뷰2 업종 저평가 맵' />
-        <viewpoint name='뷰3 ROE--BR 산점도'>
+        <viewpoint name='뷰3 ROE-PBR 산점도'>
           <zoom type='entire-view' />
         </viewpoint>
-        <viewpoint name='시트 4'>
+        <viewpoint name='뷰4 배당/자사주'>
           <zoom type='entire-view' />
           <highlight>
             <color-one-way>
@@ -1612,7 +1612,7 @@
     </window>
   </windows>
   <thumbnails>
-    <thumbnail height='192' name='대시보드 1' width='192'>
+    <thumbnail height='192' name='밸류업 워싱 스크리너' width='192'>
       iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAACXBIWXMAAA7DAAAOwwHHb6hk
       AAAgAElEQVR4nO2d2XNcV3rYf3fvfW80dgJcQUpctYxG0thjxc5UnNguj8uOU+W4sjylkjzk
       Kf9C3pOXvKXiuLKUHSeOHXsyu0bSaKSRKFEUwQ3csG+937599zw0CBIkQAJkowES51eF6u6L
@@ -2155,7 +2155,7 @@
       UwBiNQUgVlMAYjUFIFZTAGI1BSBWO3SNsGax9L0LNsvza/o+hVTXA3tVio5LlkHJe/5L3v0/
       e6VbnkOORaAAAAAASUVORK5CYII=
     </thumbnail>
-    <thumbnail height='192' name='뷰3 ROE--BR 산점도' width='192'>
+    <thumbnail height='192' name='뷰3 ROE-PBR 산점도' width='192'>
       iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAACXBIWXMAAA7DAAAOwwHHb6hk
       AAAOmElEQVR4nO3dSW8bW3oG4PecmjiTsiTLV7blqbuToJNGgABZ5QcEyE/In8s2iywCZEDS
       yCZBgGSRTYCLuONBsmzZkq2BM1lVZ8iCovrmWu3LYhUH8bzPStdgsT7y1ssqHp76jrDWWhA5
@@ -2228,7 +2228,7 @@
       508errqsjcQzwBrSRuPBgwfYfbCPd//+N0Bla9UlbSx+CV5D3U4XjWYNr1++RLW1je3dPYS8
       1bpwQgjBAJCzhBDi/wAlF4gvXDajAQAAAABJRU5ErkJggg==
     </thumbnail>
-    <thumbnail height='192' name='시트 4' width='183'>
+    <thumbnail height='192' name='뷰4 배당/자사주' width='183'>
       iVBORw0KGgoAAAANSUhEUgAAALcAAADACAYAAABGSfLmAAAACXBIWXMAAA7DAAAOwwHHb6hk
       AAAMsklEQVR4nO3df1DU953H8acsaxfWXRYEA8QjpRpPaaNSTXo65+8cCTF10fMC9TKX3KWt
       Wq8IaeZyyaXtTK+NyV2amOa82k5Kwnnp6MRJhvHOTigRg1HjDy44RkujsqdyAQwRZbNfKcvK
