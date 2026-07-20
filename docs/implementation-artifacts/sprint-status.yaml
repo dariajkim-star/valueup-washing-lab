@@ -107,7 +107,7 @@ action_items:
   - epic: 3
     action: "Tableau 워크북(.twb) 보존 경로 결정(gitignore 밖 이동) + 다듬기(탭명·미산정 KPI 시트·제목 as_of)"
     owner: "리드+AI"
-    status: done  # 2026-07-16 다듬기 완료(커밋 58c6561+81242bd): 탭명 오타(뷰3 ROE-PBR·뷰4 배당/자사주·대시보드명) XML 치환 + as_of 제목 밴드·M&A 미산정 KPI 시트(산출15/미산정18/총33) computer-use GUI 조립 + 뷰1 lock-updates 해제. 보존=docs/tableau/(git 추적). 잔여: Tableau Cloud 게시만(계정 GUI)
+    status: done  # 2026-07-16 다듬기 완료(커밋 58c6561+81242bd): 탭명 오타(뷰3 ROE-PBR·뷰4 배당/자사주·대시보드명) XML 치환 + as_of 제목 밴드·M&A 미산정 KPI 시트(산출15/미산정18/총33) computer-use GUI 조립 + 뷰1 lock-updates 해제. 보존=docs/tableau/(git 추적). Cloud 게시는 Desktop Free Edition 제약(서버 메뉴 잠김)으로 불가 확인 — 2026-07-20 .twbx 패키지(CSV 5종 임베드, 865f9c2)로 대체 완료. 에픽 잔여 없음
   - epic: 3
     action: "README·마감 문서 작성(실행 경로 3종·AD 요약·한계 섹션·발표 역순 내러티브)"
     owner: "리드+AI"
