@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.exc import IntegrityError
@@ -18,6 +20,7 @@ from app.analysis.gap_engine import (
     run,
 )
 from app.models import Base, Company, Financial, ValueupPlan, ValueupScore
+from app.repositories import valueup_score as repo
 from app.sql_views import CREATE_VALUATION_METRICS
 
 
@@ -37,25 +40,37 @@ def test_safe_ratio_missing_input_is_none() -> None:
     assert _safe_ratio(8.0, None) is None
 
 
-def test_progress_rate_mid_period() -> None:
-    """3년 계획(2024~2027) 중 1년 경과 → 1/3."""
-    assert _progress_rate("2024", "2027", 2025) == pytest.approx(1 / 3)
+def test_progress_rate_mid_period_day_precision() -> None:
+    """[결정 B, 2026-07-21] 일 단위 정밀도(scoring.md 원식 `today` 기반 정합화).
+    2024~2027 계획(2024-01-01~2027-12-31, 1460일)의 2025-12-31 시점 = 730일 = 정확히 0.5."""
+    assert _progress_rate("2024", "2027", date(2025, 12, 31)) == pytest.approx(0.5)
+
+
+def test_progress_rate_no_new_year_jump() -> None:
+    """[결정 B 핵심 회귀] 12/31→1/1 사이 진척률이 점프하지 않는다 — 연 단위 구현은
+    같은 구간에서 1/3→2/3으로 +0.33 점프해 washing 임계(0.5)를 하루 만에 넘겼다."""
+    before = _progress_rate("2024", "2027", date(2025, 12, 31))
+    after = _progress_rate("2024", "2027", date(2026, 1, 1))
+    assert after - before == pytest.approx(1 / 1460)  # 정확히 하루치
 
 
 def test_progress_rate_before_start_clamps_zero() -> None:
-    assert _progress_rate("2024", "2027", 2023) == 0.0
+    assert _progress_rate("2024", "2027", date(2023, 6, 1)) == 0.0
 
 
 def test_progress_rate_after_end_clamps_one() -> None:
-    assert _progress_rate("2024", "2027", 2030) == 1.0
+    assert _progress_rate("2024", "2027", date(2030, 1, 1)) == 1.0
 
 
 def test_progress_rate_invalid_period_is_none() -> None:
-    assert _progress_rate(None, "2027", 2025) is None
-    assert _progress_rate("2024", None, 2025) is None
-    assert _progress_rate("2027", "2024", 2025) is None  # end<=start
-    assert _progress_rate("2024", "2024", 2025) is None  # end==start, 0나눗셈 방어
-    assert _progress_rate("abc", "2027", 2025) is None  # 파싱 실패
+    d = date(2025, 12, 31)
+    assert _progress_rate(None, "2027", d) is None
+    assert _progress_rate("2024", None, d) is None
+    assert _progress_rate("2027", "2024", d) is None  # end<start
+    # end==start: 0나눗셈은 일 단위 전환으로 사라졌지만(분모 364일) AC3 계약("end<=start
+    # 무효") 유지 — 단년 계획 수용은 별도 결정(deferred-work.md 2026-07-21).
+    assert _progress_rate("2024", "2024", d) is None
+    assert _progress_rate("abc", "2027", d) is None  # 파싱 실패
 
 
 def test_achievement_rate_normal() -> None:
@@ -187,6 +202,26 @@ def test_washing_flag_kleene_buyback_not_planned_dominates() -> None:
     ) is False
 
 
+def test_washing_flag_buyback_planned_none_is_unknown_term() -> None:
+    """[코드리뷰 2026-07-21] buyback_planned는 파싱 실패 시 DB에 null로 들어온다
+    (ValueupPlan.buyback_planned: bool|None, 자유서식 best-effort). _washing_flag에서
+    래핑 없이 raw로 들어가는 것은 의도 — 이미 3치(bool|None)라 변환이 불필요하며,
+    None은 Kleene unknown으로 처리된다. 이 테스트가 그 계약을 고정한다."""
+    assert _washing_flag(
+        progress_rate=0.6, achievement_rate=0.4, buyback_planned=None,
+        buyback_retired=False, progress_min=0.5, achievement_max=0.6,
+    ) is None  # 확정 False 없음 + unknown 있음 → 판단 불가
+
+
+def test_washing_flag_buyback_planned_none_still_dominated_by_retired() -> None:
+    """[코드리뷰 2026-07-21] planned가 unknown이어도 소각 확정(retired=True)이면 전체
+    확정 False — unknown 항이 확정 False 항의 지배를 막지 않는다."""
+    assert _washing_flag(
+        progress_rate=0.6, achievement_rate=0.4, buyback_planned=None,
+        buyback_retired=True, progress_min=0.5, achievement_max=0.6,
+    ) is False
+
+
 def test_washing_flag_kleene_progress_below_min_dominates() -> None:
     """[High] progress_rate가 확정으로 임계 미달이면 나머지 unknown이어도 전체 False."""
     assert _washing_flag(
@@ -213,10 +248,10 @@ def test_run_rejects_malformed_as_of(engine) -> None:
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         _seed(s)
-        with pytest.raises(ValueError, match="YYYY-MM-DD"):
-            run(s, as_of="2025-7-1")
-        with pytest.raises(ValueError, match="YYYY-MM-DD"):
-            run(s, as_of="not-a-date")
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        run(as_of="2025-7-1", session_factory=Session_)
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        run(as_of="not-a-date", session_factory=Session_)
 
 
 def test_run_ac3_invalid_period_nulls_achievement_and_execution(engine) -> None:
@@ -238,8 +273,7 @@ def test_run_ac3_invalid_period_nulls_achievement_and_execution(engine) -> None:
             buyback_planned=True,
         ))
         s.commit()
-        run(s, as_of="2025-12-31", corp_codes=["00000005"])
-        s.commit()
+        run(as_of="2025-12-31", corp_codes=["00000005"], session_factory=Session_)
         row = s.scalars(select(ValueupScore)).one()
         assert row.progress_rate is None
         assert row.achievement_rate is None  # actual_roe=8.0, target_roe=10.0로 계산 가능했었지만 null
@@ -252,17 +286,16 @@ def test_run_deletes_stale_score_when_plan_removed(engine) -> None:
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         _seed(s)
-        run(s, as_of="2025-12-31")
-        s.commit()
+        run(as_of="2025-12-31", session_factory=Session_)
         assert s.scalar(select(ValueupScore)) is not None  # score 생성 확인
 
         plan = s.scalars(select(ValueupPlan).where(ValueupPlan.corp_code == "00000001")).one()
         s.delete(plan)
         s.commit()
 
-        run(s, as_of="2025-12-31")
-        s.commit()
+        result = run(as_of="2025-12-31", session_factory=Session_)
         assert s.scalar(select(ValueupScore)) is None  # 정리됨
+        assert result.scored == 0 and result.deleted == 1
 
 
 def test_run_excludes_same_year_annual_report_lookahead(engine) -> None:
@@ -284,15 +317,14 @@ def test_run_excludes_same_year_annual_report_lookahead(engine) -> None:
         ))
         s.commit()
 
-        run(s, as_of="2025-12-31", corp_codes=["00000006"])
-        s.commit()
+        run(as_of="2025-12-31", corp_codes=["00000006"], session_factory=Session_)
         row_same_year = s.scalars(
             select(ValueupScore).where(ValueupScore.as_of == "2025-12-31")
         ).one()
         assert row_same_year.achievement_rate is None  # 같은 해 → 아직 못 봄
+        s.commit()  # run()이 자체 세션을 열기 전에 커넥션을 놓아준다(StaticPool 공유)
 
-        run(s, as_of="2026-06-30", corp_codes=["00000006"])
-        s.commit()
+        run(as_of="2026-06-30", corp_codes=["00000006"], session_factory=Session_)
         row_next_year = s.scalars(
             select(ValueupScore).where(ValueupScore.as_of == "2026-06-30")
         ).one()
@@ -361,18 +393,20 @@ def test_run_computes_and_upserts_score(engine) -> None:
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         _seed(s)
-        n = run(s, as_of="2025-12-31")
-        s.commit()
-        assert n == 1
+        result = run(as_of="2025-12-31", session_factory=Session_)
+        assert result.scored == 1
+        assert result.complete is True  # 실패 0 → 이 as_of는 전 종목 동일 시점
         row = s.scalars(select(ValueupScore)).one()
         # actual_roe = net_income/equity*100 = 80/1000*100 = 8.0 → achievement = 8/10 = 0.8
         assert row.achievement_rate == pytest.approx(0.8)
-        # progress: (2025-2024)/(2027-2024) = 1/3
-        assert row.progress_rate == pytest.approx(1 / 3)
+        # progress(일 단위, 결정 B): (2025-12-31 − 2024-01-01) / (2027-12-31 − 2024-01-01)
+        # = 730/1460 = 0.5 (연 단위 시절엔 1/3이었다)
+        assert row.progress_rate == pytest.approx(0.5)
         assert row.buyback_executed is True
         assert row.buyback_retired is False  # 확정 0
         assert row.buyback_status == "purchased_only"
-        # washing: progress(1/3)<0.5 → False(달성률 낮아도 진척 미달로 워싱 아님)
+        # washing: progress 0.5>=0.5는 True 항이 됐지만 achievement 0.8<0.6이 확정 False
+        # → 전체 False(목표를 80% 달성 중이면 워싱 아님. 연 단위 시절엔 진척 미달이 사유였다)
         assert row.washing_flag is False
         assert row.execution_score is not None
 
@@ -383,9 +417,8 @@ def test_run_skips_corp_without_plan(engine) -> None:
     with Session_() as s:
         s.add(Company(corp_code="00000002", corp_name="계획없음"))
         s.commit()
-        n = run(s, as_of="2025-12-31", corp_codes=["00000002"])
-        s.commit()
-        assert n == 0
+        result = run(as_of="2025-12-31", corp_codes=["00000002"], session_factory=Session_)
+        assert result.scored == 0
         assert s.scalar(select(ValueupScore)) is None
 
 
@@ -394,10 +427,8 @@ def test_run_is_idempotent(engine) -> None:
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         _seed(s)
-        run(s, as_of="2025-12-31")
-        s.commit()
-        run(s, as_of="2025-12-31")  # 재실행
-        s.commit()
+        run(as_of="2025-12-31", session_factory=Session_)
+        run(as_of="2025-12-31", session_factory=Session_)  # 재실행
         rows = s.scalars(select(ValueupScore)).all()
         assert len(rows) == 1
 
@@ -413,8 +444,7 @@ def test_run_picks_latest_disclosure_before_as_of(engine) -> None:
             buyback_planned=True,
         ))
         s.commit()
-        run(s, as_of="2025-12-31")
-        s.commit()
+        run(as_of="2025-12-31", session_factory=Session_)
         row = s.scalars(select(ValueupScore)).one()
         # actual_roe=8.0 → 8/12 (최신 공시 target) 아니라 8/10이면 구버전 채택 오류
         assert row.achievement_rate == pytest.approx(8.0 / 12.0)
@@ -431,13 +461,73 @@ def test_run_null_metrics_propagate_to_null_score(engine) -> None:
             buyback_planned=True,
         ))
         s.commit()
-        run(s, as_of="2025-12-31", corp_codes=["00000003"])
-        s.commit()
+        run(as_of="2025-12-31", corp_codes=["00000003"], session_factory=Session_)
         row = s.scalars(select(ValueupScore)).one()
         assert row.achievement_rate is None
         assert row.execution_score is None
         assert row.buyback_status == "unknown"
-        # Kleene 3치(코드리뷰 Med): progress_rate=1/3<0.5는 확정 False → 나머지 unknown이어도
-        # washing_flag는 확정 False(과거엔 achievement/retired가 None이라 전체 None이었음).
-        assert row.progress_rate == pytest.approx(1 / 3)
-        assert row.washing_flag is False
+        # 결정 B(일 단위)로 progress=0.5>=0.5 → True 항. 확정 False 항이 없고
+        # achievement·retired가 unknown이므로 Kleene 3치상 washing은 None(판단 불가).
+        # (연 단위 시절엔 progress=1/3<0.5 확정 False가 전체를 False로 지배했다 —
+        # 산식 정밀도가 바뀌면 임계 근처 판정이 바뀌는 것이 올바른 null 전파다.)
+        assert row.progress_rate == pytest.approx(0.5)
+        assert row.washing_flag is None
+
+
+# ── T5: 트랜잭션 정책 — 종목별 커밋 + 실패 목록 (코드리뷰 2026-07-21 결정) ──
+
+def test_run_partial_failure_keeps_successful_corps(engine, monkeypatch) -> None:
+    """한 종목이 터져도 나머지 종목의 결과는 살아남고, 실패는 목록에 남는다.
+
+    전량 원자성을 택했다면 이 테스트는 '전부 롤백'을 기대했을 것 — 부분 성공을 택한 대신
+    실패를 **숨기지 않는다**(ScoreRunResult.failed / .complete)는 것이 이 정책의 계약이다.
+    """
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed(s, corp_code="00000001")
+        _seed(s, corp_code="00000009")
+
+    real_latest_plan = repo.latest_valueup_plan
+
+    def _boom(session, corp_code, as_of):
+        if corp_code == "00000009":
+            raise RuntimeError("의도적 실패")
+        return real_latest_plan(session, corp_code, as_of)
+
+    monkeypatch.setattr(repo, "latest_valueup_plan", _boom)
+
+    result = run(as_of="2025-12-31", session_factory=Session_)
+
+    assert result.scored == 1  # 정상 종목은 저장됨
+    assert result.succeeded == ["00000001"]
+    assert [c for c, _ in result.failed] == ["00000009"]
+    assert result.complete is False  # 이 as_of 스냅샷은 불완전 — 게시 전 확인 필요
+    with Session_() as s:
+        rows = s.scalars(select(ValueupScore)).all()
+        assert [r.corp_code for r in rows] == ["00000001"]
+
+
+def test_run_failed_corp_leaves_no_partial_row(engine, monkeypatch) -> None:
+    """실패 종목의 트랜잭션은 통째로 롤백된다 — 반쪽 행이 남지 않는다.
+
+    '종목별 커밋'은 종목 **경계**에서만 부분 성공을 허용한다는 뜻이지, 한 종목 안에서
+    반쯤 쓰인 상태를 허용한다는 뜻이 아니다.
+    """
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed(s, corp_code="00000001")
+
+    real_upsert = repo.upsert_valueup_score
+
+    def _boom_after_write(session, rec):
+        real_upsert(session, rec)  # 행을 쓴 **직후** 실패시킨다
+        raise RuntimeError("저장 직후 실패")
+
+    monkeypatch.setattr(repo, "upsert_valueup_score", _boom_after_write)
+
+    result = run(as_of="2025-12-31", session_factory=Session_)
+
+    assert result.scored == 0
+    assert [c for c, _ in result.failed] == ["00000001"]
+    with Session_() as s:
+        assert s.scalar(select(ValueupScore)) is None  # 롤백됨

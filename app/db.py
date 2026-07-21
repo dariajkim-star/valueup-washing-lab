@@ -2,6 +2,11 @@
 
 레이어 규약(AD-2): repository만 이 세션으로 SQL을 실행한다.
 PostgreSQL 기본, SQLite 폴백(로컬 개발·CI).
+
+모듈 임포트 시점 engine 생성은 **의도된 fail-fast**(코드리뷰 2026-07-21 결정):
+create_engine은 커넥션을 열지 않으므로(첫 쿼리에서 lazy connect) 임포트에서 죽는 경우는
+URL 기형·설정 검증 실패뿐이고, 그건 부팅 거부가 맞다. DB 미접속 장애는 /health가 503으로
+잡는다. lazy-init 전환은 orchestrated 배포(liveness probe) 도입 시 재검토 — deferred-work.md.
 """
 
 from __future__ import annotations
