@@ -59,9 +59,9 @@ def _percentile_rank(value: float | None, population: Sequence[float | None]) ->
     동결되는 시계열에서 실제로 발생. mid-rank는 전원 동일 → 0.5(중립), 고유 최솟값 0·최댓값 1.
     NaN/Inf는 대상값·모집단 모두 배제(비교 연산 왜곡 방지, 리뷰 Med). 유효 peer<2 → None.
     """
-    if value is None or not math.isfinite(value):
+    if not _is_finite_value(value):
         return None
-    pop = [v for v in population if v is not None and math.isfinite(v)]
+    pop = [v for v in population if _is_finite_value(v)]
     if len(pop) < 2:
         return None
     below = sum(1 for v in pop if v < value)
@@ -109,6 +109,22 @@ def _mna_target_score(
     )
 
 
+def _is_finite_value(value: Any) -> bool:
+    """백분위 계산에 실제로 쓸 수 있는 값인가 — None·NaN·Inf·비수치 전부 배제.
+
+    `_percentile_rank`와 `_build_populations`가 **같은 정의**를 써야 한다(코드리뷰 2026-07-22 Med).
+    이전엔 population은 `is not None`만 걸러 NaN/Inf를 유효 peer로 세고, rank 계산은 isfinite로
+    다시 걸렀다 — 그 결과 sector_ready 판정(모집단 길이 기준)이 실제 유효 peer 수보다 부풀려져,
+    시장 폴백으로 갔어야 할 종목이 sector 모집단을 쓰고 점수가 통째로 None이 되는 경로가 있었다.
+    """
+    if value is None:
+        return False
+    try:
+        return math.isfinite(value)
+    except TypeError:  # 수치가 아닌 값(문자열 등) — 비교 연산 자체가 성립하지 않는다
+        return False
+
+
 def _build_populations(
     rows: Mapping[str, Mapping[str, Any]],
     group_of: Callable[[str], str],
@@ -117,13 +133,16 @@ def _build_populations(
 
     grouping seam: `group_of(corp_code) -> 그룹키`. v1은 상수(전체시장), 2-7에서
     sector 버킷으로 교체. 백분위 계산부는 이 함수가 준 population만 소비한다.
+
+    "유효값"의 정의는 `_is_finite_value` 하나로 통일된다 — sector 준비 판정이 세는 개수와
+    실제 백분위가 쓰는 개수가 달라지면 모집단 선택이 틀어진다.
     """
     pops: dict[str, dict[str, list[float]]] = {}
     for corp_code, indicators in rows.items():
         group = group_of(corp_code)
         bucket = pops.setdefault(group, {})
         for name, value in indicators.items():
-            if value is not None:
+            if _is_finite_value(value):
                 bucket.setdefault(name, []).append(value)
     return pops
 
@@ -166,21 +185,39 @@ class MnaRunResult:
     deleted: int = 0  # 근거를 잃어 정리된 종목 수
     succeeded: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)  # (corp_code, reason)
-    # DB 오류로 세션이 죽어 루프를 중단했는가. True면 failed는 **완전한 목록이 아니다** —
+    # 세션 오류·엔진 버그로 루프를 중단했는가. True면 failed는 **완전한 목록이 아니다** —
     # 남은 종목은 시도조차 되지 않았다(성공했을지 실패했을지 알 수 없음).
     aborted_early: bool = False
+    # 실행 자체를 무산시킨 사유(업스트림 입력 전무, 엔진 내부 오류 등). None이면 없음.
+    fatal_error: str | None = None
+    # corp_codes 부분집합 실행이었는가. 성공 여부와 **무관하게** 스냅숏을 부분적으로 만든다.
+    partial_scope: bool = False
 
     @property
     def complete(self) -> bool:
-        """실패 0건 = 스냅숏이 커밋됐고 전 종목이 동일 모집단 기준임을 보장."""
-        return not self.failed
+        """이번 실행이 실패 없이 끝났는가(= 트랜잭션이 커밋됐는가).
+
+        **"전 종목이 동일 모집단 기준"을 뜻하지 않는다**(코드리뷰 2026-07-22 High).
+        그건 `publishable`이다 — 이전 docstring이 두 개념을 한 값에 담아 과장했고, 부분 실행이
+        혼재를 만들면서도 complete=True를 반환했다.
+        """
+        return not self.failed and self.fatal_error is None
+
+    @property
+    def publishable(self) -> bool:
+        """이 as_of의 mna_score 테이블을 게시·비교에 써도 되는가.
+
+        백분위 순위는 **전 종목이 같은 모집단 세대**일 때만 의미가 있다. 부분 실행은 대상 밖
+        종목을 이전 세대 점수로 남기므로, 실행 자체가 성공(complete)해도 결과 표는 게시 불가다.
+        """
+        return self.complete and not self.partial_scope
 
 
 def run(
     as_of: str,
     corp_codes: Sequence[str] | None = None,
     *,
-    session_factory: Callable[[], Session] = SessionLocal,
+    session_factory: Callable[[], Session] | None = None,
 ) -> MnaRunResult:
     """as_of 기준 corp별 mna_score를 계산·upsert. MnaRunResult 반환.
 
@@ -214,7 +251,10 @@ def run(
       전체 실행(corp_codes=None)으로 재계산**할 것. 부분 실행은 테스트/디버깅 용도.
     """
     _validate_as_of(as_of)
-    result = MnaRunResult()
+    # 기본 인자로 두면 정의 시점에 객체가 고정돼 테스트가 모듈 속성만 바꿔선 못 막는다
+    # (코드리뷰 2026-07-22 Med — 실 DB 오염 사고의 구조적 원인).
+    session_factory = session_factory or SessionLocal
+    result = MnaRunResult(partial_scope=corp_codes is not None)
     # 전량 원자성: 읽기·계산·쓰기 전부가 하나의 트랜잭션. _IncompleteRun이 오르면
     # session.begin() 블록이 롤백하고, 그 신호는 여기서 삼킨다(사유는 result에 있다).
     try:
@@ -222,8 +262,8 @@ def run(
             _run_in_session(session, as_of, corp_codes, result)
     except _IncompleteRun:
         logger.error(
-            "M&A 스코어 %d종목 실패 → 전량 롤백(mna_score는 실행 이전 상태). as_of=%s",
-            len(result.failed), as_of,
+            "M&A 스코어 실패 → 전량 롤백(mna_score는 실행 이전 상태). as_of=%s 사유=%s",
+            as_of, result.fatal_error or f"{len(result.failed)}종목 실패",
         )
         # 롤백됐으므로 '계산된 수'는 DB에 없다 — 결과가 쓰이지 않은 것을 숫자로도 드러낸다.
         result.scored = 0
@@ -256,7 +296,18 @@ def _run_in_session(
     metrics = repo.all_latest_metrics(session, as_of)
     ownership = repo.all_latest_ownership(session, as_of)
     if not metrics and not ownership:
-        return  # 입력 전무 — 업스트림 장애 가능성, reconciliation 오삭제 방어
+        # 입력 전무 — 업스트림 장애 가능성. 기존 행은 절대 지우지 않는다(reconciliation 오삭제 방어).
+        # 다만 **정상 완료로 보고하지도 않는다**(코드리뷰 2026-07-22 High): 유니버스에 종목이
+        # 있는데 입력이 통째로 비었다면 그건 "계산할 게 없었다"가 아니라 ETL 장애다.
+        # 이전엔 그냥 return이라 complete=True·종료 코드 0으로 나가 재계산이 정상 완료된 것처럼
+        # 보였다 — "롤백하되 실패를 숨기지 않는다"는 이 엔진의 원칙과 정면으로 어긋났다.
+        if corp_codes:
+            result.fatal_error = (
+                f"M&A 입력 데이터가 전무하다(대상 {len(corp_codes)}종목, "
+                "metrics·ownership 둘 다 0건) — 업스트림 수집 상태를 확인할 것"
+            )
+            raise _IncompleteRun
+        return  # 유니버스 자체가 비었다 = 진짜로 할 일이 없다
     current_rate, rate_history = repo.latest_macro_percentile_basis(session, as_of)
     sectors = repo.all_company_sectors(session)
 
@@ -295,22 +346,29 @@ def _run_in_session(
                 session, corp_code, as_of, metrics, ownership, pops
             )
         except SQLAlchemyError as e:
-            # DB 오류는 세션을 못 쓰게 만든다 — 이후 종목은 전부 "closed transaction"으로
-            # 실패해 **사유가 노이즈**가 되고, 그 종목들이 실제로 성공했을지는 알 수 없게 된다.
-            # 계속 도는 이유(진짜 사유를 모은다)가 사라지므로 여기서 멈춘다.
+            # SQLAlchemy 계층 오류는 세션을 못 쓰게 만들 수 있다 — 이후 종목은 전부
+            # "closed transaction"으로 실패해 **사유가 노이즈**가 되고, 그 종목들이 실제로
+            # 성공했을지는 알 수 없게 된다. 계속 도는 이유가 사라지므로 여기서 멈춘다.
+            # (모든 SQLAlchemyError가 세션을 오염시키진 않지만 — NoResultFound 등 — 구분보다
+            #  보수적 중단이 안전하다. 리뷰어도 같은 판단: 데이터 안전에 유리.)
             logger.warning(
-                "M&A 스코어 DB 오류 corp_code=%s: %s — 세션 사용 불가로 중단",
+                "M&A 스코어 SQLAlchemy 오류 corp_code=%s: %s — 세션 사용 불가 가능성으로 중단",
                 corp_code, type(e).__name__,
             )
             result.failed.append((corp_code, str(e)))
             result.aborted_early = True
             break
-        except Exception as e:  # noqa: BLE001 (사유를 담고 계속 — 끝에서 전량 롤백)
-            logger.warning(
-                "M&A 스코어 계산 실패 corp_code=%s: %s", corp_code, type(e).__name__
-            )
-            result.failed.append((corp_code, str(e)))
-            continue
+        except Exception as e:  # noqa: BLE001
+            # 여기 오는 것은 **종목별 데이터 오류가 아니라 엔진 버그**다 — 루프 안은 이미
+            # 메모리에 올린 값으로 하는 순수 계산이라 예상 가능한 실패 유형이 없다.
+            # 이전엔 사유를 담고 계속 돌았는데, 그러면 리팩터링 실수 하나가 33종목의 독립
+            # 데이터 오류처럼 부풀려지고 traceback도 사라진다(코드리뷰 2026-07-22 Med —
+            # DB 오류에서 고친 "노이즈 실패 목록" 문제가 프로그램 오류에서 재발하던 것).
+            logger.exception("M&A 엔진 내부 오류 corp_code=%s", corp_code)
+            result.failed.append((corp_code, f"{type(e).__name__}: {e}"))
+            result.fatal_error = f"엔진 내부 오류({type(e).__name__}) — 코드 결함일 가능성"
+            result.aborted_early = True
+            break
         if upserted:
             result.scored += 1
         else:

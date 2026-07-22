@@ -266,3 +266,108 @@ def test_cli_flags_incomplete_failure_list_on_db_abort(monkeypatch, caplog) -> N
     with caplog.at_level("ERROR"):
         assert main(["--as-of", "2025-12-31", "--engine", "mna"]) == EXIT_INCOMPLETE
     assert "완전하지 않다" in caplog.text
+
+
+# ── 코드리뷰 2026-07-22 후속: 게시 가능성 · 예외 격리 ──
+
+def test_mna_partial_run_does_not_exit_zero(monkeypatch, caplog) -> None:
+    """[리뷰 High-1] mna 부분 실행은 성공해도 종료 코드 0으로 끝내지 않는다.
+
+    실행은 성공(complete=True)이지만 순위표는 세대가 섞여 게시 불가다. 0으로 끝내면
+    스케줄러·셸에게 "정상 스냅숏이 생겼다"고 거짓말하게 된다.
+    """
+    monkeypatch.setattr(
+        run_scoring.mna_engine, "run",
+        lambda *a, **k: MnaRunResult(scored=1, succeeded=["001"], partial_scope=True),
+    )
+    with caplog.at_level("ERROR"):
+        code = main(["--as-of", "2025-12-31", "--engine", "mna", "--corp-codes", "001"])
+    assert code == EXIT_INCOMPLETE
+    assert "게시 불가" in caplog.text
+
+
+def test_gap_partial_run_still_exits_zero(engine, monkeypatch, caplog) -> None:
+    """대조군: gap 부분 실행은 종전대로 0 — 종목별 절대 측정치라 부분 갱신분도 유효하다."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed(s)
+    monkeypatch.setattr(run_scoring, "SessionLocal", Session_)
+
+    with caplog.at_level("WARNING"):
+        code = main(["--as-of", "2025-12-31", "--engine", "gap", "--corp-codes", "00000001"])
+    assert code == EXIT_OK
+    assert "게시용 아님" in caplog.text
+
+
+def test_corp_codes_with_engine_all_is_usage_error(monkeypatch, caplog) -> None:
+    """[리뷰 High-1] --corp-codes는 --engine 명시를 요구한다.
+
+    기본값 all이라, gap 한 종목만 디버깅하려던 명령이 mna 순위표까지 부분 갱신했다.
+    "안전한 기본값 all"이 --corp-codes와 결합하면 안전하지 않다.
+    """
+    ran = []
+    monkeypatch.setattr(run_scoring.gap_engine, "run", lambda *a, **k: ran.append("gap"))
+    monkeypatch.setattr(run_scoring.mna_engine, "run", lambda *a, **k: ran.append("mna"))
+
+    with caplog.at_level("ERROR"):
+        code = main(["--as-of", "2025-12-31", "--corp-codes", "001"])
+    assert code == EXIT_USAGE
+    assert ran == []  # 어느 엔진도 돌지 않았다
+    assert "--engine을 명시" in caplog.text
+
+
+def test_engine_exception_does_not_stop_other_engine(monkeypatch, caplog) -> None:
+    """[리뷰 High-2] 엔진이 예외를 던져도 다음 엔진은 실행되고 종료 코드는 통제된다.
+
+    이전엔 CLI가 ValueError만 잡아, 모집단 조회 중 OperationalError가 나면 traceback으로
+    프로세스가 죽었다 — AC7("한 엔진이 실패해도 다른 엔진은 실행")이 실제 엔진 실패에는
+    성립하지 않았다.
+    """
+    from sqlalchemy.exc import OperationalError
+
+    ran = []
+
+    def boom(*a, **k):
+        ran.append("gap")
+        raise OperationalError("SELECT 1", {}, Exception("연결 끊김"))
+
+    monkeypatch.setattr(run_scoring.gap_engine, "run", boom)
+    monkeypatch.setattr(
+        run_scoring.mna_engine, "run",
+        lambda *a, **k: (ran.append("mna"), MnaRunResult(scored=1, succeeded=["001"]))[1],
+    )
+
+    with caplog.at_level("ERROR"):
+        code = main(["--as-of", "2025-12-31"])
+    assert code == EXIT_INCOMPLETE      # traceback이 아니라 통제된 종료 코드
+    assert ran == ["gap", "mna"]        # 두 번째 엔진이 실행됐다
+    assert "엔진 실행 자체가 실패" in caplog.text
+
+
+def test_deep_value_error_is_not_laundered_into_usage_error(monkeypatch, caplog) -> None:
+    """[리뷰 High-2 파생] 엔진 내부의 무관한 ValueError가 종료 코드 2로 세탁되지 않는다.
+
+    이전엔 맨 `except ValueError`라, 엔진 깊은 곳의 ValueError도 '사용법 오류'가 됐다.
+    이제 as_of 검증만 전용 InvalidAsOfError를 던진다.
+    """
+    monkeypatch.setattr(
+        run_scoring.gap_engine, "run",
+        lambda *a, **k: (_ for _ in ()).throw(ValueError("엔진 내부의 무관한 오류")),
+    )
+    with caplog.at_level("ERROR"):
+        code = main(["--as-of", "2025-12-31", "--engine", "gap"])
+    assert code == EXIT_INCOMPLETE   # 2가 아니다
+    assert "엔진 실행 자체가 실패" in caplog.text
+
+
+def test_mna_fatal_error_is_reported(monkeypatch, caplog) -> None:
+    """[리뷰 High-3] 입력 전무 같은 실행 무산 사유가 로그에 드러난다."""
+    monkeypatch.setattr(
+        run_scoring.mna_engine, "run",
+        lambda *a, **k: MnaRunResult(fatal_error="M&A 입력 데이터가 전무하다(대상 33종목)"),
+    )
+    with caplog.at_level("ERROR"):
+        code = main(["--as-of", "2025-12-31", "--engine", "mna"])
+    assert code == EXIT_INCOMPLETE
+    assert "실행 무산" in caplog.text
+    assert "전무" in caplog.text

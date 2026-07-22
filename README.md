@@ -47,8 +47,13 @@ cd dashboard && npm run dev
 ```
 
 `--as-of`는 **필수**입니다. `progress_rate`가 기준일에 직접 의존하므로 암묵적 오늘 날짜는
-재현 불가능한 실행을 만듭니다. 부분 실패가 있으면 실패 종목을 전건 출력하고 종료 코드 1을
-반환합니다 — 그 as_of 스냅숏에 이번 실행분과 이전 실행분이 섞여 있다는 뜻입니다.
+재현 불가능한 실행을 만듭니다. 종료 코드는 0=성공 / 1=엔진 실패 또는 게시 불가 결과 /
+2=사용법·입력 오류이며, 실패 종목은 전건 출력합니다.
+
+0의 기준은 엔진마다 다릅니다 — gap은 "대상 종목이 모두 저장됐는가", mna는 **"전 종목이 같은
+모집단 세대인가"**입니다. 백분위 순위는 세대가 섞이면 순위 자체가 무의미해지므로, mna의
+부분 실행(`--corp-codes`)은 실행이 성공해도 0으로 끝나지 않습니다. 같은 이유로 `--corp-codes`는
+`--engine`을 명시해야 합니다(두 엔진의 부분 실행 의미가 달라 한 명령으로 뭉뚱그릴 수 없습니다).
 
 > **스코어 산식을 바꾼 뒤에는 세 레이어를 함께 정렬해야 합니다**: `run_scoring` → `app.export.tableau`
 > → `.twbx` 재패키징. CSV가 `progress_rate`를 담고 `.twbx`는 그 CSV를 임베드하므로, 하나만
@@ -65,7 +70,7 @@ cd dashboard && npm run dev
 from app.ingest import run as ingest   # ingest_financials / prices / macro / valueup_plans / ownership
 ```
 
-테스트: `pytest -q`(백엔드 271) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0011).
+테스트: `pytest -q`(백엔드 284) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0011).
 
 ## 아키텍처 (AD 요약)
 
