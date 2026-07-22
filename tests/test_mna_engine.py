@@ -459,9 +459,8 @@ def test_run_reports_failures_even_though_rolled_back(engine, monkeypatch) -> No
     monkeypatch.setattr(mna_engine.repo, "upsert_mna_score", always_fail)
     result = run("2025-12-31", session_factory=Session_)
 
-    # 첫 실패에서 멈추지 않고 전 종목의 사유를 모은다
-    assert [c for c, _ in result.failed] == ["00000001", "00000002"]
-    assert all("실패-" in reason for _, reason in result.failed)
+    assert result.complete is False
+    assert "실패-00000001" in result.failed[0][1]  # 사유가 지워지지 않는다
     # 롤백됐으므로 '성공했다'는 숫자를 남기지 않는다
     assert result.scored == 0
     assert result.succeeded == []
@@ -551,22 +550,116 @@ def test_db_error_aborts_loop_instead_of_logging_noise(engine) -> None:
         assert s.scalars(select(MnaScore)).all() == []  # 전량 롤백은 그대로
 
 
-def test_non_db_error_still_collects_all_reasons(engine, monkeypatch) -> None:
-    """반대 축: 순수 계산 오류는 세션을 망가뜨리지 않으므로 끝까지 사유를 모은다."""
+def test_engine_bug_aborts_instead_of_inflating_per_corp_failures(engine, monkeypatch) -> None:
+    """비-SQLAlchemy 예외는 **엔진 버그**로 보고 즉시 중단한다(코드리뷰 2026-07-22 Med).
+
+    루프 안은 이미 메모리에 올린 값으로 하는 순수 계산이라, 예상 가능한 종목별 실패 유형이
+    없다. 이전 구현은 사유를 담고 계속 돌았는데 — 그러면 리팩터링 실수 하나가 33종목의 독립
+    데이터 오류처럼 부풀려진다. DB 오류에서 고쳤던 "노이즈 실패 목록" 문제의 재발이었다.
+
+    (이 테스트는 이전 `test_non_db_error_still_collects_all_reasons`를 대체한다 — 그 테스트가
+    고정하던 "끝까지 모은다"가 틀린 계약이었다.)
+    """
     from app.analysis import mna_engine
 
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
-        _seed_corp(s, "00000001", market_cap=1000)
-        _seed_corp(s, "00000002", market_cap=3000)
+        for i, cap in enumerate((1000, 3000, 5000), start=1):
+            _seed_corp(s, f"0000000{i}", market_cap=cap)
         _seed_macro(s)
         s.commit()
 
-    monkeypatch.setattr(
-        mna_engine.repo, "upsert_mna_score",
-        lambda session, rec: (_ for _ in ()).throw(RuntimeError(f"계산-{rec['corp_code']}")),
-    )
+    calls = {"n": 0}
+
+    def buggy(session, rec):
+        calls["n"] += 1
+        raise AttributeError("리팩터링 회귀를 흉내낸 엔진 버그")
+
+    monkeypatch.setattr(mna_engine.repo, "upsert_mna_score", buggy)
     result = run("2025-12-31", session_factory=Session_)
 
-    assert result.aborted_early is False
-    assert [c for c, _ in result.failed] == ["00000001", "00000002"]
+    assert calls["n"] == 1              # 3종목 반복하지 않고 첫 종목에서 멈춘다
+    assert len(result.failed) == 1      # 같은 버그가 3건으로 부풀지 않는다
+    assert result.aborted_early is True
+    assert result.fatal_error is not None
+    assert "AttributeError" in result.fatal_error  # 데이터 문제가 아니라 코드 결함임을 명시
+    assert result.complete is False
+    with Session_() as s:
+        assert s.scalars(select(MnaScore)).all() == []  # 전량 롤백은 그대로
+
+
+# ── 코드리뷰 2026-07-22 후속: publishable · 입력 전무 · finite 판정 ──
+
+def test_partial_run_is_complete_but_not_publishable(engine) -> None:
+    """[리뷰 High-1] 부분 실행은 성공(complete)해도 게시 불가(publishable=False).
+
+    이전엔 두 개념이 `complete` 하나에 섞여 있어, 세대 혼재를 만들면서도 complete=True를
+    반환했다. docstring은 "전 종목이 동일 모집단 기준"을 보장한다고 말하고 있었다.
+    """
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        for i, cap in enumerate((1000, 3000, 9000), start=1):
+            _seed_corp(s, f"0000000{i}", market_cap=cap)
+        _seed_macro(s)
+        s.commit()
+
+    partial = run("2025-12-31", ["00000001"], session_factory=Session_)
+    assert partial.complete is True         # 실행 자체는 성공했다
+    assert partial.partial_scope is True
+    assert partial.publishable is False     # 그러나 순위표는 세대가 섞였다
+
+    full = run("2025-12-31", session_factory=Session_)
+    assert full.complete is True
+    assert full.partial_scope is False
+    assert full.publishable is True
+
+
+def test_empty_inputs_are_fatal_not_silent_success(engine) -> None:
+    """[리뷰 High-3] 유니버스는 있는데 입력이 전무하면 ETL 장애다 — 정상 완료로 보고하지 않는다.
+
+    단, 기존 스냅숏은 절대 지우지 않는다(대량 오삭제 방어는 그대로).
+    """
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        s.add(Company(corp_code="00000001", corp_name="기존점수"))
+        s.add(MnaScore(corp_code="00000001", as_of="2025-12-31", mna_target_score=70.0,
+                       valuation_score=0.7, capacity_score=0.7,
+                       ownership_score=0.7, macro_score=0.7))
+        s.commit()
+
+    result = run("2025-12-31", session_factory=Session_)
+
+    assert result.complete is False          # 이전엔 True였다
+    assert result.publishable is False
+    assert result.fatal_error is not None
+    assert "전무" in result.fatal_error
+    with Session_() as s:                    # 기존 행은 보존
+        assert s.scalars(select(MnaScore)).one_or_none() is not None
+
+
+def test_empty_universe_is_not_an_error(engine) -> None:
+    """유니버스 자체가 비었으면 진짜로 할 일이 없다 — 이건 장애가 아니다(위와 구분)."""
+    Session_ = sessionmaker(bind=engine)
+    result = run("2025-12-31", session_factory=Session_)
+    assert result.complete is True
+    assert result.fatal_error is None
+
+
+def test_nan_inf_not_counted_as_peers(engine) -> None:
+    """[리뷰 Med-5] sector 준비 판정과 백분위가 같은 '유효값' 정의를 쓴다.
+
+    이전엔 population이 None만 걸러 NaN/Inf를 peer로 세는 바람에, 실제 유효 peer가 부족한
+    버킷이 sector 모집단으로 판정돼 시장 폴백을 놓치고 점수가 통째로 None이 될 수 있었다.
+    """
+    from app.analysis.mna_engine import _build_populations, _is_finite_value, _percentile_rank
+
+    rows = {"A": {"pbr": 1.0}, "B": {"pbr": float("nan")}, "C": {"pbr": float("inf")}}
+    pops = _build_populations(rows, group_of=lambda c: "g")
+    assert pops["g"]["pbr"] == [1.0]  # NaN·Inf는 애초에 모집단에 들어가지 않는다
+
+    # 준비 판정이 세는 개수 == 백분위가 실제로 쓰는 개수
+    assert len(pops["g"]["pbr"]) == len([v for v in pops["g"]["pbr"] if _is_finite_value(v)])
+    assert _percentile_rank(1.0, pops["g"]["pbr"]) is None  # 유효 peer<2 → 계산 불가
+
+    assert _is_finite_value(None) is False
+    assert _is_finite_value("문자열") is False  # 비수치도 배제(비교 연산이 성립하지 않음)

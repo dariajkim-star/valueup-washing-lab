@@ -26,6 +26,16 @@ logger = logging.getLogger(__name__)
 _AS_OF_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
+class InvalidAsOfError(ValueError):
+    """as_of 입력이 잘못됐다 — **사용법 오류**이지 엔진 실패가 아니다.
+
+    CLI가 "사용법 오류(종료 코드 2)"와 "엔진 실행 실패(종료 코드 1)"를 구분하려면 전용 타입이
+    필요하다(코드리뷰 2026-07-22 High). 이전엔 CLI가 맨 `ValueError`를 잡아 종료 코드 2로
+    번역했는데, 엔진 깊은 곳에서 올라온 무관한 ValueError까지 사용법 오류로 세탁됐다.
+    ValueError를 상속해 기존 호출자(`pytest.raises(ValueError)` 포함)와의 호환은 유지한다.
+    """
+
+
 def _validate_as_of(as_of: str) -> None:
     """as_of가 zero-padded YYYY-MM-DD **이자 달력상 유효**한지 fail-fast.
 
@@ -34,11 +44,11 @@ def _validate_as_of(as_of: str) -> None:
     gap_engine·mna_engine 공용(중복 정의 금지).
     """
     if not _AS_OF_RE.match(as_of):
-        raise ValueError(f"as_of는 YYYY-MM-DD 형식이어야 합니다: {as_of!r}")
+        raise InvalidAsOfError(f"as_of는 YYYY-MM-DD 형식이어야 합니다: {as_of!r}")
     try:
         date.fromisoformat(as_of)
     except ValueError:
-        raise ValueError(f"as_of가 달력상 유효한 날짜가 아닙니다: {as_of!r}") from None
+        raise InvalidAsOfError(f"as_of가 달력상 유효한 날짜가 아닙니다: {as_of!r}") from None
 
 
 def _safe_ratio(actual: float | None, target: float | None) -> float | None:
@@ -170,10 +180,14 @@ class ScoreRunResult:
 
     @property
     def complete(self) -> bool:
-        """실패 0건 = 이 as_of 스냅샷이 전 종목 동일 시점 기준임을 보장.
+        """실패 0건 = **이번 실행이 대상으로 삼은 종목**이 모두 저장됐다.
 
         False면 valueup_score의 해당 as_of에는 이번 실행분과 이전 실행분이 **섞여 있다**.
         게시·비교 용도로 쓰기 전에 반드시 확인할 것(트레이드오프는 아래 run() docstring).
+
+        주의(코드리뷰 2026-07-22 High): 이것은 "전 종목이 동일 시점"을 뜻하지 **않는다**.
+        corp_codes 부분집합 실행이면 대상 밖 종목은 이전 실행분 그대로이므로,
+        complete=True여도 스냅숏 전체는 여전히 부분적이다. 두 개념을 섞지 말 것.
         """
         return not self.failed
 
@@ -244,7 +258,7 @@ def run(
     as_of: str,
     corp_codes: Sequence[str] | None = None,
     *,
-    session_factory: Callable[[], Session] = SessionLocal,
+    session_factory: Callable[[], Session] | None = None,
 ) -> ScoreRunResult:
     """as_of 기준으로 corp별 valueup_score를 계산·upsert. ScoreRunResult 반환.
 
@@ -271,6 +285,9 @@ def run(
     비교(사전식)를 실제 날짜 비교와 어긋나게 만들 수 있다(코드리뷰 High, GPT).
     """
     _validate_as_of(as_of)
+    # 기본 인자로 두면 정의 시점에 객체가 고정돼 테스트가 모듈 속성만 바꿔선 못 막는다
+    # (코드리뷰 2026-07-22 Med — 실 DB 오염 사고의 구조적 원인).
+    session_factory = session_factory or SessionLocal
     as_of_date = date.fromisoformat(as_of)  # _validate_as_of 통과 직후라 안전
 
     if corp_codes is None:
