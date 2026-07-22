@@ -123,6 +123,10 @@ class ValueupPlan(Base):
     # 목표치 (best-effort 파싱, 없으면 null)
     target_roe: Mapped[float | None] = mapped_column(Float)  # %
     target_payout_ratio: Mapped[float | None] = mapped_column(Float)  # 배당성향 %
+    # 총주주환원율(배당+자사주매입)/순이익 % — **배당성향과 다른 지표**(5-1).
+    # 실데이터상 기업 다수가 배당성향이 아니라 이쪽으로 약속한다(공시 60건 중 17건).
+    # 한 필드에 섞으면 목표와 실적의 정의가 어긋나므로 분리해서 받는다.
+    target_total_return_ratio: Mapped[float | None] = mapped_column(Float)
     target_pbr: Mapped[float | None] = mapped_column(Float)  # 배
     period_start: Mapped[str | None] = mapped_column(String(10))  # 목표기간 시작(연도/ISO)
     period_end: Mapped[str | None] = mapped_column(String(10))  # 목표기간 종료
@@ -199,6 +203,10 @@ class ValueupScore(Base):
     buyback_executed: Mapped[bool | None] = mapped_column(Boolean)
     buyback_retired: Mapped[bool | None] = mapped_column(Boolean)
     buyback_status: Mapped[str | None] = mapped_column(String(20))  # retired/purchased_only/none/unknown
+    # execution_score가 **어떤 약속을 기준으로** 채점됐는지(5-1). 예: 'return+buyback'.
+    # 기업이 공시한 항목만으로 채점하므로 가중치 기반이 종목마다 다르다 — 그 사실을
+    # 숨기면 점수를 종목 간 비교에 잘못 쓰게 된다(mna의 population_basis와 같은 이유).
+    score_basis: Mapped[str | None] = mapped_column(String(40))
 
 
 class MnaScore(Base):

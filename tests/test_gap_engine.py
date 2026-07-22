@@ -111,18 +111,19 @@ def test_buyback_signals_unknown_when_either_missing() -> None:
 
 
 def test_execution_score_normal() -> None:
-    # achievement=0.8(0.5) + buyback=1(0.3) + payout=1.0달성(0.2) → 100*(0.4+0.3+0.2)=90
-    score = _execution_score(
+    # 세 항목 모두 약속 → 가중치 그대로. achievement=0.8(0.5)+buyback=1(0.3)+payout=1.0(0.2)
+    score, basis = _execution_score(
         achievement_rate=0.8, buyback_executed=True,
         actual_payout=35.0, target_payout=30.0,  # 초과달성 → min(,1.0)=1.0
         w_achievement=0.5, w_buyback=0.3, w_payout=0.2,
     )
     assert score == pytest.approx(90.0)
+    assert basis == "roe+buyback+payout"
 
 
 def test_execution_score_caps_overachievement() -> None:
     """achievement_rate 150%여도 min(,1.0)으로 캡."""
-    score = _execution_score(
+    score, _ = _execution_score(
         achievement_rate=1.5, buyback_executed=True,
         actual_payout=30.0, target_payout=30.0,
         w_achievement=0.5, w_buyback=0.3, w_payout=0.2,
@@ -130,28 +131,76 @@ def test_execution_score_caps_overachievement() -> None:
     assert score == pytest.approx(100.0)
 
 
-def test_execution_score_none_when_achievement_missing() -> None:
-    assert _execution_score(
+# ── 5-1: 공시한 약속에 대해서만 채점 ──
+
+def test_execution_score_null_when_committed_but_actual_missing() -> None:
+    """AC6: 약속했는데 실적을 모르면 그 항목을 빼지 않고 **전체 null**(판단 불가 보존).
+
+    빼버리면 모르는 항목을 유리하게 무시한 셈이라 점수가 부풀려진다.
+    """
+    for kwargs in (
+        dict(achievement_rate=None, buyback_executed=True),   # ROE 약속·실적 미상
+        dict(achievement_rate=0.8, buyback_executed=None),    # 자사주 약속·실행 미상
+    ):
+        score, basis = _execution_score(
+            actual_payout=30.0, target_payout=30.0,
+            w_achievement=0.5, w_buyback=0.3, w_payout=0.2, **kwargs,
+        )
+        assert score is None and basis is None
+
+
+def test_execution_score_skips_uncommitted_and_renormalizes() -> None:
+    """AC3/AC4: ROE를 공시하지 않은 기업은 나머지 항목만으로 채점하고 가중치를 재정규화한다.
+
+    이전엔 target_roe가 없다는 이유만으로 전체 null이었다 — 배당·자사주는 약속하고 지킨
+    기업까지 '판단 불가'가 되어 오히려 정보를 지웠다.
+    """
+    score, basis = _execution_score(
         achievement_rate=None, buyback_executed=True,
         actual_payout=30.0, target_payout=30.0,
         w_achievement=0.5, w_buyback=0.3, w_payout=0.2,
-    ) is None
+        roe_committed=False,  # ROE 목표를 공시하지 않음
+    )
+    # 남은 가중치 0.3+0.2=0.5에 재정규화 → (0.3*1 + 0.2*1)/0.5 = 1.0
+    assert score == pytest.approx(100.0)
+    assert basis == "buyback+payout"
 
 
-def test_execution_score_none_when_buyback_unknown() -> None:
-    assert _execution_score(
-        achievement_rate=0.8, buyback_executed=None,
+def test_execution_score_partial_renormalization_value() -> None:
+    """재정규화가 '남은 항목 안에서의 비율'로 계산되는지 값으로 확인."""
+    score, basis = _execution_score(
+        achievement_rate=None, buyback_executed=False,  # 자사주 미실행 → 0점
+        actual_payout=15.0, target_payout=30.0,         # 배당 50% 달성
+        w_achievement=0.5, w_buyback=0.3, w_payout=0.2,
+        roe_committed=False,
+    )
+    # (0.3*0.0 + 0.2*0.5) / 0.5 = 0.2 → 20점
+    assert score == pytest.approx(20.0)
+    assert basis == "buyback+payout"
+
+
+def test_execution_score_total_return_preferred_over_payout() -> None:
+    """주주환원율과 배당성향은 다른 지표 — 둘 다 공시했으면 더 포괄적인 주주환원율을 쓴다."""
+    score, basis = _execution_score(
+        achievement_rate=None, buyback_executed=None,
         actual_payout=30.0, target_payout=30.0,
         w_achievement=0.5, w_buyback=0.3, w_payout=0.2,
-    ) is None
+        roe_committed=False, buyback_committed=False,
+        actual_total_return=25.0, target_total_return=50.0,  # 50% 달성
+    )
+    assert basis == "total_return"
+    assert score == pytest.approx(50.0)  # 단독 항목이라 재정규화 후 그 달성도 자체
 
 
-def test_execution_score_none_when_payout_ratio_undefined() -> None:
-    assert _execution_score(
+def test_execution_score_none_when_nothing_committed() -> None:
+    """AC5: 약속이 하나도 없으면 채점 대상 자체가 없다 → null(진짜 판단 불가 보존)."""
+    score, basis = _execution_score(
         achievement_rate=0.8, buyback_executed=True,
         actual_payout=30.0, target_payout=None,
         w_achievement=0.5, w_buyback=0.3, w_payout=0.2,
-    ) is None
+        roe_committed=False, buyback_committed=False,
+    )
+    assert score is None and basis is None
 
 
 def test_washing_flag_true_case() -> None:

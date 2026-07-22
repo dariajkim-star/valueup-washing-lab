@@ -44,6 +44,7 @@ def latest_valueup_plan(
     return {
         "target_roe": obj.target_roe,
         "target_payout_ratio": obj.target_payout_ratio,
+        "target_total_return_ratio": obj.target_total_return_ratio,
         "target_pbr": obj.target_pbr,  # 계산 미사용, 참고 보관만(리드 결정)
         "period_start": obj.period_start,
         "period_end": obj.period_end,
@@ -61,7 +62,7 @@ def latest_metrics(session: Session, corp_code: str, as_of: str) -> dict[str, An
     as_of_year = int(as_of[:4])
     row = session.execute(
         text(
-            "SELECT roe, payout_ratio FROM valuation_metrics "
+            "SELECT roe, payout_ratio, total_return_ratio FROM valuation_metrics "
             "WHERE corp_code = :cc AND (year < :yr OR (year = :yr AND quarter < 4)) "
             "ORDER BY year DESC, quarter DESC LIMIT 1"
         ),
@@ -116,7 +117,7 @@ def upsert_valueup_score(session: Session, rec: dict[str, Any]) -> ValueupScore:
     for field in (
         "target_roe", "actual_roe", "roe_gap",
         "achievement_rate", "progress_rate", "execution_score", "washing_flag",
-        "buyback_executed", "buyback_retired", "buyback_status",
+        "buyback_executed", "buyback_retired", "buyback_status", "score_basis",
     ):
         setattr(obj, field, rec[field])
     return obj
@@ -184,6 +185,7 @@ def list_scores(
             "execution_score": score.execution_score,
             "washing_flag": score.washing_flag,
             "buyback_status": score.buyback_status,
+            "score_basis": score.score_basis,
         })
     return items, total
 

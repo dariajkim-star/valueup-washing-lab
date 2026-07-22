@@ -30,6 +30,12 @@ SELECT
                     / (f.operating_income + COALESCE(f.depreciation, 0)) END, 2)   AS ev_ebitda,
     ROUND(CASE WHEN f.equity > 0 THEN f.total_liabilities * 100.0 / f.equity END, 2) AS debt_ratio,
     ROUND(CASE WHEN f.net_income > 0 THEN f.dividend_total * 100.0 / f.net_income END, 2) AS payout_ratio,
+    -- 총주주환원율 = (배당총액 + 자사주매입액)/순이익 (5-1). 배당성향과 **다른 지표**다 —
+    -- 기업 다수가 이쪽으로 목표를 공시하므로 목표와 같은 정의의 실적이 필요하다.
+    -- 자사주매입액이 null이면 0으로 메우지 않는다(그러면 환원을 과소평가) → 전체 null.
+    ROUND(CASE WHEN f.net_income > 0 AND f.buyback_amount IS NOT NULL
+               THEN (f.dividend_total + f.buyback_amount) * 100.0 / f.net_income END, 2)
+                                                                               AS total_return_ratio,
     (f.cash - f.total_debt)                                                        AS net_cash,
     -- 매출 > 0에서만. EBITDA 자체는 음수 가능(음수 마진은 유의미)이라 분자 부호는 유지.
     ROUND(CASE WHEN f.revenue > 0

@@ -14,6 +14,7 @@ from app.models import ValueupPlan
 _TARGET_FIELDS = (
     "target_roe",
     "target_payout_ratio",
+    "target_total_return_ratio",
     "target_pbr",
     "period_start",
     "period_end",
