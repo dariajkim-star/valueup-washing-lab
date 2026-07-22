@@ -37,24 +37,35 @@ cd dashboard && npm install && cd ..
 # 2) 프론트 대시보드  →  http://localhost:5175 (Vite proxy → :8000)
 cd dashboard && npm run dev
 
-# 3) Tableau용 CSV 스냅숏  →  exports/tableau/*.csv + manifest.json
+# 3) valueup_score 재계산  →  종료 코드 0=완전 / 1=부분 실패 / 2=입력 오류
+.venv/Scripts/python -m app.analysis.run_scoring --as-of 2026-07-13
+
+# 4) Tableau용 CSV 스냅숏  →  exports/tableau/*.csv + manifest.json
 .venv/Scripts/python -m app.export.tableau            # 두 엔진 공통 최신 기준일
 .venv/Scripts/python -m app.export.tableau --as-of 2026-07-13   # 과거 시점 재현
 ```
 
-데이터 수집·스코어링은 Python API로 실행합니다(단일 사용자 로컬 도구라 별도 CLI 대신 함수 직접 호출):
+`--as-of`는 **필수**입니다. `progress_rate`가 기준일에 직접 의존하므로 암묵적 오늘 날짜는
+재현 불가능한 실행을 만듭니다. 부분 실패가 있으면 실패 종목을 전건 출력하고 종료 코드 1을
+반환합니다 — 그 as_of 스냅숏에 이번 실행분과 이전 실행분이 섞여 있다는 뜻입니다.
+
+> **스코어 산식을 바꾼 뒤에는 세 레이어를 함께 정렬해야 합니다**: `run_scoring` → `app.export.tableau`
+> → `.twbx` 재패키징. CSV가 `progress_rate`를 담고 `.twbx`는 그 CSV를 임베드하므로, 하나만
+> 갱신하면 레이어 간 값이 어긋납니다.
+
+데이터 수집과 M&A 스코어링은 아직 Python API로 실행합니다(배치 CLI는 gap 엔진부터 도입 중):
 
 ```python
 from app.db import SessionLocal
 from app.ingest import run as ingest          # ingest_financials / prices / macro / valueup_plans / ownership
-from app.analysis import gap_engine, mna_engine
+from app.analysis import mna_engine
 
-s = SessionLocal()
-gap_engine.run(s, as_of="2026-07-13")         # valueup_score 계산·upsert (유일 writer)
-mna_engine.run(s, as_of="2026-07-13")         # mna_score 계산·upsert (유일 writer)
+with SessionLocal() as s:
+    with s.begin():
+        mna_engine.run(s, as_of="2026-07-13")  # mna_score 계산·upsert (유일 writer)
 ```
 
-테스트: `pytest -q`(백엔드 246) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0011).
+테스트: `pytest -q`(백엔드 261) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0011).
 
 ## 아키텍처 (AD 요약)
 
