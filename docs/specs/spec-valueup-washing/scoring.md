@@ -7,6 +7,7 @@
 ```
 달성률   achievement_rate = actual_metric / target_metric        (target > 0)
 진척률   progress_rate    = (today - period_start) / (period_end - period_start)   → [0,1] 클램프
+                            (일 단위. 입력이 연도뿐이므로 경계 규약: start=시작연도 1/1, end=종료연도 12/31)
 갭       gap              = actual_metric - target_metric
 ```
 
@@ -98,3 +99,10 @@ mna_target_score = 100 * (
 | `MNA_W_MACRO` | 0.15 | 매크로 가중 |
 
 > 가중치 합 1.0 유지. `pct_rank_low`=낮을수록 높은 점수, `pct_rank_high`=높을수록 높은 점수. 입력=valuation_metrics 뷰 + ownership + macro_indicator (mna_engine이 mna_score의 유일 writer, AD-10).
+
+> **진척률 일 단위 정합화 (코드리뷰 2026-07-21, 결정 B)**: 초기 구현은 연 단위
+> `(as_of_year - start_year) / (end_year - start_year)`로 위 원식(`today` 기반)에서 이탈해
+> 있었다 — 해가 바뀌는 1/1에 진척률이 계단식 점프해(3년 계획이면 +1/3) washing 임계(0.5)를
+> 하루 사이에 넘는 종목이 생겼다. 일 단위로 정정. 임계 근처 종목은 판정이 달라질 수 있다
+> (예: 3년 계획 2년차 말 = 연 단위 1/3 → 일 단위 0.5). `end <= start` 무효 규칙은 유지
+> (단년 계획 수용은 AC3 계약 변경이라 별도 결정 — deferred-work.md).

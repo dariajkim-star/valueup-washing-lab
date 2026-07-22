@@ -129,3 +129,59 @@ buyback 집계는 실공시 샘플 없이 보수적 규칙(총계 우선·상충
 ## Deferred from: code review of story-3.4 (2026-07-13, GPT)
 
 - **운영 정적 호스팅 SPA fallback rewrite** — dashboard가 BrowserRouter라 /company/:corpCode 직접 진입·새로고침은 서버가 모든 경로를 index.html로 rewrite해야 함. Vite dev는 내장이라 개발 환경은 문제없으나 운영 배포 시 필수 설정 — **배포 스토리(아키텍처 Deferred "배포·운영 envelope")의 체크리스트 항목**.
+
+## Deferred from: code review of gap_engine 트랜잭션 정책 (2026-07-21, party 리뷰)
+
+**결정된 것(이번에 적용):** `gap_engine.run()`의 트랜잭션 정책 = **종목별 커밋 + 실패 목록**
+(`ScoreRunResult`). 수집 레이어 `app/ingest/run.py`와 동일 정책·동일 결과 표현으로 통일.
+세션 소유권도 함께 이동 — `run(session, ...)` → `run(as_of, ..., session_factory=SessionLocal)`.
+
+검토한 대안과 기각 사유(재논의 시 출발점으로 쓸 것):
+
+| 안 | 내용 | 장점 | 기각 사유 |
+|---|---|---|---|
+| 전량 원자성 | 하나 실패 시 전량 롤백 | as_of 스냅샷 시점 일관성 보장 | 1종목 실패로 전량 소실 + **어느 종목이 왜 실패했는지 정보까지 소실** |
+| 종목별 커밋 ✅ | 실패는 목록에 담고 계속 | 부분 성공 보존, 실패 원인 구조화, 기존 레이어와 일관 | 같은 as_of에 실행분이 섞일 수 있음 → `complete` 플래그로 **숨기지 않고 노출**해 수용 |
+| 스테이징 스왑 | 임시 테이블 계산 후 원자적 교체 | 무중단 + 완벽한 일관성 | 스키마 변경·다운스트림 전면 수정. 현 규모에 오버엔지니어링 |
+
+- **`ScoreRunResult.complete` 소비자 없음** — 현재 `complete=False`(부분 실패 스냅샷)를 확인하는
+  주체가 없다. `run()`의 첫 실호출자(배치 라우터/CLI) 스토리에서 결정 필요: 로그 경고로 끝낼지,
+  `valueup_score`에 실행 메타(run_id·completeness)를 남길지, API 응답에 노출할지.
+  **트리거: run() 실호출자 스토리.**
+- **`mna_engine.run()` 미적용** — 같은 `session.flush(); return count` 형태가 남아 있다. gap_engine과
+  달리 **cross-sectional**(모집단을 루프 전에 한 번 구성)이라 부분 실패의 의미가 다르고, 이미
+  "부분 실행 시 population snapshot 혼재" 한계가 docstring에 문서화돼 있다. 같은 정책을 그대로
+  옮길지, 모집단 특성상 전량 원자성이 맞는지는 별도 판단 필요.
+  **트리거: mna 배치 실호출자 스토리, 또는 gap_engine 정책 안정화 후.**
+
+## Deferred from: code review 전체 스캔 (2026-07-21, party 리뷰)
+
+- **gap_engine 종목당 3쿼리 N+1** — `run()`이 종목마다 latest_valueup_plan·latest_metrics·
+  latest_financial_buyback을 개별 호출(33종목 × 3 = 99왕복, 현 규모 밀리초). 전체 KRX
+  유니버스(~2,600종목) 확대 시 ~7,800왕복이 배치 병목. 전환 스케치: mna_engine의 배치 패턴
+  (`all_latest_metrics(session, as_of)` — 모집단을 루프 전 1회 조회 후 dict 룩업)을 gap repo에
+  이식. plan은 corp별 최신 1건이 필요하므로 `ROW_NUMBER() OVER (PARTITION BY corp_code ORDER BY
+  disclosure_date DESC, plan_id DESC)` 또는 전건 조회 후 Python 그룹핑. 읽기 배치는 쓰기 전
+  단일 세션에서, 쓰기는 종목별 트랜잭션 유지(2026-07-21 정책과 양립). **유니버스 확대 스토리의
+  선행 조건**(3.3의 "2단계 IN 필터" 항목과 같은 트리거 — 두 항목을 한 스토리에서 함께 해소).
+- **배포 전 보안 게이트(비협상 체크리스트)** — 현재 전 엔드포인트 무인증·CORS 미설정·
+  rate-limit 없음·`/screening` page 상한 1,000,000(size 100과 조합 시 저비용 DB 부하 유발 가능).
+  로컬 단독 실행에선 리스크 0이나, **외부 노출(EC2·터널링 포함) 전 반드시**: (1) 최소 API 키
+  인증 또는 IP 제한, (2) CORSMiddleware 명시 설정, (3) 리버스 프록시 레벨 rate-limit,
+  (4) page 상한 현실화(예: le=10_000) 또는 keyset 페이지네이션. 3-4의 "SPA fallback rewrite"와
+  같은 **배포 스토리 체크리스트 항목**.
+- **임포트 시점 engine/settings 생성(fail-fast로 결정, Dismiss 기록)** — create_engine은 lazy
+  connect라 임포트 사망 경로는 설정 기형뿐이고 그건 부팅 거부가 정당(app/db.py docstring 명시).
+  orchestrated 배포에서 liveness/readiness 분리가 필요해지면 lazy-init(get_engine() 팩토리) 재검토.
+- **`_washing_flag`의 buyback_planned raw 전달(Dismiss 기록)** — 방어 누락으로 보였으나 재검증
+  결과 의도된 설계: 이미 bool|None 3치라 래핑 불필요, None은 Kleene unknown으로 정확히 처리.
+  회귀 테스트 2건으로 계약 고정(test_washing_flag_buyback_planned_none_*).
+
+## Deferred from: progress_rate 일 단위 정합화 (2026-07-21, 결정 B 후속)
+
+- **단년 계획(end==start) 수용 여부** — 연 단위 시절 `end<=start → None`은 0나눗셈 방어였으나,
+  일 단위 전환으로 단년 계획(2025~2025)도 분모 364일로 계산 가능해졌다. 다만 AC3 계약이
+  "null·end<=start 무효"로 문서화돼 있어 수용은 계약 변경 — 실데이터에 단년 계획 공시가
+  실제로 존재하는지 확인 후 결정. **트리거: 단년 계획 공시 실물 발견 시.**
+- **발표 자료 숫자 재확인** — progress_rate 예시 숫자가 덱·리허설 스크립트에 있으면 일 단위
+  기준으로 갱신 필요(임계 근처 예시는 판정 자체가 바뀔 수 있음). **트리거: 다음 발표 준비 시.**
