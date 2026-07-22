@@ -64,6 +64,10 @@ def _report(name: str, as_of: str, result) -> bool:
             "[gap] 이 as_of에는 이번 실행분과 이전 실행분이 섞여 있다 — 게시 전 재실행할 것."
         )
     else:
+        if getattr(result, "aborted_early", False):
+            logger.error(
+                "[mna] DB 오류로 중단 — 위 목록은 **완전하지 않다**(남은 종목은 시도되지 않음)."
+            )
         logger.error(
             "[mna] 전량 롤백됐다 — mna_score는 실행 이전 상태 그대로다(순위표는 부분적으로 "
             "옳을 수 없으므로). 원인 해소 후 재실행할 것."

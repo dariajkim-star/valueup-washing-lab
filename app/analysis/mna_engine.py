@@ -21,6 +21,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.analysis.gap_engine import _validate_as_of  # as_of 검증 재사용(중복 정의 금지)
@@ -165,6 +166,9 @@ class MnaRunResult:
     deleted: int = 0  # 근거를 잃어 정리된 종목 수
     succeeded: list[str] = field(default_factory=list)
     failed: list[tuple[str, str]] = field(default_factory=list)  # (corp_code, reason)
+    # DB 오류로 세션이 죽어 루프를 중단했는가. True면 failed는 **완전한 목록이 아니다** —
+    # 남은 종목은 시도조차 되지 않았다(성공했을지 실패했을지 알 수 없음).
+    aborted_early: bool = False
 
     @property
     def complete(self) -> bool:
@@ -236,8 +240,14 @@ def _run_in_session(
 ) -> None:
     """run()의 본문. 트랜잭션 경계 밖으로 빼서 롤백 책임을 호출부 한 곳에 둔다.
 
-    실패는 result.failed에 담고 **끝까지 진행하지 않는다** — 순위표는 부분적으로 옳을 수
-    없으므로, 실패가 확인된 시점에 예외를 올려 전량 롤백시킨다(사유는 result에 이미 담겼다).
+    실패는 result.failed에 담고 루프를 계속 돈다 — 순위표는 부분적으로 옳을 수 없으므로
+    어차피 전량 롤백되지만, 그 전에 **진짜 사유를 최대한 모으는** 편이 재실행에 쓸모 있다.
+    루프가 끝나면 예외를 올려 롤백시킨다(사유는 result에 이미 담겼다).
+
+    **예외 — DB 오류는 즉시 중단한다**(2026-07-22 실측). SQLAlchemy 오류가 나면 세션이
+    사용 불가 상태가 되어 이후 종목은 전부 "Can't operate on closed transaction"으로 실패한다.
+    그 사유들은 정보가 아니라 **노이즈**이고(해당 종목이 실제로 성공했을지는 알 수 없다),
+    계속 도는 이유 자체가 사라진다. 이때는 `aborted_early=True`로 **목록이 불완전함을 표시**한다.
     """
     if corp_codes is None:
         corp_codes = repo.list_all_corp_codes(session)
@@ -284,6 +294,17 @@ def _run_in_session(
             upserted = _score_one(
                 session, corp_code, as_of, metrics, ownership, pops
             )
+        except SQLAlchemyError as e:
+            # DB 오류는 세션을 못 쓰게 만든다 — 이후 종목은 전부 "closed transaction"으로
+            # 실패해 **사유가 노이즈**가 되고, 그 종목들이 실제로 성공했을지는 알 수 없게 된다.
+            # 계속 도는 이유(진짜 사유를 모은다)가 사라지므로 여기서 멈춘다.
+            logger.warning(
+                "M&A 스코어 DB 오류 corp_code=%s: %s — 세션 사용 불가로 중단",
+                corp_code, type(e).__name__,
+            )
+            result.failed.append((corp_code, str(e)))
+            result.aborted_early = True
+            break
         except Exception as e:  # noqa: BLE001 (사유를 담고 계속 — 끝에서 전량 롤백)
             logger.warning(
                 "M&A 스코어 계산 실패 corp_code=%s: %s", corp_code, type(e).__name__
