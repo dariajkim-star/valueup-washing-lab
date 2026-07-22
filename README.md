@@ -37,8 +37,9 @@ cd dashboard && npm install && cd ..
 # 2) 프론트 대시보드  →  http://localhost:5175 (Vite proxy → :8000)
 cd dashboard && npm run dev
 
-# 3) valueup_score 재계산  →  종료 코드 0=완전 / 1=부분 실패 / 2=입력 오류
+# 3) 스코어 재계산(기본 두 엔진)  →  종료 코드 0=완전 / 1=부분 실패 / 2=입력 오류
 .venv/Scripts/python -m app.analysis.run_scoring --as-of 2026-07-13
+.venv/Scripts/python -m app.analysis.run_scoring --as-of 2026-07-13 --engine gap   # 한쪽만
 
 # 4) Tableau용 CSV 스냅숏  →  exports/tableau/*.csv + manifest.json
 .venv/Scripts/python -m app.export.tableau            # 두 엔진 공통 최신 기준일
@@ -53,19 +54,18 @@ cd dashboard && npm run dev
 > → `.twbx` 재패키징. CSV가 `progress_rate`를 담고 `.twbx`는 그 CSV를 임베드하므로, 하나만
 > 갱신하면 레이어 간 값이 어긋납니다.
 
-데이터 수집과 M&A 스코어링은 아직 Python API로 실행합니다(배치 CLI는 gap 엔진부터 도입 중):
+두 엔진의 **트랜잭션 정책은 의도적으로 다릅니다**. `valueup_score`는 종목별 절대 측정치라
+종목별 커밋 + 실패 목록(부분 성공 보존)이고, `mna_score`는 **백분위 순위**라 전량 원자성입니다 —
+세대가 섞인 순위표는 "일부만 오래된 값"이 아니라 순위 자체가 무의미해지기 때문입니다.
+그래서 mna는 한 종목만 실패해도 전량 롤백되며, 실패 종목·사유는 그래도 보고됩니다.
+
+데이터 수집은 아직 Python API로 실행합니다:
 
 ```python
-from app.db import SessionLocal
-from app.ingest import run as ingest          # ingest_financials / prices / macro / valueup_plans / ownership
-from app.analysis import mna_engine
-
-with SessionLocal() as s:
-    with s.begin():
-        mna_engine.run(s, as_of="2026-07-13")  # mna_score 계산·upsert (유일 writer)
+from app.ingest import run as ingest   # ingest_financials / prices / macro / valueup_plans / ownership
 ```
 
-테스트: `pytest -q`(백엔드 261) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0011).
+테스트: `pytest -q`(백엔드 271) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0011).
 
 ## 아키텍처 (AD 요약)
 

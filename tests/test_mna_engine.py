@@ -194,9 +194,9 @@ def test_run_cross_sectional_relative_ranking(engine) -> None:
         _seed_macro(s)
         s.commit()
 
-        n = run(s, as_of="2025-12-31")
-        s.commit()
-        assert n == 3
+        result = run("2025-12-31", session_factory=Session_)
+        assert result.scored == 3
+        assert result.complete is True  # 실패 0 → 스냅숏이 커밋됐다
 
         rows = {r.corp_code: r for r in s.scalars(select(MnaScore)).all()}
         # 시총 최소 → pbr·ev_ebitda 최소 → 역백분위 1.0
@@ -231,8 +231,7 @@ def test_run_null_factor_propagates_to_total(engine) -> None:
         _seed_macro(s)
         s.commit()
 
-        run(s, as_of="2025-12-31")
-        s.commit()
+        run("2025-12-31", session_factory=Session_)
         row = s.scalars(
             select(MnaScore).where(MnaScore.corp_code == "00000003")
         ).one()
@@ -260,8 +259,7 @@ def test_run_lookahead_excludes_same_year_annual(engine) -> None:
         _seed_macro(s)
         s.commit()
 
-        run(s, as_of="2025-12-31")
-        s.commit()
+        run("2025-12-31", session_factory=Session_)
         row = s.scalars(
             select(MnaScore).where(MnaScore.corp_code == "00000003")
         ).one_or_none()
@@ -279,10 +277,8 @@ def test_run_is_idempotent(engine) -> None:
         _seed_corp(s, "00000002", market_cap=3000)
         _seed_macro(s)
         s.commit()
-        run(s, as_of="2025-12-31")
-        s.commit()
-        run(s, as_of="2025-12-31")
-        s.commit()
+        run("2025-12-31", session_factory=Session_)
+        run("2025-12-31", session_factory=Session_)
         rows = s.scalars(select(MnaScore)).all()
         assert len(rows) == 2
 
@@ -292,7 +288,7 @@ def test_run_rejects_malformed_as_of(engine) -> None:
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         with pytest.raises(ValueError, match="YYYY-MM-DD"):
-            run(s, as_of="2025-7-1")
+            run("2025-7-1", session_factory=Session_)
 
 
 def test_run_macro_latest_null_propagates_not_substituted(engine) -> None:
@@ -307,8 +303,7 @@ def test_run_macro_latest_null_propagates_not_substituted(engine) -> None:
         s.add(MacroIndicator(indicator="base_rate", date="2025-06-30", value=None, frequency="M"))  # 최신=null
         s.commit()
 
-        run(s, as_of="2025-12-31")
-        s.commit()
+        run("2025-12-31", session_factory=Session_)
         row = s.scalars(select(MnaScore)).first()
         assert row.macro_score is None  # 2.5로 대체되면 안 됨
         assert row.valuation_score is not None
@@ -320,7 +315,7 @@ def test_run_rejects_calendar_invalid_as_of(engine) -> None:
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         with pytest.raises(ValueError):
-            run(s, as_of="2025-02-30")
+            run("2025-02-30", session_factory=Session_)
 
 
 def test_run_guards_against_mass_delete_on_empty_inputs(engine) -> None:
@@ -334,9 +329,8 @@ def test_run_guards_against_mass_delete_on_empty_inputs(engine) -> None:
                        capacity_score=0.7, ownership_score=0.7, macro_score=0.7))
         s.commit()
 
-        n = run(s, as_of="2025-12-31")  # 입력 데이터 전무
-        s.commit()
-        assert n == 0
+        result = run("2025-12-31", session_factory=Session_)  # 입력 데이터 전무
+        assert result.scored == 0
         assert s.scalars(select(MnaScore)).one_or_none() is not None  # 안 지워짐
 
 
@@ -365,8 +359,7 @@ def test_run_sector_peer_percentile_and_fallback(engine) -> None:
         orig = cfg.mna_peer_min
         try:
             cfg.mna_peer_min = 2
-            run(s, as_of="2025-12-31")
-            s.commit()
+            run("2025-12-31", session_factory=Session_)
         finally:
             cfg.mna_peer_min = orig
 
@@ -391,8 +384,7 @@ def test_run_sector_null_uses_market_basis(engine) -> None:
         _seed_corp(s, "00000002", market_cap=9000)
         _seed_macro(s)
         s.commit()
-        run(s, as_of="2025-12-31")
-        s.commit()
+        run("2025-12-31", session_factory=Session_)
         rows = s.scalars(select(MnaScore)).all()
         assert all(r.population_basis == "market" for r in rows)
 
@@ -408,9 +400,110 @@ def test_run_macro_uses_only_history_before_as_of(engine) -> None:
             s.add(MacroIndicator(indicator="base_rate", date=d, value=v, frequency="M"))
         s.commit()
 
-        run(s, as_of="2024-12-31")
-        s.commit()
+        run("2024-12-31", session_factory=Session_)
         row = s.scalars(select(MnaScore)).first()
         # 유효 모집단 [3.5, 3.0], 현재값 3.0(최저) → pct_rank_low = 1.0
         # (미래의 2.5가 포함됐다면 3.0은 최저가 아니어서 1.0이 안 나옴)
         assert row.macro_score == pytest.approx(1.0)
+
+
+# ── Story 4-2: 전량 원자성 (gap_engine의 종목별 커밋과 의도적으로 반대) ──
+
+def test_run_rolls_back_entirely_on_any_failure(engine, monkeypatch) -> None:
+    """AC2: 한 종목이라도 실패하면 **전량 롤백** — 부분 커밋이 0건이어야 한다.
+
+    백분위 순위는 부분적으로 옳을 수 없다. 두 종목 중 하나만 새 모집단 기준으로 쓰이면
+    남은 한 줄과 등수를 견줄 수 없으므로, 그런 표는 만들지 않는 쪽을 택했다.
+    """
+    from app.analysis import mna_engine
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_corp(s, "00000001", market_cap=1000)
+        _seed_corp(s, "00000002", market_cap=3000)
+        _seed_macro(s)
+        s.commit()
+
+    real_upsert = mna_engine.repo.upsert_mna_score
+    calls: list[str] = []
+
+    def flaky_upsert(session, rec):
+        calls.append(rec["corp_code"])
+        if len(calls) == 2:  # 첫 종목은 성공시키고 두 번째에서 터뜨린다
+            raise RuntimeError("boom")
+        return real_upsert(session, rec)
+
+    monkeypatch.setattr(mna_engine.repo, "upsert_mna_score", flaky_upsert)
+    result = run("2025-12-31", session_factory=Session_)
+
+    assert len(calls) == 2  # 실제로 첫 종목은 upsert까지 갔다
+    assert result.complete is False
+    with Session_() as s:
+        assert s.scalars(select(MnaScore)).all() == []  # 그럼에도 DB엔 한 줄도 없다
+
+
+def test_run_reports_failures_even_though_rolled_back(engine, monkeypatch) -> None:
+    """AC3: 롤백돼도 (corp_code, 사유)는 남는다 — gap에서 원자성을 기각한 사유의 해소책."""
+    from app.analysis import mna_engine
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_corp(s, "00000001", market_cap=1000)
+        _seed_corp(s, "00000002", market_cap=3000)
+        _seed_macro(s)
+        s.commit()
+
+    def always_fail(session, rec):
+        raise RuntimeError(f"실패-{rec['corp_code']}")
+
+    monkeypatch.setattr(mna_engine.repo, "upsert_mna_score", always_fail)
+    result = run("2025-12-31", session_factory=Session_)
+
+    # 첫 실패에서 멈추지 않고 전 종목의 사유를 모은다
+    assert [c for c, _ in result.failed] == ["00000001", "00000002"]
+    assert all("실패-" in reason for _, reason in result.failed)
+    # 롤백됐으므로 '성공했다'는 숫자를 남기지 않는다
+    assert result.scored == 0
+    assert result.succeeded == []
+
+
+def test_run_preserves_prior_snapshot_on_failure(engine, monkeypatch) -> None:
+    """AC2 보강: 실패 시 이전 실행의 점수가 그대로 보존된다(반쪽 갱신 금지)."""
+    from app.analysis import mna_engine
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_corp(s, "00000001", market_cap=1000)
+        _seed_corp(s, "00000002", market_cap=3000)
+        _seed_macro(s)
+        s.commit()
+
+    run("2025-12-31", session_factory=Session_)  # 1차: 정상
+    with Session_() as s:
+        before = {r.corp_code: r.mna_target_score for r in s.scalars(select(MnaScore)).all()}
+    assert len(before) == 2
+
+    def always_fail(session, rec):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mna_engine.repo, "upsert_mna_score", always_fail)
+    assert run("2025-12-31", session_factory=Session_).complete is False
+
+    with Session_() as s:
+        after = {r.corp_code: r.mna_target_score for r in s.scalars(select(MnaScore)).all()}
+    assert after == before  # 1차 스냅숏 그대로
+
+
+def test_run_owns_session_and_commits(engine) -> None:
+    """AC1: 호출자가 커밋하지 않아도 저장된다 — flush만 하던 기존 결함의 회귀 테스트."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_corp(s, "00000001", market_cap=1000)
+        _seed_corp(s, "00000002", market_cap=3000)
+        _seed_macro(s)
+        s.commit()
+
+    run("2025-12-31", session_factory=Session_)  # 호출자는 아무 커밋도 하지 않는다
+
+    with Session_() as s:  # 완전히 새 세션에서 보인다 = 정말 커밋됐다
+        assert len(s.scalars(select(MnaScore)).all()) == 2
