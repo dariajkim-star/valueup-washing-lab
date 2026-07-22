@@ -120,20 +120,69 @@ def _execution_score(
     w_achievement: float,
     w_buyback: float,
     w_payout: float,
-) -> float | None:
-    """execution_score = 100*clamp(w_a*min(achv,1) + w_b*(executed?1:0) + w_p*min(payout,1)).
+    *,
+    roe_committed: bool = True,
+    buyback_committed: bool = True,
+    actual_total_return: float | None = None,
+    target_total_return: float | None = None,
+) -> tuple[float | None, str | None]:
+    """(execution_score, score_basis) — **기업이 공시한 약속에 대해서만** 채점(5-1, 리드 결정).
 
-    세 항 중 하나라도 계산 불가면 0으로 메우지 않고 전체 null(AC5).
+    이전엔 세 항 중 하나라도 없으면 전체 null이었다. 그런데 그 null에는 서로 다른 두 상태가
+    섞여 있었다(4-2에서 complete/publishable을 나눈 것과 같은 구조의 오류):
+
+    - **판단 불가** — 목표는 공시했는데 실적을 모른다 → 진짜 null이 맞다.
+    - **약속한 게 없음** — 애초에 ROE 목표를 공시하지 않았다 → 판단할 대상이 없는 것이지
+      판단에 실패한 것이 아니다. 이걸 null로 두면 배당·자사주는 약속하고 지킨 기업까지
+      "이행 판단 불가"가 되어 **오히려 정보를 지운다**.
+
+    그래서 약속한 항목만 골라 그 항목들에 가중치를 재정규화한다. 없는 값을 만들어내는 것이
+    아니므로 "억지 추정 금지"(SM-C1)와도 어긋나지 않는다 — 실데이터에서 ROE 목표를 아예
+    공시하지 않는 기업이 다수라(원문 언급조차 없는 공시 29/60) 엄격 AND는 천장이 낮았다.
+
+    **대가**: 가중치 기반이 종목마다 달라 점수의 종목 간 비교 가능성이 약해진다. 그래서
+    어떤 항목으로 채점했는지를 `score_basis`로 함께 돌려준다(mna의 population_basis와 같은
+    이유 — 기준이 다른 값을 같은 척도처럼 쓰는 것을 막는다).
+
+    환원 항목은 **배당성향과 총주주환원율 중 기업이 약속한 쪽**을 쓴다(둘 다면 총주주환원율
+    우선 — 자사주까지 포함하는 더 포괄적인 약속이다). 두 지표는 정의가 다르므로 섞지 않는다.
+
+    약속했는데 실적을 모르면 그 항목을 **빼지 않고 전체를 null로 만든다**(AC6) — 빼면 모르는
+    항목을 유리하게 무시한 셈이 되어 점수가 부풀려진다.
     """
-    payout_ratio = _safe_ratio(actual_payout, target_payout)
-    if achievement_rate is None or buyback_executed is None or payout_ratio is None:
-        return None
-    raw = (
-        w_achievement * min(achievement_rate, 1.0)
-        + w_buyback * (1.0 if buyback_executed else 0.0)
-        + w_payout * min(payout_ratio, 1.0)
-    )
-    return 100 * max(0.0, min(1.0, raw))
+    parts: list[tuple[str, float, float]] = []  # (basis명, 가중치, 0~1 달성도)
+
+    if roe_committed:
+        if achievement_rate is None:
+            return None, None  # 약속했는데 실적 미상 → 판단 불가
+        parts.append(("roe", w_achievement, min(achievement_rate, 1.0)))
+
+    if buyback_committed:
+        if buyback_executed is None:
+            return None, None
+        parts.append(("buyback", w_buyback, 1.0 if buyback_executed else 0.0))
+
+    # 총주주환원율 우선(더 포괄적인 약속) — 둘의 정의가 다르므로 하나만 쓴다
+    if target_total_return is not None:
+        ratio = _safe_ratio(actual_total_return, target_total_return)
+        if ratio is None:
+            return None, None
+        parts.append(("total_return", w_payout, min(ratio, 1.0)))
+    elif target_payout is not None:
+        ratio = _safe_ratio(actual_payout, target_payout)
+        if ratio is None:
+            return None, None
+        parts.append(("payout", w_payout, min(ratio, 1.0)))
+
+    if not parts:
+        return None, None  # 공시된 약속이 하나도 없다 — 채점할 대상 자체가 없음(AC5)
+
+    total_w = sum(w for _, w, _ in parts)
+    if total_w <= 0:  # 설정 이상(가중치 0) — 0나눗셈 방어
+        return None, None
+    raw = sum(w * v for _, w, v in parts) / total_w
+    basis = "+".join(name for name, _, _ in parts)
+    return 100 * max(0.0, min(1.0, raw)), basis
 
 
 def _washing_flag(
@@ -206,6 +255,7 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
     buyback = repo.latest_financial_buyback(session, corp_code, as_of)
     actual_roe = metrics.get("roe") if metrics else None
     actual_payout = metrics.get("payout_ratio") if metrics else None
+    actual_total_return = metrics.get("total_return_ratio") if metrics else None
     amount = buyback.get("buyback_amount") if buyback else None
     retired_amount = buyback.get("buyback_retired_amount") if buyback else None
 
@@ -218,9 +268,16 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
         else _achievement_rate(actual_roe, plan["target_roe"])
     )
     executed, retired, status = _buyback_signals(amount, retired_amount)
-    execution_score = _execution_score(
+    # 어떤 항목을 "약속했는가"의 판정(5-1): 목표를 공시했는지 여부다. ROE는 target_roe 존재,
+    # 자사주는 buyback_planned가 확정 True일 때만(None=언급 불명은 약속으로 치지 않는다 —
+    # _washing_flag가 buyback_planned를 3치로 다루는 것과 같은 기준).
+    execution_score, score_basis = _execution_score(
         achievement_rate, executed, actual_payout, plan["target_payout_ratio"],
         settings.score_w_achievement, settings.score_w_buyback, settings.score_w_payout,
+        roe_committed=plan["target_roe"] is not None,
+        buyback_committed=plan["buyback_planned"] is True,
+        actual_total_return=actual_total_return,
+        target_total_return=plan["target_total_return_ratio"],
     )
     washing_flag = _washing_flag(
         progress_rate, achievement_rate, plan["buyback_planned"], retired,
@@ -249,6 +306,7 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
             "buyback_executed": executed,
             "buyback_retired": retired,
             "buyback_status": status,
+            "score_basis": score_basis,
         },
     )
     return True

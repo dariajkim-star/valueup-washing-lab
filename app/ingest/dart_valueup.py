@@ -70,6 +70,8 @@ _ROE_LABEL = r"(?:ROE|자기자본이익률)"
 # 훔쳐오는 오탐 차단 — 라벨별로 "자신이 아닌" 지표들을 배제한다.
 _OTHERS_FOR_ROE = r"배당성향|주주환원|PBR|영업이익|부채비율"
 _OTHERS_FOR_PAYOUT = r"ROE|자기자본이익률|주주환원|PBR|영업이익|부채비율"
+# 주주환원율 라벨이 자기 자신이므로 배제 목록에서 빼고, 배당성향을 경쟁 지표로 넣는다.
+_OTHERS_FOR_RETURN = r"ROE|자기자본이익률|배당성향|PBR|영업이익|부채비율"
 
 
 def _plain_gap(others: str) -> str:
@@ -87,6 +89,18 @@ def _plain_gap(others: str) -> str:
 _ROE_RE = re.compile(_ROE_LABEL + _plain_gap(_OTHERS_FOR_ROE) + _PCT, re.IGNORECASE)
 # '배당성향'만 매칭(주주환원율은 다른 지표라 target_payout_ratio에 넣지 않음).
 _PAYOUT_RE = re.compile(r"배당성향" + _plain_gap(_OTHERS_FOR_PAYOUT) + _PCT)
+# 총주주환원율(배당+자사주매입)/순이익 — **배당성향과 다른 지표**라 별도 필드로 받는다(5-1).
+# 이 구분은 처음부터 의도된 것이었고(위 주석), 빠져 있던 건 받아줄 필드였다.
+_RETURN_LABEL = r"(?:총\s*주주환원율|주주환원율|총주주환원)"
+# **목표 표지 필수**(5-1 실샘플 검증). 주주환원율은 계획 공시에서 목표만큼이나 자주
+# *이행 실적*으로 등장한다 — "'25년 총 주주환원율 268.0%", "총주주환원율 72.8%",
+# "3년 평균 주주환원율 78%(현황)". 라벨+숫자만 보면 13건 중 5건이 과거 실적이었다.
+# 값 뒤 짧은 구간에 목표를 뜻하는 말이 와야만 채택한다(같은 절 안 — 개행은 넘지 않는다).
+# 보수적으로 놓치는 쪽을 택한다: 애매하면 null(NFR2).
+_TARGET_MARK = r"(?=.{0,12}?(?:목표|지향|이상|확대|원칙|수준|계획))"
+_RETURN_RE = re.compile(
+    _RETURN_LABEL + _plain_gap(_OTHERS_FOR_RETURN) + _PCT + _TARGET_MARK
+)
 
 
 def _arrow_tail(others: str) -> str:
@@ -102,6 +116,7 @@ def _arrow_tail(others: str) -> str:
 
 _ROE_ARROW_RE = re.compile(_ROE_LABEL + _arrow_tail(_OTHERS_FOR_ROE), re.IGNORECASE)
 _PAYOUT_ARROW_RE = re.compile(r"배당성향" + _arrow_tail(_OTHERS_FOR_PAYOUT))
+_RETURN_ARROW_RE = re.compile(_RETURN_LABEL + _arrow_tail(_OTHERS_FOR_RETURN) + _TARGET_MARK)
 # PBR은 '배' 단위 **필수**(연도·페이지번호를 PBR로 오탐하는 것 차단).
 _PBR_RE = re.compile(r"PBR[^0-9\n]{0,15}?(\d+(?:\.\d+)?)\s*배", re.IGNORECASE)
 _PERIOD_RE = re.compile(r"(20\d{2})\s*년?\s*[~\-–∼]\s*(20\d{2})")
@@ -257,6 +272,7 @@ def parse_targets(raw_text: str | None) -> dict[str, Any]:
     return {
         "target_roe": _num_with_arrow(_ROE_ARROW_RE, _ROE_RE),
         "target_payout_ratio": _num_with_arrow(_PAYOUT_ARROW_RE, _PAYOUT_RE),
+        "target_total_return_ratio": _num_with_arrow(_RETURN_ARROW_RE, _RETURN_RE),
         "target_pbr": pbr,
         "period_start": period_start,
         "period_end": period_end,
