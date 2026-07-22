@@ -13,9 +13,25 @@ from sqlalchemy.pool import StaticPool
 
 from app.analysis import run_scoring
 from app.analysis.gap_engine import ScoreRunResult
+from app.analysis.mna_engine import MnaRunResult
 from app.analysis.run_scoring import EXIT_INCOMPLETE, EXIT_OK, EXIT_USAGE, main
 from app.models import Base, Company, Financial, ValueupPlan, ValueupScore
 from app.sql_views import CREATE_VALUATION_METRICS
+
+
+@pytest.fixture(autouse=True)
+def _never_touch_real_db(monkeypatch):
+    """이 모듈의 어떤 테스트도 실 DB(valueup.db)에 닿지 못하게 막는다.
+
+    실제 사고(2026-07-22): `--engine` 기본값이 `all`이 되면서, gap만 monkeypatch한
+    테스트가 **mna 엔진을 실 DB에 돌려** mna_score에 as_of=2025-12-31 31행을 만들었다.
+    테스트는 통과했다 — 오염이 단언에 걸리지 않았기 때문이다. 개별 테스트가 무엇을
+    패치하는지에 기대지 않고, 기본값을 빈 in-memory DB로 깔아 사고 자체를 불가능하게 한다.
+    """
+    throwaway = sessionmaker(
+        bind=create_engine("sqlite:///:memory:", future=True, poolclass=StaticPool)
+    )
+    monkeypatch.setattr(run_scoring, "SessionLocal", throwaway)
 
 
 @pytest.fixture()
@@ -57,7 +73,7 @@ def test_complete_run_exits_zero(engine, monkeypatch) -> None:
         _seed(s)
     monkeypatch.setattr(run_scoring, "SessionLocal", Session_)
 
-    assert main(["--as-of", "2025-12-31"]) == EXIT_OK
+    assert main(["--as-of", "2025-12-31", "--engine", "gap"]) == EXIT_OK
 
     with Session_() as s:
         row = s.scalars(select(ValueupScore)).one()
@@ -78,7 +94,7 @@ def test_partial_failure_exits_one(monkeypatch) -> None:
         )
     monkeypatch.setattr(run_scoring.gap_engine, "run", fake_run)
 
-    assert main(["--as-of", "2025-12-31"]) == EXIT_INCOMPLETE
+    assert main(["--as-of", "2025-12-31", "--engine", "gap"]) == EXIT_INCOMPLETE
 
 
 def test_failed_corp_codes_are_all_logged(monkeypatch, caplog) -> None:
@@ -90,7 +106,7 @@ def test_failed_corp_codes_are_all_logged(monkeypatch, caplog) -> None:
     monkeypatch.setattr(run_scoring.gap_engine, "run", fake_run)
 
     with caplog.at_level("ERROR"):
-        assert main(["--as-of", "2025-12-31"]) == EXIT_INCOMPLETE
+        assert main(["--as-of", "2025-12-31", "--engine", "gap"]) == EXIT_INCOMPLETE
     for corp_code, reason in failed:
         assert corp_code in caplog.text
         assert reason in caplog.text
@@ -104,7 +120,7 @@ def test_summary_is_logged(engine, monkeypatch, caplog) -> None:
     monkeypatch.setattr(run_scoring, "SessionLocal", Session_)
 
     with caplog.at_level("INFO"):
-        assert main(["--as-of", "2025-12-31"]) == EXIT_OK
+        assert main(["--as-of", "2025-12-31", "--engine", "gap"]) == EXIT_OK
     assert "scored=1" in caplog.text
     assert "complete=True" in caplog.text
 
@@ -128,7 +144,7 @@ def test_invalid_as_of_exits_two_without_traceback(bad, monkeypatch, caplog) -> 
     monkeypatch.setattr(run_scoring, "SessionLocal", Session_)
 
     with caplog.at_level("ERROR"):
-        assert main(["--as-of", bad]) == EXIT_USAGE
+        assert main(["--as-of", bad, "--engine", "gap"]) == EXIT_USAGE
     assert "입력 오류" in caplog.text
 
 
@@ -142,7 +158,7 @@ def test_partial_run_warns_not_publishable(engine, monkeypatch, caplog) -> None:
     monkeypatch.setattr(run_scoring, "SessionLocal", Session_)
 
     with caplog.at_level("WARNING"):
-        assert main(["--as-of", "2025-12-31", "--corp-codes", "00000001"]) == EXIT_OK
+        assert main(["--as-of", "2025-12-31", "--engine", "gap", "--corp-codes", "00000001"]) == EXIT_OK
     assert "게시용 아님" in caplog.text
 
 
@@ -161,5 +177,78 @@ def test_empty_corp_codes_is_usage_error(monkeypatch, caplog) -> None:
     monkeypatch.setattr(run_scoring.gap_engine, "run", fake_run)
 
     with caplog.at_level("ERROR"):
-        assert main(["--as-of", "2025-12-31", "--corp-codes", " , "]) == EXIT_USAGE
+        assert main(["--as-of", "2025-12-31", "--engine", "gap", "--corp-codes", " , "]) == EXIT_USAGE
     assert called is False  # 엔진에 도달하기 전에 막혔다
+
+
+# ── Story 4-2: 엔진 선택 (AC5/AC6/AC7) ──
+
+def _fake_result(cls, *, failed=()):
+    return cls(scored=1, deleted=0, succeeded=["00000001"], failed=list(failed))
+
+
+def test_engine_defaults_to_all(monkeypatch) -> None:
+    """AC5: 기본값은 all — 재계산의 정상 경로는 '둘 다'다."""
+    ran: list[str] = []
+    monkeypatch.setattr(run_scoring.gap_engine, "run",
+                        lambda *a, **k: (ran.append("gap"), _fake_result(ScoreRunResult))[1])
+    monkeypatch.setattr(run_scoring.mna_engine, "run",
+                        lambda *a, **k: (ran.append("mna"), _fake_result(MnaRunResult))[1])
+
+    assert main(["--as-of", "2025-12-31"]) == EXIT_OK
+    assert ran == ["gap", "mna"]
+
+
+@pytest.mark.parametrize("engine_arg,expected", [("gap", ["gap"]), ("mna", ["mna"])])
+def test_engine_selects_single(engine_arg, expected, monkeypatch) -> None:
+    ran: list[str] = []
+    monkeypatch.setattr(run_scoring.gap_engine, "run",
+                        lambda *a, **k: (ran.append("gap"), _fake_result(ScoreRunResult))[1])
+    monkeypatch.setattr(run_scoring.mna_engine, "run",
+                        lambda *a, **k: (ran.append("mna"), _fake_result(MnaRunResult))[1])
+
+    assert main(["--as-of", "2025-12-31", "--engine", engine_arg]) == EXIT_OK
+    assert ran == expected
+
+
+def test_second_engine_runs_even_if_first_incomplete(monkeypatch, caplog) -> None:
+    """AC7: gap이 불완전해도 mna는 돌고 **둘 다** 보고된다.
+
+    먼저 실패한 쪽만 보고하고 끝내면 전체 상태를 알기 위해 두 번 돌려야 한다.
+    """
+    ran: list[str] = []
+    monkeypatch.setattr(
+        run_scoring.gap_engine, "run",
+        lambda *a, **k: (ran.append("gap"),
+                         _fake_result(ScoreRunResult, failed=[("00000009", "boom")]))[1],
+    )
+    monkeypatch.setattr(run_scoring.mna_engine, "run",
+                        lambda *a, **k: (ran.append("mna"), _fake_result(MnaRunResult))[1])
+
+    with caplog.at_level("INFO"):
+        assert main(["--as-of", "2025-12-31"]) == EXIT_INCOMPLETE
+    assert ran == ["gap", "mna"]
+    assert "[gap]" in caplog.text and "[mna]" in caplog.text
+
+
+def test_exit_one_if_either_engine_incomplete(monkeypatch) -> None:
+    """AC6: 둘 중 하나라도 불완전하면 1 — mna 쪽이 실패해도 마찬가지."""
+    monkeypatch.setattr(run_scoring.gap_engine, "run",
+                        lambda *a, **k: _fake_result(ScoreRunResult))
+    monkeypatch.setattr(
+        run_scoring.mna_engine, "run",
+        lambda *a, **k: _fake_result(MnaRunResult, failed=[("00000009", "boom")]),
+    )
+    assert main(["--as-of", "2025-12-31"]) == EXIT_INCOMPLETE
+
+
+def test_mna_failure_message_says_rolled_back(monkeypatch, caplog) -> None:
+    """두 엔진의 complete=False는 뜻이 다르다 — mna는 '섞였다'가 아니라 '전량 롤백됐다'."""
+    monkeypatch.setattr(
+        run_scoring.mna_engine, "run",
+        lambda *a, **k: _fake_result(MnaRunResult, failed=[("00000009", "boom")]),
+    )
+    with caplog.at_level("ERROR"):
+        assert main(["--as-of", "2025-12-31", "--engine", "mna"]) == EXIT_INCOMPLETE
+    assert "전량 롤백" in caplog.text
+    assert "섞여" not in caplog.text
