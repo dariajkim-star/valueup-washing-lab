@@ -252,3 +252,17 @@ def test_mna_failure_message_says_rolled_back(monkeypatch, caplog) -> None:
         assert main(["--as-of", "2025-12-31", "--engine", "mna"]) == EXIT_INCOMPLETE
     assert "전량 롤백" in caplog.text
     assert "섞여" not in caplog.text
+
+
+def test_cli_flags_incomplete_failure_list_on_db_abort(monkeypatch, caplog) -> None:
+    """DB 오류 중단 시 CLI가 '목록이 완전하지 않다'를 알린다 — 실패 1건만 보고 안심하면 안 된다."""
+    monkeypatch.setattr(
+        run_scoring.mna_engine, "run",
+        lambda *a, **k: MnaRunResult(
+            scored=0, failed=[("00000001", "NOT NULL constraint failed")],
+            aborted_early=True,
+        ),
+    )
+    with caplog.at_level("ERROR"):
+        assert main(["--as-of", "2025-12-31", "--engine", "mna"]) == EXIT_INCOMPLETE
+    assert "완전하지 않다" in caplog.text

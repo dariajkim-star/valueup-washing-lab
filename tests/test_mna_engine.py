@@ -507,3 +507,66 @@ def test_run_owns_session_and_commits(engine) -> None:
 
     with Session_() as s:  # 완전히 새 세션에서 보인다 = 정말 커밋됐다
         assert len(s.scalars(select(MnaScore)).all()) == 2
+
+
+def test_db_error_aborts_loop_instead_of_logging_noise(engine) -> None:
+    """DB 오류는 즉시 중단 — 세션이 죽은 뒤의 실패 사유는 정보가 아니라 노이즈다.
+
+    실측(2026-07-22): 첫 종목에서 IntegrityError가 나면 나머지 종목은 전부
+    "Can't operate on closed transaction"으로 실패한다. 그 목록은 어느 종목이 진짜
+    문제였는지를 가리므로, 진짜 사유 1건만 남기고 목록이 불완전함을 aborted_early로 알린다.
+    """
+    from app.analysis import mna_engine
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        for i, cap in enumerate((1000, 3000, 5000, 7000), start=1):
+            _seed_corp(s, f"0000000{i}", market_cap=cap)
+        _seed_macro(s)
+        s.commit()
+
+    real = mna_engine.repo.upsert_mna_score
+    calls = {"n": 0}
+
+    def db_error_upsert(session, rec):
+        calls["n"] += 1
+        if calls["n"] == 1:  # NOT NULL 위반으로 진짜 DB 오류를 만든다
+            session.add(MnaScore(corp_code=None, as_of=rec["as_of"]))
+            session.flush()
+        return real(session, rec)
+
+    monkeypatch_target = mna_engine.repo
+    original = monkeypatch_target.upsert_mna_score
+    monkeypatch_target.upsert_mna_score = db_error_upsert
+    try:
+        result = run("2025-12-31", session_factory=Session_)
+    finally:
+        monkeypatch_target.upsert_mna_score = original
+
+    assert result.aborted_early is True
+    assert len(result.failed) == 1  # 노이즈 3건이 붙지 않는다
+    assert "NOT NULL" in result.failed[0][1]
+    assert calls["n"] == 1  # 세션이 죽은 뒤 다음 종목을 시도하지 않았다
+    with Session_() as s:
+        assert s.scalars(select(MnaScore)).all() == []  # 전량 롤백은 그대로
+
+
+def test_non_db_error_still_collects_all_reasons(engine, monkeypatch) -> None:
+    """반대 축: 순수 계산 오류는 세션을 망가뜨리지 않으므로 끝까지 사유를 모은다."""
+    from app.analysis import mna_engine
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_corp(s, "00000001", market_cap=1000)
+        _seed_corp(s, "00000002", market_cap=3000)
+        _seed_macro(s)
+        s.commit()
+
+    monkeypatch.setattr(
+        mna_engine.repo, "upsert_mna_score",
+        lambda session, rec: (_ for _ in ()).throw(RuntimeError(f"계산-{rec['corp_code']}")),
+    )
+    result = run("2025-12-31", session_factory=Session_)
+
+    assert result.aborted_early is False
+    assert [c for c, _ in result.failed] == ["00000001", "00000002"]
