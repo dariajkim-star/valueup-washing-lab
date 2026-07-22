@@ -213,6 +213,9 @@ def list_screening(
             "has_valueup_score": vs is not None,
             "has_mna_score": ms is not None,
             "execution_score": vs.execution_score if vs else None,
+            # 점수가 **무엇을 근거로** 매겨졌는지(5-1). 공시한 약속만으로 채점하므로
+            # 가중치 기반이 종목마다 다르다 — 숨기면 기준이 다른 점수를 나란히 비교하게 된다.
+            "score_basis": vs.score_basis if vs else None,
             "washing_flag": vs.washing_flag if vs else None,
             "buyback_status": vs.buyback_status if vs else None,
             "buyback_executed": vs.buyback_executed if vs else None,

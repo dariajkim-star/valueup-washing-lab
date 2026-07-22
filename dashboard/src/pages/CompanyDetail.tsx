@@ -5,7 +5,7 @@ import { GapCard } from "../components/detail/GapCard";
 import { MetricsChart } from "../components/detail/MetricsChart";
 import { MnaBreakdown } from "../components/detail/MnaBreakdown";
 import { InvestmentPoints } from "../components/detail/InvestmentPoints";
-import { MarketPill } from "../components/badges";
+import { MarketPill, ScoreBasisChip } from "../components/badges";
 import { hasTagBasis, mnaTags, valueupTags } from "../lib/investmentTags";
 
 // UX-DR3/UX-DR4 종목 상세 화면(3.2 Screen 2 시안).
@@ -54,7 +54,12 @@ export default function CompanyDetail() {
           <p className="mt-1 text-[11px] text-gray-400">{asOf ? `기준일 ${asOf}` : "…"}</p>
         </div>
         <div className="flex gap-3">
-          <ScoreChip label="실행점수" value={header.data?.execution_score ?? null} color="#0e9f6e" />
+          <ScoreChip
+            label="실행점수"
+            value={header.data?.execution_score ?? null}
+            color="#0e9f6e"
+            basis={header.data?.score_basis ?? null}
+          />
           <ScoreChip label="M&A 타겟" value={header.data?.mna_target_score ?? null} color="#65a30d" />
         </div>
       </header>
@@ -94,7 +99,9 @@ export default function CompanyDetail() {
   );
 }
 
-function ScoreChip({ label, value, color }: { label: string; value: number | null; color: string }) {
+function ScoreChip({
+  label, value, color, basis,
+}: { label: string; value: number | null; color: string; basis?: string | null }) {
   return (
     <div className="rounded-xl border border-gray-100 bg-white px-4 py-3">
       <div className="text-[10px] font-semibold text-gray-500">{label}</div>
@@ -104,6 +111,8 @@ function ScoreChip({ label, value, color }: { label: string; value: number | nul
         </span>
         <span className="text-[10px] text-gray-400">/100</span>
       </div>
+      {/* 5-1: 점수만 크게 보여주고 채점 근거를 숨기면 기준이 다른 값이 같아 보인다 */}
+      {value !== null && basis ? <ScoreBasisChip basis={basis} /> : null}
     </div>
   );
 }

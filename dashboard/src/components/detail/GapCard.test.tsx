@@ -12,7 +12,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
   return {
     corp_code: "00000000", corp_name: null, market: null, as_of: "2026-07-13",
     target_roe: null, actual_roe: null, roe_gap: null, achievement_rate: null,
-    progress_rate: null, execution_score: null, washing_flag: null, buyback_status: null,
+    progress_rate: null, execution_score: null, score_basis: null, washing_flag: null, buyback_status: null,
     ...partial,
   };
 }

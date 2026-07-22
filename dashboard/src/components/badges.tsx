@@ -31,13 +31,60 @@ function scoreColor(v: number): string {
   return "#dc2626";
 }
 
+// 5-1: execution_score는 **기업이 공시한 약속에 대해서만** 채점되므로 가중치 기반이 종목마다
+// 다르다. 그 사실을 감추면 기준이 다른 점수를 같은 척도로 비교하게 된다 — null을 빈칸으로
+// 뭉개지 않는다는 3.2 원칙과 같은 이유로, 근거를 점수 옆에 항상 붙인다.
+const BASIS_LABEL: Record<string, string> = {
+  roe: "ROE",
+  buyback: "자사주",
+  payout: "배당성향",
+  total_return: "주주환원",
+};
+
+export function scoreBasisParts(basis: string): string[] {
+  return basis.split("+").map((p) => BASIS_LABEL[p] ?? p);
+}
+
+export function ScoreBasisChip({ basis }: { basis: string | null }) {
+  if (!basis) return null;
+  const parts = scoreBasisParts(basis);
+  const single = parts.length === 1;
+  // 단일 항목은 특히 조심해야 한다 — 자사주 단독은 이진값이라 점수가 0 또는 100뿐이고,
+  // 3개 항목으로 매긴 100점과 나란히 놓이면 같은 성취처럼 읽힌다.
+  return (
+    <span
+      className="text-[9px]"
+      style={{ color: single ? "#b45309" : "#9ca3af" }}
+      title={
+        single
+          ? `${parts[0]} 항목 하나만 공시돼 그것만으로 채점됨 — 다항목 점수와 직접 비교 금지`
+          : `공시한 ${parts.length}개 항목으로 채점: ${parts.join(", ")}`
+      }
+    >
+      {single ? `${parts[0]}만` : parts.join("·")}
+    </span>
+  );
+}
+
 export function ValueUpCell({ row }: { row: ScreeningRow }) {
   if (!row.has_valueup_score) return <Pill text="미집계" fg="#9ca3af" dashed />;
-  if (row.execution_score === null) return <span className="text-xs text-gray-400">—</span>;
+  if (row.execution_score === null) {
+    // 점수 null의 두 원인(약속 자체가 없음 / 약속은 있으나 실적 미상)은 API에서 구분되지
+    // 않는다 — 둘 다 "판단 불가"로 정직하게 표시한다(추정해서 나누지 않는다).
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="text-[15px] font-bold text-gray-400">—</span>
+        <span className="text-[10px] text-gray-400">판단 불가</span>
+      </div>
+    );
+  }
   return (
-    <span className="text-[15px] font-bold" style={{ color: scoreColor(row.execution_score) }}>
-      {row.execution_score.toFixed(0)}
-    </span>
+    <div className="flex flex-col items-end gap-0.5">
+      <span className="text-[15px] font-bold" style={{ color: scoreColor(row.execution_score) }}>
+        {row.execution_score.toFixed(0)}
+      </span>
+      <ScoreBasisChip basis={row.score_basis} />
+    </div>
   );
 }
 

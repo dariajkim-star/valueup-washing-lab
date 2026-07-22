@@ -60,6 +60,10 @@ class ScreeningOut(BaseModel):
     has_valueup_score: bool
     has_mna_score: bool
     execution_score: float | None = None
+    # execution_score의 채점 근거(5-1): 'roe+buyback+payout' 등 + 구분 토큰.
+    # null이면 점수도 null. population_basis와 같은 역할 — 기준이 다른 값을 같은 척도로
+    # 쓰는 것을 막기 위해 점수와 항상 함께 전달한다.
+    score_basis: str | None = None
     washing_flag: bool | None = None
     buyback_status: str | None = None
     buyback_executed: bool | None = None
@@ -143,5 +147,6 @@ class GapAnalysisOut(BaseModel):
     achievement_rate: float | None = None
     progress_rate: float | None = None
     execution_score: float | None = None
+    score_basis: str | None = None  # 채점 근거(5-1) — ScreeningOut과 같은 계약
     washing_flag: bool | None = None
     buyback_status: str | None = None

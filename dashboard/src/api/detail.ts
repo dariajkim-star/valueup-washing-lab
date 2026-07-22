@@ -14,6 +14,7 @@ export interface GapDetail {
   achievement_rate: number | null;
   progress_rate: number | null;
   execution_score: number | null;
+  score_basis: string | null; // 채점 근거(5-1)
   washing_flag: boolean | null;
   buyback_status: string | null;
 }

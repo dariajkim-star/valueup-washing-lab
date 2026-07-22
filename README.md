@@ -70,7 +70,7 @@ cd dashboard && npm run dev
 from app.ingest import run as ingest   # ingest_financials / prices / macro / valueup_plans / ownership
 ```
 
-테스트: `pytest -q`(백엔드 289) · `cd dashboard && npm test`(프론트 56) · 마이그레이션 `alembic upgrade head`(0001~0013).
+테스트: `pytest -q`(백엔드 289) · `cd dashboard && npm test`(프론트 63) · 마이그레이션 `alembic upgrade head`(0001~0013).
 
 ## 아키텍처 (AD 요약)
 

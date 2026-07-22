@@ -11,6 +11,7 @@ export interface ScreeningRow {
   roe: number | null; // 핵심지표(AC3) — null=지표 없음
   pbr: number | null;
   execution_score: number | null;
+  score_basis: string | null; // 채점 근거(5-1) — 가중치 기반이 종목마다 다름
   washing_flag: boolean | null; // true=워싱의심 / false=근거없음 / null=판단불가
   buyback_status: string | null;
   buyback_executed: boolean | null;

@@ -9,7 +9,7 @@ import type { ScreeningRow } from "../api/screening";
 function header(partial: Partial<ScreeningRow>): ScreeningRow {
   return {
     corp_code: "00000000", corp_name: "테스트", market: "KOSPI", sector: "26100",
-    as_of: "2026-07-13", roe: null, pbr: null, execution_score: null,
+    as_of: "2026-07-13", roe: null, pbr: null, execution_score: null, score_basis: null,
     washing_flag: null, buyback_status: null, buyback_executed: null,
     mna_target_score: null, population_basis: null,
     has_valueup_score: true, has_mna_score: true,
@@ -21,7 +21,8 @@ function gap(partial: Partial<GapDetail>): GapDetail {
   return {
     corp_code: "00000000", corp_name: null, market: null, as_of: "2026-07-13",
     target_roe: null, actual_roe: null, roe_gap: null, achievement_rate: null,
-    progress_rate: null, execution_score: null, washing_flag: null, buyback_status: null,
+    progress_rate: null, execution_score: null, score_basis: null,
+    washing_flag: null, buyback_status: null,
     ...partial,
   };
 }
