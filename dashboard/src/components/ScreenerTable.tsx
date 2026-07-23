@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-table";
 import type { ScreeningRow } from "../api/screening";
 import { useFilters } from "../state/filters";
-import { MarketPill, MnaCell, ValueUpCell, WashingBadge } from "./badges";
+import { MarketPill, MnaCell, ValueUpCell } from "./badges"; // WashingBadge: 파티 결정 B로 렌더 임시 은닉
 import { ApiRequestError } from "../api/client";
 
 const col = createColumnHelper<ScreeningRow>();
@@ -102,10 +102,13 @@ export function ScreenerTable({
           );
         },
       }),
-      col.accessor("washing_flag", {
-        header: () => <span>워싱</span>,
-        cell: (c) => <WashingBadge flag={c.getValue()} />,
-      }),
+      // [2026-07-23 파티 결정 B] washing_flag는 고의 판정('워싱 의심')이라 서명 위반 +
+      // 실측 True 0개. opacity_rank 스토리에서 은퇴/재정의 결정 전까지 **화면에서만 임시로**
+      // 치운다(로직·API·필드 전부 무변경, 되돌리기 = 아래 주석 해제). 상세 GapCard도 동일 처리.
+      // col.accessor("washing_flag", {
+      //   header: () => <span>워싱</span>,
+      //   cell: (c) => <WashingBadge flag={c.getValue()} />,
+      // }),
     ],
     [],
   );
