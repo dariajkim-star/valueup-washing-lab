@@ -40,5 +40,5 @@ def _block_real_db(monkeypatch):
         )
     )
     for module in ("app.db", "app.analysis.gap_engine", "app.analysis.mna_engine",
-                   "app.analysis.run_scoring"):
+                   "app.analysis.opacity_engine", "app.analysis.run_scoring"):
         monkeypatch.setattr(f"{module}.SessionLocal", throwaway, raising=False)

@@ -21,10 +21,21 @@ peer(같은 KSIC 버킷) 대비 백분위로 순위화한다(레아 원칙: "고
 
 from __future__ import annotations
 
+import logging
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
+
+from app.analysis.gap_engine import _validate_as_of  # as_of 검증 재사용(중복 정의 금지)
 from app.analysis.mna_engine import _pct_rank_high, _sector_bucket
+from app.config import settings
+from app.db import SessionLocal
+from app.repositories import opacity_score as repo
+
+logger = logging.getLogger(__name__)
 
 # ── 불투명 축(4개) ──
 # 각 축이 null이면 "그 목표를 공시하지 않음" = 1점. 설계 근거(파티 2026-07-23):
@@ -150,3 +161,163 @@ def rank_from_plans(
         if not is_cover_notice(plan)
     }
     return rank_opacity(counts, sectors, peer_min)
+
+
+# ── DB 배선(run) ──────────────────────────────────────────────────────────────
+# 위쪽은 순수 코어(입력=계획 dict). 아래는 그것을 DB에 배선하는 오케스트레이션 —
+# mna_engine.run과 **동형**이다. opacity_rank도 cross-sectional 백분위라 세대가 섞이면
+# 순위표 자체가 무의미해지므로, gap_engine의 종목별 커밋이 아니라 mna의 **전량 원자성 +
+# 실패 보고** 정책을 그대로 쓴다(트랜잭션 성질이 순위와 묶여 있다).
+
+
+class _IncompleteRun(Exception):
+    """전량 롤백을 일으키기 위한 내부 신호. run() 밖으로 새지 않는다.
+
+    실패 사유는 이미 OpacityRunResult에 담겨 있으므로 이 예외 자체는 정보를 나르지 않는다.
+    """
+
+
+@dataclass
+class OpacityRunResult:
+    """run()의 결과. MnaRunResult와 동형 — `complete=False`는 **아무것도 쓰이지 않았다**
+    (전량 롤백)를 뜻한다(트랜잭션 정책이 mna와 같기 때문, run() docstring 참조)."""
+
+    scored: int = 0  # upsert된 종목 수(롤백 시 DB에 남지 않음 — 계산된 수)
+    deleted: int = 0  # 순위 불가(계획 없음·표지 통지문·peer<2)로 정리된 종목 수
+    succeeded: list[str] = field(default_factory=list)
+    failed: list[tuple[str, str]] = field(default_factory=list)  # (corp_code, reason)
+    aborted_early: bool = False
+    fatal_error: str | None = None
+    partial_scope: bool = False
+
+    @property
+    def complete(self) -> bool:
+        """실패 없이 끝났는가(= 트랜잭션이 커밋됐는가). '전 종목 동일 모집단'은 아니다
+        (그건 publishable). mna의 같은 이름 속성과 동일 의미."""
+        return not self.failed and self.fatal_error is None
+
+    @property
+    def publishable(self) -> bool:
+        """이 as_of의 opacity_score 테이블을 게시·비교에 써도 되는가. 백분위 순위는 전 종목이
+        같은 모집단 세대일 때만 의미가 있어, 부분 실행은 성공해도 게시 불가(mna와 동일)."""
+        return self.complete and not self.partial_scope
+
+
+def run(
+    as_of: str,
+    corp_codes: Sequence[str] | None = None,
+    *,
+    session_factory: Callable[[], Session] | None = None,
+) -> OpacityRunResult:
+    """as_of 기준 corp별 opacity_score를 계산·upsert. OpacityRunResult 반환.
+
+    트랜잭션 정책은 mna_engine.run과 동일한 **전량 원자성 + 실패 보고**다 — 순위표는
+    세대가 섞이면 무의미하므로 부분 커밋이 없다. 실패 사실은 롤백돼도 result·로그로 남는다.
+
+    모집단은 **밸류업 계획을 공시한 종목**뿐이다. 계획을 아예 내지 않은 종목은 opacity_score
+    행을 만들지 않는다(reconciliation으로 기존 행 정리) — '약속하지 않은 것을 드러낸다'이지
+    '참여하지 않은 것을 최대 불투명으로 벌한다'가 아니기 때문(레아 원칙). 표지 통지문(첨부
+    참조·본문 전무)도 같은 이유로 모집단·행 양쪽에서 빠진다(is_cover_notice).
+
+    - 백분위 모집단은 corp_codes 부분집합과 무관하게 **전체 계획 공시 종목** 기준.
+    - **부분 실행 주의**: corp_codes 부분집합은 대상만 최신 모집단으로 갱신하고 나머지는 과거
+      모집단 순위로 남긴다 — 게시용은 반드시 전체 실행(corp_codes=None)으로 재계산할 것.
+    """
+    _validate_as_of(as_of)
+    # 기본 인자로 두면 정의 시점에 factory가 고정돼 conftest의 monkeypatch가 못 막는다
+    # (mna_engine과 동일 — 실 DB 오염 방어. conftest가 이 모듈의 SessionLocal도 갈아끼운다).
+    session_factory = session_factory or SessionLocal
+    result = OpacityRunResult(partial_scope=corp_codes is not None)
+    try:
+        with session_factory() as session, session.begin():
+            _run_in_session(session, as_of, corp_codes, result)
+    except _IncompleteRun:
+        logger.error(
+            "opacity 스코어 실패 → 전량 롤백(opacity_score는 실행 이전 상태). as_of=%s 사유=%s",
+            as_of, result.fatal_error or f"{len(result.failed)}종목 실패",
+        )
+        result.scored = 0
+        result.deleted = 0
+        result.succeeded.clear()
+    return result
+
+
+def _run_in_session(
+    session: Session,
+    as_of: str,
+    corp_codes: Sequence[str] | None,
+    result: OpacityRunResult,
+) -> None:
+    """run()의 본문. 트랜잭션 경계 밖으로 빼서 롤백 책임을 호출부 한 곳에 둔다(mna와 동일).
+
+    읽기·순위 계산이 종목 루프 이전에 전부 끝나고, 루프 안은 메모리 값 upsert/delete뿐이라
+    예상 가능한 실패 유형이 구조적으로 적다. SQLAlchemy 오류는 세션을 못 쓰게 만들 수 있어
+    즉시 중단(aborted_early), 그 외 예외는 엔진 버그로 보고 중단한다.
+    """
+    if corp_codes is None:
+        corp_codes = repo.list_all_corp_codes(session)
+
+    # 1단계: 전체 모집단 배치 구성(cross-sectional — corp 루프 전에 끝나야 함)
+    plans = repo.all_latest_plans(session, as_of)
+    if not plans:
+        # 계획 공시 종목이 전무 — 밸류업 프로그램 규모상 정상 상태가 아니다(ETL 장애 가능성).
+        # 기존 행은 지우지 않고(오삭제 방어), 정상 완료로 보고하지도 않는다(mna의 입력 전무
+        # 가드와 동일 원칙). 유니버스 자체가 비었으면 진짜로 할 일이 없다.
+        if corp_codes:
+            result.fatal_error = (
+                f"opacity 입력(밸류업 계획)이 전무하다(대상 {len(corp_codes)}종목, "
+                "valueup_plan 0건) — 업스트림 수집 상태를 확인할 것"
+            )
+            raise _IncompleteRun
+        return
+    sectors = repo.all_company_sectors(session)
+
+    # 표지 통지문 제외 후 corp별 미공시 축 수 → peer 백분위(코어 재사용). counts는 순위와
+    # 함께 저장하므로 rank_from_plans 대신 두 단계를 펼친다(rank는 count로부터 나온다).
+    counts = {
+        corp: opacity_count(plan)
+        for corp, plan in plans.items()
+        if not is_cover_notice(plan)
+    }
+    ranks = rank_opacity(counts, sectors, settings.opacity_peer_min)
+
+    # 2단계: 종목별 upsert/reconcile
+    for corp_code in corp_codes:
+        rank, basis = ranks.get(corp_code, (None, None))
+        try:
+            if rank is None:
+                # 계획 없음·표지 통지문·유효 peer<2 → 순위 불가. 근거 없는 기존 행 정리.
+                repo.delete_opacity_score(session, corp_code, as_of)
+                deleted = True
+            else:
+                repo.upsert_opacity_score(session, {
+                    "corp_code": corp_code, "as_of": as_of,
+                    "opacity_rank": rank,
+                    "opacity_count": counts.get(corp_code),
+                    "opacity_basis": basis,
+                })
+                deleted = False
+        except SQLAlchemyError as e:
+            # 세션이 오염되면 이후 종목은 전부 노이즈 실패가 된다 — 여기서 멈추고 불완전 표시.
+            logger.warning(
+                "opacity SQLAlchemy 오류 corp_code=%s: %s — 세션 사용 불가 가능성으로 중단",
+                corp_code, type(e).__name__,
+            )
+            result.failed.append((corp_code, str(e)))
+            result.aborted_early = True
+            break
+        except Exception as e:  # noqa: BLE001
+            # 루프 안은 순수 upsert/delete라 여기 오는 것은 엔진 버그다(데이터 오류 아님).
+            logger.exception("opacity 엔진 내부 오류 corp_code=%s", corp_code)
+            result.failed.append((corp_code, f"{type(e).__name__}: {e}"))
+            result.fatal_error = f"엔진 내부 오류({type(e).__name__}) — 코드 결함일 가능성"
+            result.aborted_early = True
+            break
+        if deleted:
+            result.deleted += 1
+        else:
+            result.scored += 1
+        result.succeeded.append(corp_code)
+
+    if result.failed:
+        raise _IncompleteRun

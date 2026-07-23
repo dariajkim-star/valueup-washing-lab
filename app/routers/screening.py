@@ -19,11 +19,15 @@ router = APIRouter(prefix="/screening", tags=["screening"])
     "",
     response_model=Page[ScreeningOut],
     description=(
-        "워싱·저평가·M&A 후보 양방향 스크리닝(valueup_score + mna_score outer join). "
+        "워싱·저평가·M&A 후보 양방향 스크리닝(valueup_score + mna_score + opacity_score "
+        "outer join). "
         "washing_flag: null=판단 불가(빈칸/아니오 표시 금지). "
         "mna_target_score: null=산출 불가(0점/최하위 표시 금지). "
+        "opacity_rank: 공시 불투명도 백분위(0~1, 높을수록 불투명, washing_flag 대체). "
+        "null=순위 불가(계획 미공시·표지 통지문·peer 부족 — 0/최투명 표시 금지). "
         "buyback_executed 필터: true/false 모두 null(판단 불가)은 미포함. "
-        "sort: `field`/`-field` 규약, 허용=execution_score·mna_target_score(기본=corp_code). "
+        "sort: `field`/`-field` 규약, 허용=execution_score·mna_target_score·opacity_rank"
+        "(기본=corp_code). "
         "범위 필터는 null을 매칭하지 않는다(산출 불가는 조건 판단 불가). "
         "알려진 한계: roe/pbr 등 지표는 look-ahead 부분 차단(같은 해 사업보고서만 배제) — "
         "명시적 과거 as_of 조회 시 그 해의 이후 분기 지표가 섞일 수 있음(공시일 수집 전까지, "
@@ -54,7 +58,10 @@ def screening_list(
     buyback_executed: bool | None = Query(
         None, description="true=매입 실행 / false=미실행 — null(판단 불가)은 양쪽 다 제외"
     ),
-    sort: str | None = Query(None, description="execution_score | mna_target_score, `-` 내림차순"),
+    sort: str | None = Query(
+        None,
+        description="execution_score | mna_target_score | opacity_rank, `-` 내림차순",
+    ),
     as_of: date | None = Query(None, description="기준일(YYYY-MM-DD), 기본=최신 실행 시점"),
     page: int = Query(1, ge=1, le=1_000_000),
     size: int = Query(20, ge=1, le=100),

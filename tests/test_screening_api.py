@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.models import Base, Company, MnaScore, ValueupScore
+from app.models import Base, Company, MnaScore, OpacityScore, ValueupScore
 from app.sql_views import CREATE_VALUATION_METRICS
 
 AS_OF = "2026-07-13"
@@ -61,6 +61,17 @@ def _seed(s: Session) -> None:
     s.add(MnaScore(
         corp_code="00000004", as_of=AS_OF,
         mna_target_score=60.0, population_basis="market_fallback",
+    ))
+    # opacity_score(3번째 join): 유니버스 멤버십은 바꾸지 않게 이미 포함된 1·2에만 부여.
+    # 00000001=가장 불투명(count 4, rank 1.0), 00000002=완전 투명(count 0, rank 0.0).
+    # 00000003(valueup만)·00000004(mna만)는 opacity 없음 → has_opacity_score=False, rank null.
+    s.add(OpacityScore(
+        corp_code="00000001", as_of=AS_OF,
+        opacity_rank=1.0, opacity_count=4, opacity_basis="sector:26",
+    ))
+    s.add(OpacityScore(
+        corp_code="00000002", as_of=AS_OF,
+        opacity_rank=0.0, opacity_count=0, opacity_basis="sector:26",
     ))
     s.commit()
     # 지표·시총(3.3 리뷰 반영): 00000001=고ROE(20%)·저PBR·저부채(50%), 00000002=저ROE(5%)·
@@ -155,6 +166,64 @@ def test_sort_whitelist_and_null_last(client) -> None:
     assert r3.status_code == 400
     assert set(r3.json()) == {"detail", "code"}
     assert r3.json()["code"] == "INVALID_SORT"
+
+
+def test_opacity_served_with_null_contract(client) -> None:
+    """opacity_score 3번째 join 실증: rank/count/basis + has_opacity_score가 응답에 실린다.
+    opacity 없는 종목은 null + has_opacity_score=False(washing_flag과 같은 null 계약)."""
+    by_code = {i["corp_code"]: i for i in client.get("/screening").json()["items"]}
+    # 가장 불투명(count 4) — 순위·근거·플래그가 그대로 서빙
+    assert by_code["00000001"]["opacity_rank"] == pytest.approx(1.0)
+    assert by_code["00000001"]["opacity_count"] == 4
+    assert by_code["00000001"]["opacity_basis"] == "sector:26"
+    assert by_code["00000001"]["has_opacity_score"] is True
+    # 완전 투명(count 0) — rank 0.0은 "산출됨"이지 결측이 아니다
+    assert by_code["00000002"]["opacity_rank"] == pytest.approx(0.0)
+    assert by_code["00000002"]["has_opacity_score"] is True
+    # opacity 미실행 종목: null + 플래그 False(0/최투명으로 세탁 금지)
+    assert by_code["00000004"]["opacity_rank"] is None
+    assert by_code["00000004"]["opacity_count"] is None
+    assert by_code["00000004"]["has_opacity_score"] is False
+
+
+def test_sort_by_opacity_rank(client) -> None:
+    """opacity_rank 정렬(washing_flag 대체 랭킹) — 화이트리스트 등재 + null last."""
+    codes = [i["corp_code"] for i in
+             client.get("/screening", params={"sort": "-opacity_rank"}).json()["items"]]
+    # 1.0(00000001) → 0.0(00000002) → null(00000003·00000004) last
+    assert codes[0] == "00000001"
+    assert codes[1] == "00000002"
+    assert set(codes[2:]) == {"00000003", "00000004"}  # null 그룹(안정 정렬로 뒤)
+
+
+def test_opacity_only_row_is_included(engine, monkeypatch) -> None:
+    """새 OR 분기 실증: valueup·mna 없이 opacity_score만 있어도 유니버스에 포함된다
+    (회사정보만 있는 노이즈 행과 구분)."""
+    from fastapi.testclient import TestClient
+
+    import app.db as db_module
+    from app.main import app as fastapi_app
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        s.add(Company(corp_code="00000007", corp_name="불투명만", market="KOSPI"))
+        s.add(Company(corp_code="00000008", corp_name="아무스코어없음", market="KOSPI"))
+        s.add(OpacityScore(
+            corp_code="00000007", as_of=AS_OF,
+            opacity_rank=0.5, opacity_count=2, opacity_basis="market",
+        ))
+        s.commit()
+    monkeypatch.setattr(db_module, "SessionLocal", Session_)
+    body = TestClient(fastapi_app).get("/screening").json()
+    by_code = {i["corp_code"]: i for i in body["items"]}
+    # opacity만 있는 종목: 포함 + valueup/mna는 null·False
+    assert "00000007" in by_code
+    assert by_code["00000007"]["opacity_rank"] == pytest.approx(0.5)
+    assert by_code["00000007"]["has_valueup_score"] is False
+    assert by_code["00000007"]["has_mna_score"] is False
+    assert by_code["00000007"]["has_opacity_score"] is True
+    # 세 스코어 다 없는 종목: 제외(회사정보만 있는 노이즈 방지)
+    assert "00000008" not in by_code
 
 
 def test_corp_code_filter(client) -> None:
