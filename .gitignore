@@ -23,5 +23,10 @@ dashboard/.vite/
 # BMAD 내부 워크플로우 로그(deliverable 아님)
 **/.memlog.md
 
+# BMAD 도구 자체 — 프로젝트별 설치본(도구이지 제품 산출물이 아니라 커밋하지 않는다).
+# 각 프로젝트 폴더에서 claude를 실행하면 여기 스킬이 스코프로 로드된다.
+_bmad/
+.claude/
+
 # Tableau export 산출물(3.5) — 재생성 가능
 exports/
