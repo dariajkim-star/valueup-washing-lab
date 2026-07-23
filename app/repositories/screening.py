@@ -12,13 +12,14 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
-from app.models import Company, MnaScore, ValueupScore
+from app.models import Company, MnaScore, OpacityScore, ValueupScore
 
 # 정렬 허용 필드 화이트리스트(AD-6 `field`/`-field` 규약). 사용자 입력을 컬럼 객체로만
 # 매핑 — 여기 없는 필드는 InvalidSortError(라우터가 400으로 변환). metrics.py 패턴의 ORM 판.
 SORT_COLUMNS = {
     "execution_score": ValueupScore.execution_score,
     "mna_target_score": MnaScore.mna_target_score,
+    "opacity_rank": OpacityScore.opacity_rank,
 }
 
 
@@ -43,10 +44,15 @@ def validate_sort(sort: str | None) -> None:
 
 
 def latest_as_of(session: Session) -> str | None:
-    """두 스코어 테이블 latest as_of 중 max(가장 최근 엔진 실행 시점). 둘 다 없으면 None."""
+    """세 스코어 테이블 latest as_of 중 max(가장 최근 엔진 실행 시점). 셋 다 없으면 None.
+
+    opacity_score가 빠지면 opacity만 실행된(또는 opacity가 가장 최근인) 세대가 서빙 기준일에서
+    누락돼 스크리닝이 빈 결과를 낸다 — 3번째 join과 한 쌍으로 반드시 포함해야 한다.
+    """
     v = session.scalar(select(func.max(ValueupScore.as_of)))
     m = session.scalar(select(func.max(MnaScore.as_of)))
-    candidates = [x for x in (v, m) if x is not None]
+    o = session.scalar(select(func.max(OpacityScore.as_of)))
+    candidates = [x for x in (v, m, o) if x is not None]
     return max(candidates) if candidates else None
 
 
@@ -168,7 +174,7 @@ def list_screening(
         conds.append(Company.corp_code.in_(passing_mcap))
 
     base = (
-        select(Company, ValueupScore, MnaScore)
+        select(Company, ValueupScore, MnaScore, OpacityScore)
         .select_from(Company)
         .join(
             ValueupScore,
@@ -181,8 +187,21 @@ def list_screening(
             and_(MnaScore.corp_code == Company.corp_code, MnaScore.as_of == as_of),
             isouter=True,
         )
-        # 두 스코어 모두 없는 종목 제외 — 회사정보만 있는 노이즈 행 방지
-        .where(or_(ValueupScore.id.is_not(None), MnaScore.id.is_not(None)), *conds)
+        .join(
+            OpacityScore,
+            and_(OpacityScore.corp_code == Company.corp_code,
+                 OpacityScore.as_of == as_of),
+            isouter=True,
+        )
+        # 세 스코어 모두 없는 종목 제외 — 회사정보만 있는 노이즈 행 방지
+        .where(
+            or_(
+                ValueupScore.id.is_not(None),
+                MnaScore.id.is_not(None),
+                OpacityScore.id.is_not(None),
+            ),
+            *conds,
+        )
     )
 
     total = session.scalar(
@@ -195,7 +214,7 @@ def list_screening(
     ).all()
 
     items = []
-    for company, vs, ms in rows:
+    for company, vs, ms, os in rows:
         m = metrics_map.get(company.corp_code)
         items.append({
             "corp_code": company.corp_code,
@@ -212,6 +231,7 @@ def list_screening(
             # 게이팅으로 산출 불가)"을 구분(GPT 리뷰 Med — 없으면 소비자가 식별 불가)
             "has_valueup_score": vs is not None,
             "has_mna_score": ms is not None,
+            "has_opacity_score": os is not None,
             "execution_score": vs.execution_score if vs else None,
             # 점수가 **무엇을 근거로** 매겨졌는지(5-1). 공시한 약속만으로 채점하므로
             # 가중치 기반이 종목마다 다르다 — 숨기면 기준이 다른 점수를 나란히 비교하게 된다.
@@ -221,6 +241,11 @@ def list_screening(
             "buyback_executed": vs.buyback_executed if vs else None,
             "mna_target_score": ms.mna_target_score if ms else None,
             "population_basis": ms.population_basis if ms else None,
+            # opacity_rank 계약: null=순위 불가(0/최투명 표시 금지). opacity_basis는 순위의
+            # 모집단 식별 — 기준이 다른 순위를 같은 척도로 비교하지 않게 순위와 함께 전달.
+            "opacity_rank": os.opacity_rank if os else None,
+            "opacity_count": os.opacity_count if os else None,
+            "opacity_basis": os.opacity_basis if os else None,
         })
     return items, total
 

@@ -41,12 +41,14 @@ class MetricOut(BaseModel):
 
 
 class ScreeningOut(BaseModel):
-    """company + valueup_score + mna_score outer join 결과 (2.6 다중조건 스크리닝).
+    """company + valueup_score + mna_score + opacity_score outer join 결과 (2.6 다중조건 스크리닝).
 
     null 계약 승계: washing_flag null=판단 불가(빈칸/아니오 표시 금지, 2.4),
     mna_target_score null=산출 불가(0점/최하위 표시 금지, 2.5).
-    has_valueup_score/has_mna_score: 엔진 실행 여부(score row 존재) — "row 없음(미실행)"과
-    "row는 있으나 전부 null(엄격 게이팅 산출 불가)"은 필드값만으론 구분 불가라 명시 노출.
+    opacity_rank null=순위 불가(계획 미공시·표지 통지문·peer 부족 — 0점/최투명 표시 금지).
+    has_valueup_score/has_mna_score/has_opacity_score: 엔진 실행 여부(score row 존재) —
+    "row 없음(미실행)"과 "row는 있으나 전부 null(엄격 게이팅 산출 불가)"은 필드값만으론
+    구분 불가라 명시 노출.
     """
 
     corp_code: str
@@ -59,6 +61,7 @@ class ScreeningOut(BaseModel):
     pbr: float | None = None
     has_valueup_score: bool
     has_mna_score: bool
+    has_opacity_score: bool
     execution_score: float | None = None
     # execution_score의 채점 근거(5-1): 'roe+buyback+payout' 등 + 구분 토큰.
     # null이면 점수도 null. population_basis와 같은 역할 — 기준이 다른 값을 같은 척도로
@@ -69,6 +72,12 @@ class ScreeningOut(BaseModel):
     buyback_executed: bool | None = None
     mna_target_score: float | None = None
     population_basis: str | None = None
+    # 공시 불투명도 순위(washing_flag 대체) — 미공시 목표 축 수의 peer 백분위(0~1, 높을수록
+    # 불투명). opacity_basis는 그 순위의 모집단 식별(mna의 population_basis와 같은 규약) —
+    # 기준이 다른 순위를 같은 척도로 비교하지 않도록 순위와 함께 전달한다.
+    opacity_rank: float | None = None
+    opacity_count: int | None = None
+    opacity_basis: str | None = None
 
 
 class MnaRankingOut(BaseModel):

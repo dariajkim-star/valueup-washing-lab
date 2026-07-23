@@ -186,3 +186,147 @@ def test_rank_from_plans_excludes_only_shells() -> None:
     assert "shell" not in ranks  # 제외 = 순위 dict에 없음
     assert ranks["kia"][0] == 0.0  # 전부 공시 → 최저 불투명
     assert ranks["opaque"][0] == 1.0  # 본문 텅 + 첨부 없음 → 최고 불투명
+
+
+# ── DB 배선(run) 통합 테스트 (SQLite in-memory) ──
+# 순수 코어는 위에서 검증됨. 여기서는 run()이 계획을 읽어 opacity_score에 저장/정리하는
+# **배선**만 확인한다 — 전량 원자성·모집단 제외·reconciliation이 DB에 실제로 반영되는가.
+
+import pytest  # noqa: E402
+from sqlalchemy import create_engine, select  # noqa: E402
+from sqlalchemy.orm import Session, sessionmaker  # noqa: E402
+from sqlalchemy.pool import StaticPool  # noqa: E402
+
+from app.analysis.opacity_engine import run  # noqa: E402
+from app.models import Base, Company, OpacityScore, ValueupPlan  # noqa: E402
+
+
+@pytest.fixture()
+def engine():
+    eng = create_engine(
+        "sqlite:///:memory:", future=True,
+        poolclass=StaticPool, connect_args={"check_same_thread": False},
+    )
+    Base.metadata.create_all(eng)
+    return eng
+
+
+def _seed_plan(
+    s: Session, code: str, *, disclosure_date: str = "2025-06-30",
+    raw_text: str = "목표 공시", **fields: object,
+) -> None:
+    """company + 계획 1건 시드. fields 미지정 축은 전부 공시(불투명 0)로 채운다."""
+    s.add(Company(corp_code=code, corp_name=f"기업{code}", market="KOSPI"))
+    base: dict[str, object] = {
+        "target_roe": 10.0, "target_payout_ratio": 30.0,
+        "target_total_return_ratio": None, "target_pbr": None,
+        "period_start": "2024", "period_end": "2026", "buyback_planned": True,
+    }
+    base.update(fields)
+    s.add(ValueupPlan(
+        corp_code=code, disclosure_date=disclosure_date, raw_text=raw_text, **base,
+    ))
+
+
+def test_run_persists_relative_opacity_rank(engine) -> None:
+    """배선 실증: 계획을 읽어 corp별 opacity_rank/count/basis를 opacity_score에 저장.
+    미공시 축이 많을수록 높은 백분위(불투명)."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_plan(s, "00000001")  # 4축 전부 공시 → count 0
+        _seed_plan(s, "00000002", target_roe=None)  # count 1
+        _seed_plan(  # count 4(가장 불투명), 첨부 참조 없음
+            s, "00000003", target_roe=None, target_payout_ratio=None,
+            target_total_return_ratio=None, period_start=None, buyback_planned=None,
+        )
+        s.commit()
+
+        result = run("2025-12-31", session_factory=Session_)
+        assert result.scored == 3
+        assert result.complete is True  # 실패 0 → 커밋됨
+        assert result.publishable is True  # 전체 실행
+
+        rows = {r.corp_code: r for r in s.scalars(select(OpacityScore)).all()}
+        assert rows["00000001"].opacity_count == 0
+        assert rows["00000003"].opacity_count == 4
+        # 상대 순위: 최다 미공시가 최고 백분위, 최소가 최저
+        assert rows["00000003"].opacity_rank == pytest.approx(1.0)
+        assert rows["00000001"].opacity_rank == pytest.approx(0.0)
+        assert rows["00000003"].opacity_basis == "market"  # sector 미상 → 시장 모집단
+
+
+def test_run_excludes_cover_notice_from_table(engine) -> None:
+    """표지 통지문(첨부 참조 + 본문 count 최대)은 순위 불가 → opacity_score 행을 만들지 않는다.
+    '못 낸(비가독) 것을 최대 불투명으로 오인'하지 않기 위한 방어가 DB까지 관통하는지 확인."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_plan(s, "00000001")  # 정상 공시
+        _seed_plan(s, "00000002")  # 정상 공시(모집단 최소 확보)
+        _seed_plan(  # 첨부 참조 + 본문 전무 → 표지 통지문
+            s, "00000009", raw_text="상세한 내용은 첨부된 기업가치 제고 계획을 참고하시기 바랍니다",
+            target_roe=None, target_payout_ratio=None, target_total_return_ratio=None,
+            period_start=None, buyback_planned=None,
+        )
+        s.commit()
+
+        result = run("2025-12-31", session_factory=Session_)
+        assert result.scored == 2  # 정상 2건만 저장
+        assert result.deleted == 1  # 표지 통지문은 reconcile로 정리(행 없음)
+        assert s.scalars(
+            select(OpacityScore).where(OpacityScore.corp_code == "00000009")
+        ).one_or_none() is None
+
+
+def test_run_no_plan_corp_is_not_scored(engine) -> None:
+    """계획 미공시(밸류업 미참여) 종목은 최대 불투명으로 벌하지 않는다 — 행을 만들지 않는다."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_plan(s, "00000001")
+        _seed_plan(s, "00000002")
+        s.add(Company(corp_code="00000003", corp_name="미참여", market="KOSPI"))  # 계획 없음
+        s.commit()
+
+        result = run("2025-12-31", session_factory=Session_)
+        assert result.scored == 2
+        assert s.scalars(
+            select(OpacityScore).where(OpacityScore.corp_code == "00000003")
+        ).one_or_none() is None
+
+
+def test_run_reconciles_stale_row(engine) -> None:
+    """근거(순위 가능한 계획)를 잃은 기존 행은 재실행 시 정리된다(멱등 reconciliation)."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed_plan(s, "00000001")
+        _seed_plan(s, "00000002")
+        s.commit()
+        run("2025-12-31", session_factory=Session_)  # 1차: 2건 저장
+        # 00000002의 계획을 표지 통지문으로 바꿔 순위 불가로 만든다
+        plan = s.scalars(
+            select(ValueupPlan).where(ValueupPlan.corp_code == "00000002")
+        ).one()
+        plan.raw_text = "상세한 내용은 첨부된 계획을 참고"
+        plan.target_roe = plan.target_payout_ratio = None
+        plan.target_total_return_ratio = None
+        plan.period_start = None
+        plan.buyback_planned = None
+        s.commit()
+
+        run("2025-12-31", session_factory=Session_)  # 2차: 00000002 정리돼야 함
+        assert s.scalars(
+            select(OpacityScore).where(OpacityScore.corp_code == "00000002")
+        ).one_or_none() is None
+
+
+def test_run_empty_plans_is_fatal_not_silent_success(engine) -> None:
+    """유니버스에 종목이 있는데 계획이 전무하면 ETL 장애로 보고 전량 롤백(mna 가드와 동일).
+    기존 행은 지우지 않고 fatal_error로 드러낸다."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        s.add(Company(corp_code="00000001", corp_name="계획없음", market="KOSPI"))
+        s.commit()
+
+        result = run("2025-12-31", session_factory=Session_)
+        assert result.complete is False
+        assert result.fatal_error is not None
+        assert result.scored == 0
