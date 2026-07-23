@@ -1,5 +1,5 @@
 import type { GapDetail } from "../../api/detail";
-import { WashingBadge } from "../badges";
+// WashingBadge: 파티 결정 B로 렌더 임시 은닉(로직·API 무변경). 은퇴/재정의는 opacity_rank 스토리에서.
 
 // UX-DR3 "계획 vs 실제" 갭 카드(3.2 시안 재현). null 계약은 리스트와 동일 —
 // washing_flag=판단불가 배지 재사용, 지표 null은 "—"(0 표시 금지).
@@ -36,9 +36,10 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
         <MiniStat label="진척률" value={fmt(percentage(gap.progress_rate))} />
         <MiniStat label="자사주" value={buybackLabel(gap.buyback_status)} />
       </div>
+      {/* [2026-07-23 파티 결정 B] washing_flag 화면 임시 은닉 — 로직·API 무변경. ScreenerTable 참조.
       <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
         워싱 판정: <WashingBadge flag={gap.washing_flag} />
-      </div>
+      </div> */}
     </div>
   );
 }
