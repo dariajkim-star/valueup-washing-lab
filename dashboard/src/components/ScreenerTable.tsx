@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-table";
 import type { ScreeningRow } from "../api/screening";
 import { useFilters } from "../state/filters";
-import { MarketPill, MnaCell, ValueUpCell } from "./badges"; // WashingBadge: 파티 결정 B로 렌더 임시 은닉
+import { MarketPill, MnaCell, OpacityCell, ValueUpCell } from "./badges"; // WashingBadge: 은퇴(불투명도로 대체)
 import { ApiRequestError } from "../api/client";
 
 const col = createColumnHelper<ScreeningRow>();
@@ -70,6 +70,19 @@ export function ScreenerTable({
           </div>
         ),
       }),
+      // 불투명도 동행(2026-07-28 파티 결정 '가'): 커버리지 축을 새로 만들지 않고, 이미
+      // 반대편에서 재고 있던 opacity_rank를 Value-up 점수 **바로 옆**에 놓는다.
+      // 같은 100점이라도 "3약속 전부 이행"(기아, 불투명 3)과 "자사주 하나만 약속·이행"
+      // (크래프톤, 불투명 89)이 한 행에서 갈린다 — 점수만으론 안 보이던 차이.
+      col.display({
+        id: "opacity",
+        header: () => <SortableHeader label="불투명" field="opacity_rank" align="right" />,
+        cell: (c) => (
+          <div className="text-right">
+            <OpacityCell row={c.row.original} />
+          </div>
+        ),
+      }),
       col.display({
         id: "mna",
         header: () => <SortableHeader label="M&A" field="mna_target_score" align="right" />,
@@ -102,13 +115,10 @@ export function ScreenerTable({
           );
         },
       }),
-      // [2026-07-23 파티 결정 B] washing_flag는 고의 판정('워싱 의심')이라 서명 위반 +
-      // 실측 True 0개. opacity_rank 스토리에서 은퇴/재정의 결정 전까지 **화면에서만 임시로**
-      // 치운다(로직·API·필드 전부 무변경, 되돌리기 = 아래 주석 해제). 상세 GapCard도 동일 처리.
-      // col.accessor("washing_flag", {
-      //   header: () => <span>워싱</span>,
-      //   cell: (c) => <WashingBadge flag={c.getValue()} />,
-      // }),
+      // [2026-07-28] washing_flag 컬럼은 **은퇴**했다(2026-07-23 임시 은닉 → 확정).
+      // '고의 판정'이라 프로젝트 서명("불확실을 확실로 세탁하지 않는다")을 위반했고 실측
+      // True=0인 켜질 수 없는 경고등이었다. 그 자리는 위의 '불투명' 컬럼이 대신한다 —
+      // 고의를 판정하지 않고 공시 격차를 드러낸다.
     ],
     [],
   );
@@ -140,7 +150,9 @@ export function ScreenerTable({
               <th
                 key={h.id}
                 className={`px-4 py-3 text-[11px] font-semibold text-gray-500 ${
-                  h.id === "valueup" || h.id === "mna" ? "text-right" : "text-left"
+                  h.id === "valueup" || h.id === "mna" || h.id === "opacity"
+                    ? "text-right"
+                    : "text-left"
                 } ${highlightClass(h.id)}`}
               >
                 {flexRender(h.column.columnDef.header, h.getContext())}
@@ -151,7 +163,7 @@ export function ScreenerTable({
         <tbody>
           {rows.length === 0 && !loading && (
             <tr>
-              <td colSpan={7} className="px-4 py-10 text-center text-sm text-gray-400">
+              <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">
                 조건에 맞는 종목이 없습니다
               </td>
             </tr>
@@ -161,7 +173,6 @@ export function ScreenerTable({
               key={r.id}
               onClick={() => navigate(`/company/${r.original.corp_code}`)}
               className="cursor-pointer border-b border-gray-50 hover:bg-gray-50/70"
-              style={{ background: r.original.washing_flag === true ? "#fffbfa" : undefined }}
             >
               {r.getVisibleCells().map((cell) => (
                 <td key={cell.id} className={`px-4 py-3.5 align-middle ${highlightClass(cell.column.id)}`}>

@@ -12,7 +12,8 @@ function header(partial: Partial<ScreeningRow>): ScreeningRow {
     as_of: "2026-07-13", roe: null, pbr: null, execution_score: null, score_basis: null,
     washing_flag: null, buyback_status: null, buyback_executed: null,
     mna_target_score: null, population_basis: null,
-    has_valueup_score: true, has_mna_score: true,
+    opacity_rank: null, opacity_count: null, opacity_basis: null,
+    has_valueup_score: true, has_mna_score: true, has_opacity_score: true,
     ...partial,
   };
 }

@@ -3,7 +3,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 // vitest globals 미사용 시 testing-library 자동 cleanup이 비활성 — 명시적 cleanup
 afterEach(cleanup);
-import { MnaCell, ValueUpCell, WashingBadge, ScoreBasisChip } from "./badges";
+import { MnaCell, OpacityCell, ValueUpCell, WashingBadge, ScoreBasisChip } from "./badges";
 import type { ScreeningRow } from "../api/screening";
 
 // null 시각 언어(3.2 범례)의 상태 우선순위 검증 — 금칙: 빈칸·0·"아니오"로 뭉개기.
@@ -24,8 +24,12 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     buyback_executed: null,
     mna_target_score: null,
     population_basis: null,
+    opacity_rank: null,
+    opacity_count: null,
+    opacity_basis: null,
     has_valueup_score: true,
     has_mna_score: true,
+    has_opacity_score: true,
     ...partial,
   };
 }
@@ -132,5 +136,33 @@ describe("ValueUpCell + score_basis", () => {
   it("점수 null은 빈칸이 아니라 '판단 불가'로 표시한다", () => {
     render(<ValueUpCell row={row({ execution_score: null })} />);
     expect(screen.getByText("판단 불가")).toBeTruthy();
+  });
+});
+
+describe("OpacityCell — 불투명도(washing_flag 대체)", () => {
+  it("순위 있음 → 백분위 정수 + 미공시 축 수", () => {
+    render(<OpacityCell row={row({ opacity_rank: 0.89, opacity_count: 3 })} />);
+    expect(screen.getByText("89")).toBeTruthy();
+    expect(screen.getByText(/미공시 3축/)).toBeTruthy();
+  });
+
+  it('순위 불가 → "순위 불가"(0·최투명으로 표시 금지)', () => {
+    // 계획 미공시이거나 본문 4축이 전부 비어 **읽을 수 없는** 공시.
+    // 못 읽은 걸 벌하지도(1), 봐주지도(0) 않는다.
+    render(<OpacityCell row={row({ has_opacity_score: false, opacity_rank: null })} />);
+    expect(screen.getByText("순위 불가")).toBeTruthy();
+    expect(screen.queryByText("0")).toBeNull();
+    expect(screen.queryByText("100")).toBeNull();
+  });
+
+  it("has_opacity_score=true인데 rank null이어도 순위 불가로 (peer 부족)", () => {
+    render(<OpacityCell row={row({ has_opacity_score: true, opacity_rank: null })} />);
+    expect(screen.getByText("순위 불가")).toBeTruthy();
+  });
+
+  it("최투명(0) → 0으로 표시하되 순위 불가와 구분된다", () => {
+    render(<OpacityCell row={row({ opacity_rank: 0.03, opacity_count: 0 })} />);
+    expect(screen.getByText("3")).toBeTruthy(); // 0.03 → 3
+    expect(screen.queryByText("순위 불가")).toBeNull();
   });
 });

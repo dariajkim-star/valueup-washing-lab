@@ -124,6 +124,40 @@ export function MnaCell({ row }: { row: ScreeningRow }) {
   );
 }
 
+// 불투명도 셀(washing_flag 대체) — 미공시 목표 축 수의 peer 백분위.
+// 워싱 배지와 결정적으로 다른 점: **고의를 판정하지 않는다.** "이 기업이 속였다"가 아니라
+// "이 공시로는 밸류를 판단할 근거가 부족하다"를 순위로 보여준다(레아 원칙).
+export function OpacityCell({ row }: { row: ScreeningRow }) {
+  if (!row.has_opacity_score || row.opacity_rank === null) {
+    // 순위 불가 — 계획 미공시이거나 본문 4축이 전부 비어 **읽을 수 없는** 공시.
+    // 0("최투명")으로도, 1("최불투명")으로도 표시하지 않는다. 못 읽은 걸 벌하지 않는다.
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <span className="text-[15px] font-bold text-gray-400">—</span>
+        <span className="text-[10px] text-gray-400">순위 불가</span>
+      </div>
+    );
+  }
+  const pct = Math.round(row.opacity_rank * 100);
+  // 불투명할수록 진해지는 단색 스케일(점수 색상과 다른 축임을 색으로도 구분).
+  const fg = pct >= 70 ? "#b45309" : pct >= 40 ? "#a16207" : "#9ca3af";
+  const n = row.opacity_count;
+  return (
+    <div className="flex flex-col items-end gap-0.5">
+      <span
+        className="text-[15px] font-bold"
+        style={{ color: fg }}
+        title={`peer 대비 공시 불투명도 상위 ${100 - pct}% (백분위 ${pct})`}
+      >
+        {pct}
+      </span>
+      <span className="text-[9px] text-gray-400">
+        {n === null ? "—" : `미공시 ${n}축`}
+      </span>
+    </div>
+  );
+}
+
 export function PopulationBasisChip({ basis }: { basis: string | null }) {
   if (!basis) return null;
   let label = "전체시장";

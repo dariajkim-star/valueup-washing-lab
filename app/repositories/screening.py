@@ -148,8 +148,13 @@ def list_screening(
         conds.append(MnaScore.mna_target_score >= filters["min_mna_score"])
     if filters.get("max_mna_score") is not None:
         conds.append(MnaScore.mna_target_score <= filters["max_mna_score"])
-    if filters.get("washing_only"):
-        conds.append(ValueupScore.washing_flag.is_(True))
+    # 불투명도 범위 필터(AC2) — washing_only를 대체한다. washing_flag는 실측 True=0인
+    # '켜질 수 없는 경고등'이라 그 토글은 항상 빈 결과를 냈다(죽은 필터). 고의 판정 대신
+    # 격차로 거른다: "이 공시 수준으론 밸류 신뢰 불가"를 순위 상위로 뽑는다.
+    if filters.get("min_opacity_rank") is not None:
+        conds.append(OpacityScore.opacity_rank >= filters["min_opacity_rank"])
+    if filters.get("max_opacity_rank") is not None:
+        conds.append(OpacityScore.opacity_rank <= filters["max_opacity_rank"])
     if filters.get("buyback_executed") is not None:
         conds.append(ValueupScore.buyback_executed.is_(filters["buyback_executed"]))
 

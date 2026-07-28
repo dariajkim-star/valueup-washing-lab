@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SORT, MCAP_BOUNDS, toParams, useFilters } from "./filters";
+import { DEFAULT_SORT, MCAP_BOUNDS, OPAQUE_MIN_RANK, toParams, useFilters } from "./filters";
 
 // zustand 스토어는 모듈 전역 — 테스트마다 초기 상태로 리셋
 const initial = useFilters.getState();
@@ -20,7 +20,7 @@ describe("filters store (3.3 리뷰 반영)", () => {
     expect(s.sort).toBe(DEFAULT_SORT.mna); // -mna_target_score
     expect(s.page).toBe(1);
     useFilters.getState().setScoreMode("valueup");
-    expect(useFilters.getState().sort).toBe(DEFAULT_SORT.valueup); // execution_score
+    expect(useFilters.getState().sort).toBe(DEFAULT_SORT.valueup); // -opacity_rank
   });
 
   it("사용자 정렬 후 모드 전환하면 기본 정렬로 덮인다(모드 관점 우선)", () => {
@@ -57,10 +57,16 @@ describe("filters store (3.3 리뷰 반영)", () => {
     expect(MCAP_BOUNDS.mid.max! + 1).toBe(MCAP_BOUNDS.large.min!);
   });
 
-  it("toParams: washing_only=false는 undefined로(파라미터 미전송)", () => {
+  it("[AC2] toParams: opaqueOnly=false는 미전송, true면 min_opacity_rank 임계값", () => {
+    // 구 washing_only 대체 — 그 토글은 washing_flag(실측 True=0)에 걸려 항상 빈 결과였다.
     const p = toParams(useFilters.getState());
-    expect(p.washing_only).toBeUndefined();
-    useFilters.getState().setWashingOnly(true);
-    expect(toParams(useFilters.getState()).washing_only).toBe(true);
+    expect(p.min_opacity_rank).toBeUndefined();
+    useFilters.getState().setOpaqueOnly(true);
+    expect(toParams(useFilters.getState()).min_opacity_rank).toBe(OPAQUE_MIN_RANK);
+  });
+
+  it("[2026-07-28] Value-up 기본 정렬은 불투명도 내림차순", () => {
+    // 이 도구는 '잘 이행한 기업 찾기'가 아니라 '공시가 빈약한 기업 걸러내기'다.
+    expect(DEFAULT_SORT.valueup).toBe("-opacity_rank");
   });
 });

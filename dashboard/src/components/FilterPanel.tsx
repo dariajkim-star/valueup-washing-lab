@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useFilters, type McapBucket } from "../state/filters";
+import { useFilters, OPAQUE_MIN_RANK, type McapBucket } from "../state/filters";
 
 // UX-DR1: 시장·업종·시총구간·지표 슬라이더·워싱 토글·스코어 모드 전환 — 전부 실배선
 // (3.3 리뷰 반영: 가짜 컨트롤 금지, 모든 조작이 /screening 재요청으로 이어진다).
@@ -198,20 +198,29 @@ export function FilterPanel() {
       <RangeFilter label="EV/EBITDA ≤" unit="x" min={0} max={50} step={1} value={f.maxEvEbitda} onCommit={(v) => f.patch({ maxEvEbitda: v })} />
       <RangeFilter label="부채비율 ≤" unit="%" min={0} max={300} step={10} value={f.maxDebtRatio} onCommit={(v) => f.patch({ maxDebtRatio: v })} />
 
-      {/* 워싱 토글(실동작) */}
+      {/* 불투명 상위 토글(실동작) — 구 "워싱 의심만 보기" 대체.
+          그 토글은 washing_flag(실측 True=0)에 걸려 **항상 빈 결과**를 냈다. 이제 고의
+          판정이 아니라 공시 격차로 거른다. 임계값을 라벨에 드러내 무엇으로 걸러졌는지
+          보이게 한다(임계 소유권은 미결 — 숨긴 채 굳히지 않는다). */}
       <button
-        onClick={() => f.setWashingOnly(!f.washingOnly)}
+        onClick={() => f.setOpaqueOnly(!f.opaqueOnly)}
         className="flex items-center justify-between rounded-lg px-3 py-3 text-left"
-        style={{ background: f.washingOnly ? "#fee4e2" : "#fef3f2" }}
+        style={{ background: f.opaqueOnly ? "#fef3c7" : "#fffbeb" }}
+        title="공시하지 않은 목표 축이 peer 대비 많은 종목만 — 고의 판정이 아니라 공시 격차"
       >
-        <span className="text-xs font-semibold text-red-700">⚠ 워싱 의심만 보기</span>
+        <span className="flex flex-col">
+          <span className="text-xs font-semibold text-amber-800">◐ 불투명 상위만 보기</span>
+          <span className="text-[10px] text-amber-700/70">
+            백분위 {Math.round(OPAQUE_MIN_RANK * 100)} 이상
+          </span>
+        </span>
         <span
           className="relative h-5 w-9 rounded-full transition"
-          style={{ background: f.washingOnly ? "#b42318" : "#d1d5db" }}
+          style={{ background: f.opaqueOnly ? "#b45309" : "#d1d5db" }}
         >
           <span
             className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
-            style={{ left: f.washingOnly ? 18 : 2 }}
+            style={{ left: f.opaqueOnly ? 18 : 2 }}
           />
         </span>
       </button>

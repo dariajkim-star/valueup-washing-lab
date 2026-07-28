@@ -17,8 +17,14 @@ export interface ScreeningRow {
   buyback_executed: boolean | null;
   mna_target_score: number | null; // null=산출불가(엄격 게이팅)
   population_basis: string | null; // sector:{KSIC} / market_fallback / market
+  // 공시 불투명도(washing_flag 대체) — 미공시 목표 축 수의 peer 백분위.
+  // null=순위 불가(계획 미공시·본문 4축 전무·peer 부족). 0이나 "최투명"으로 표시 금지.
+  opacity_rank: number | null;
+  opacity_count: number | null; // 미공시 축 수(0~4). 본문 전무(4)는 순위에서 제외돼 실질 0~3
+  opacity_basis: string | null; // sector:{KSIC} / market_fallback / market
   has_valueup_score: boolean; // false=엔진 미집계(산출불가와 구분)
   has_mna_score: boolean;
+  has_opacity_score: boolean;
 }
 
 export interface Page<T> {
@@ -46,7 +52,9 @@ export interface ScreeningParams {
   // 시총구간(KRW 원)
   min_market_cap?: number;
   max_market_cap?: number;
-  washing_only?: boolean;
+  // 불투명도 범위(AC2) — 구 washing_only 대체
+  min_opacity_rank?: number;
+  max_opacity_rank?: number;
   buyback_executed?: boolean;
   sort?: string; // field / -field
   page?: number;

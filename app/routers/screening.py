@@ -24,7 +24,9 @@ router = APIRouter(prefix="/screening", tags=["screening"])
         "washing_flag: null=판단 불가(빈칸/아니오 표시 금지). "
         "mna_target_score: null=산출 불가(0점/최하위 표시 금지). "
         "opacity_rank: 공시 불투명도 백분위(0~1, 높을수록 불투명, washing_flag 대체). "
-        "null=순위 불가(계획 미공시·표지 통지문·peer 부족 — 0/최투명 표시 금지). "
+        "null=순위 불가(계획 미공시·본문 4축 전무·peer 부족 — 0/최투명 표시 금지). "
+        "min/max_opacity_rank 필터가 구 washing_only를 대체한다(그 토글은 washing_flag "
+        "실측 True=0이라 항상 빈 결과였다). "
         "buyback_executed 필터: true/false 모두 null(판단 불가)은 미포함. "
         "sort: `field`/`-field` 규약, 허용=execution_score·mna_target_score·opacity_rank"
         "(기본=corp_code). "
@@ -54,7 +56,10 @@ def screening_list(
     # 시총구간 필터(KRW 원) — prices 최신 시총 기준(AD-9)
     min_market_cap: int | None = Query(None, ge=0),
     max_market_cap: int | None = Query(None, ge=0),
-    washing_only: bool = Query(False),
+    # 불투명도 범위 필터(AC2) — 구 washing_only 대체. washing_flag는 실측 True=0이라
+    # 그 토글이 항상 빈 결과를 냈다(죽은 필터). 고의 판정 대신 격차로 거른다.
+    min_opacity_rank: float | None = Query(None, ge=0.0, le=1.0, allow_inf_nan=False),
+    max_opacity_rank: float | None = Query(None, ge=0.0, le=1.0, allow_inf_nan=False),
     buyback_executed: bool | None = Query(
         None, description="true=매입 실행 / false=미실행 — null(판단 불가)은 양쪽 다 제외"
     ),
@@ -75,7 +80,8 @@ def screening_list(
         "min_roe": min_roe, "max_pbr": max_pbr,
         "max_ev_ebitda": max_ev_ebitda, "max_debt_ratio": max_debt_ratio,
         "min_market_cap": min_market_cap, "max_market_cap": max_market_cap,
-        "washing_only": washing_only, "buyback_executed": buyback_executed,
+        "min_opacity_rank": min_opacity_rank, "max_opacity_rank": max_opacity_rank,
+        "buyback_executed": buyback_executed,
         "as_of": as_of.isoformat() if as_of else None,
     }
     try:
