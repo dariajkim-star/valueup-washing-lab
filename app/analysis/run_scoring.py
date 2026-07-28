@@ -20,7 +20,7 @@ from __future__ import annotations
 import argparse
 import logging
 
-from app.analysis import gap_engine, mna_engine
+from app.analysis import gap_engine, mna_engine, opacity_engine
 from app.analysis.gap_engine import InvalidAsOfError
 from app.db import SessionLocal
 
@@ -30,7 +30,10 @@ EXIT_OK = 0
 EXIT_INCOMPLETE = 1
 EXIT_USAGE = 2
 
-ENGINES = ("gap", "mna", "all")
+ENGINES = ("gap", "mna", "opacity", "all")
+# 순위 기반 엔진 — cross-sectional 백분위라 세대가 섞이면 표가 무의미해진다. gap(종목별 절대
+# 측정치)과 달리 부분 실행이 성공해도 게시 불가이고, complete 대신 publishable로 종료를 판단한다.
+_RANK_ENGINES = ("mna", "opacity")
 
 
 def _parse_corp_codes(raw: str | None) -> list[str] | None:
@@ -54,9 +57,9 @@ def _report(name: str, as_of: str, result) -> bool:
     다만 `complete=False`의 뜻은 다르다 — gap은 "실행분이 섞였다", mna는 "전량 롤백됐다".
     그 차이는 실패 안내 문구로 구분한다(정책은 각 엔진 docstring 참조).
 
-    mna는 `complete` 대신 `publishable`을 본다(코드리뷰 2026-07-22 High): 백분위 순위는
-    전 종목이 같은 모집단 세대일 때만 의미가 있어, 부분 실행은 성공해도 게시 불가다.
-    gap 점수는 종목별 절대 측정치라 부분 실행분도 그 자체로 유효하므로 경고만 한다.
+    순위 기반 엔진(mna·opacity)은 `complete` 대신 `publishable`을 본다(코드리뷰 2026-07-22
+    High): 백분위 순위는 전 종목이 같은 모집단 세대일 때만 의미가 있어, 부분 실행은 성공해도
+    게시 불가다. gap 점수는 종목별 절대 측정치라 부분 실행분도 그 자체로 유효하므로 경고만 한다.
     """
     logger.info(
         "[%s] as_of=%s scored=%d deleted=%d failed=%d complete=%s",
@@ -76,22 +79,23 @@ def _report(name: str, as_of: str, result) -> bool:
                 "[gap] 이 as_of에는 이번 실행분과 이전 실행분이 섞여 있다 — 게시 전 재실행할 것."
             )
 
-    if name == "mna":
+    if name in _RANK_ENGINES:
+        table = f"{name}_score"
         if getattr(result, "aborted_early", False):
             logger.error(
-                "[mna] 중단됨 — 위 목록은 **완전하지 않다**(남은 종목은 시도되지 않음)."
+                "[%s] 중단됨 — 위 목록은 **완전하지 않다**(남은 종목은 시도되지 않음).", name,
             )
         if not result.complete:
             logger.error(
-                "[mna] 전량 롤백됐다 — mna_score는 실행 이전 상태 그대로다(순위표는 부분적으로 "
-                "옳을 수 없으므로). 원인 해소 후 재실행할 것."
+                "[%s] 전량 롤백됐다 — %s는 실행 이전 상태 그대로다(순위표는 부분적으로 "
+                "옳을 수 없으므로). 원인 해소 후 재실행할 것.", name, table,
             )
         elif getattr(result, "partial_scope", False):
             # 실행은 성공했지만 표는 세대가 섞였다 — 성공으로 종료하면 그 사실이 사라진다.
             logger.error(
-                "[mna] 부분 실행 — 대상 밖 종목은 이전 모집단 세대 점수로 남아 있다. "
-                "이 as_of의 mna_score는 **게시 불가**다(순위 비교가 성립하지 않음). "
-                "게시용 스냅숏은 --corp-codes 없이 전체 실행할 것."
+                "[%s] 부분 실행 — 대상 밖 종목은 이전 모집단 세대 점수로 남아 있다. "
+                "이 as_of의 %s는 **게시 불가**다(순위 비교가 성립하지 않음). "
+                "게시용 스냅숏은 --corp-codes 없이 전체 실행할 것.", name, table,
             )
         return result.publishable
 
@@ -101,7 +105,8 @@ def _report(name: str, as_of: str, result) -> bool:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.analysis.run_scoring",
-        description="스코어 재계산 배치 — valueup_score(gap) · mna_score(mna). 기본은 둘 다.",
+        description="스코어 재계산 배치 — valueup_score(gap)·mna_score(mna)·opacity_score"
+                    "(opacity). 기본은 셋 다.",
     )
     parser.add_argument(
         "--as-of", dest="as_of", required=True,
@@ -115,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--engine", choices=ENGINES, default="all",
-        help="실행할 엔진 (기본 all). 재계산의 정상 경로는 '둘 다'이고 한쪽만 돌리는 것이 "
+        help="실행할 엔진 (기본 all). 재계산의 정상 경로는 '셋 다'이고 한쪽만 돌리는 것이 "
              "예외이므로 안전한 쪽을 기본값으로 둔다.",
     )
     args = parser.parse_args(argv)
@@ -134,9 +139,9 @@ def main(argv: list[str] | None = None) -> int:
             # 명령이 mna 순위표까지 부분 갱신하는 것을 막는다(코드리뷰 2026-07-22 High —
             # "안전한 기본값 all"이 --corp-codes와 결합하면 안전하지 않다).
             logger.error(
-                "입력 오류: --corp-codes는 --engine을 명시해야 한다(gap 또는 mna). "
-                "두 엔진의 부분 실행 의미가 다르다 — gap은 유효한 부분 갱신이지만, "
-                "mna는 순위 모집단 세대를 섞어 그 as_of 표를 게시 불가로 만든다."
+                "입력 오류: --corp-codes는 --engine을 명시해야 한다(gap·mna·opacity 중 하나). "
+                "엔진별 부분 실행 의미가 다르다 — gap은 유효한 부분 갱신이지만, mna·opacity는 "
+                "순위 모집단 세대를 섞어 그 as_of 표를 게시 불가로 만든다."
             )
             return EXIT_USAGE
         # complete=True여도 부분 실행 스냅샷은 여전히 부분적 — 두 개념은 다르다(D3).
@@ -145,8 +150,12 @@ def main(argv: list[str] | None = None) -> int:
             len(corp_codes),
         )
 
-    engines = ("gap", "mna") if args.engine == "all" else (args.engine,)
-    runners = {"gap": gap_engine.run, "mna": mna_engine.run}
+    engines = ("gap", "mna", "opacity") if args.engine == "all" else (args.engine,)
+    runners = {
+        "gap": gap_engine.run,
+        "mna": mna_engine.run,
+        "opacity": opacity_engine.run,
+    }
 
     ok = True
     for name in engines:

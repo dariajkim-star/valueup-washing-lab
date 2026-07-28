@@ -15,6 +15,7 @@ from sqlalchemy import (
     CheckConstraint,
     Float,
     ForeignKey,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -234,3 +235,30 @@ class MnaScore(Base):
     macro_score: Mapped[float | None] = mapped_column(Float)  # 0~1, 종목 무관 공통
     # 백분위 모집단 식별(2.7): sector:{KSIC2} / market_fallback(peer 미달) / market(sector 없음)
     population_basis: Mapped[str | None] = mapped_column(String(20))
+
+
+class OpacityScore(Base):
+    """공시 불투명도 순위 (writer = opacity_engine). 자연키 (corp_code, as_of).
+
+    MnaScore 형제 — 둘 다 **cross-sectional 백분위**(peer 대비 상대 위치가 곧 점수)라
+    세대가 섞이면 순위 자체가 무의미해진다. washing_flag를 대체하되, valueup_score(종목별
+    절대 측정치)에 컬럼으로 얹지 않고 별도 테이블로 두는 이유가 이 성질이다(파티 결정
+    2026-07-23). '고의(워싱)'를 판정하지 않고 **공시하지 않은 목표 축의 수**를 peer 대비
+    백분위로 드러낸다(opacity_engine 참조). 표지 통지문(첨부 참조·본문 전무)은 순위 불가로
+    행을 만들지 않는다 — opacity_rank/count/basis 전부 그 종목엔 없다(모집단에서도 제외).
+    """
+
+    __tablename__ = "opacity_score"
+    __table_args__ = (
+        UniqueConstraint("corp_code", "as_of", name="uq_opacity_score_corp_asof"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    corp_code: Mapped[str] = mapped_column(
+        String(8), ForeignKey("company.corp_code"), index=True
+    )
+    as_of: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD
+    opacity_rank: Mapped[float | None] = mapped_column(Float)  # 0~1, 높을수록 불투명
+    opacity_count: Mapped[int | None] = mapped_column(Integer)  # 미공시 축 수(0~4)
+    # 백분위 모집단 식별(mna의 population_basis와 동일 규약): sector:{KSIC2}/market_fallback/market
+    opacity_basis: Mapped[str | None] = mapped_column(String(20))

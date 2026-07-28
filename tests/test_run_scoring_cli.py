@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.analysis import run_scoring
 from app.analysis.gap_engine import ScoreRunResult
 from app.analysis.mna_engine import MnaRunResult
+from app.analysis.opacity_engine import OpacityRunResult
 from app.analysis.run_scoring import EXIT_INCOMPLETE, EXIT_OK, EXIT_USAGE, main
 from app.models import Base, Company, Financial, ValueupPlan, ValueupScore
 from app.sql_views import CREATE_VALUATION_METRICS
@@ -188,15 +189,17 @@ def _fake_result(cls, *, failed=()):
 
 
 def test_engine_defaults_to_all(monkeypatch) -> None:
-    """AC5: 기본값은 all — 재계산의 정상 경로는 '둘 다'다."""
+    """AC5: 기본값은 all — 재계산의 정상 경로는 '셋 다'(gap·mna·opacity)다."""
     ran: list[str] = []
     monkeypatch.setattr(run_scoring.gap_engine, "run",
                         lambda *a, **k: (ran.append("gap"), _fake_result(ScoreRunResult))[1])
     monkeypatch.setattr(run_scoring.mna_engine, "run",
                         lambda *a, **k: (ran.append("mna"), _fake_result(MnaRunResult))[1])
+    monkeypatch.setattr(run_scoring.opacity_engine, "run",
+                        lambda *a, **k: (ran.append("opacity"), _fake_result(OpacityRunResult))[1])
 
     assert main(["--as-of", "2025-12-31"]) == EXIT_OK
-    assert ran == ["gap", "mna"]
+    assert ran == ["gap", "mna", "opacity"]
 
 
 @pytest.mark.parametrize("engine_arg,expected", [("gap", ["gap"]), ("mna", ["mna"])])
@@ -224,21 +227,25 @@ def test_second_engine_runs_even_if_first_incomplete(monkeypatch, caplog) -> Non
     )
     monkeypatch.setattr(run_scoring.mna_engine, "run",
                         lambda *a, **k: (ran.append("mna"), _fake_result(MnaRunResult))[1])
+    monkeypatch.setattr(run_scoring.opacity_engine, "run",
+                        lambda *a, **k: (ran.append("opacity"), _fake_result(OpacityRunResult))[1])
 
     with caplog.at_level("INFO"):
         assert main(["--as-of", "2025-12-31"]) == EXIT_INCOMPLETE
-    assert ran == ["gap", "mna"]
+    assert ran == ["gap", "mna", "opacity"]
     assert "[gap]" in caplog.text and "[mna]" in caplog.text
 
 
 def test_exit_one_if_either_engine_incomplete(monkeypatch) -> None:
-    """AC6: 둘 중 하나라도 불완전하면 1 — mna 쪽이 실패해도 마찬가지."""
+    """AC6: 셋 중 하나라도 불완전하면 1 — mna 쪽이 실패해도 마찬가지."""
     monkeypatch.setattr(run_scoring.gap_engine, "run",
                         lambda *a, **k: _fake_result(ScoreRunResult))
     monkeypatch.setattr(
         run_scoring.mna_engine, "run",
         lambda *a, **k: _fake_result(MnaRunResult, failed=[("00000009", "boom")]),
     )
+    monkeypatch.setattr(run_scoring.opacity_engine, "run",
+                        lambda *a, **k: _fake_result(OpacityRunResult))
     assert main(["--as-of", "2025-12-31"]) == EXIT_INCOMPLETE
 
 
@@ -336,11 +343,15 @@ def test_engine_exception_does_not_stop_other_engine(monkeypatch, caplog) -> Non
         run_scoring.mna_engine, "run",
         lambda *a, **k: (ran.append("mna"), MnaRunResult(scored=1, succeeded=["001"]))[1],
     )
+    monkeypatch.setattr(
+        run_scoring.opacity_engine, "run",
+        lambda *a, **k: (ran.append("opacity"), OpacityRunResult(scored=1, succeeded=["001"]))[1],
+    )
 
     with caplog.at_level("ERROR"):
         code = main(["--as-of", "2025-12-31"])
-    assert code == EXIT_INCOMPLETE      # traceback이 아니라 통제된 종료 코드
-    assert ran == ["gap", "mna"]        # 두 번째 엔진이 실행됐다
+    assert code == EXIT_INCOMPLETE           # traceback이 아니라 통제된 종료 코드
+    assert ran == ["gap", "mna", "opacity"]  # 첫 엔진이 터져도 나머지가 실행됐다
     assert "엔진 실행 자체가 실패" in caplog.text
 
 
