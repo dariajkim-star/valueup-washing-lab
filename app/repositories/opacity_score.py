@@ -34,8 +34,8 @@ def all_latest_plans(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     """전 종목의 as_of 이전(포함) 최신 valueup_plan 1건(배치).
 
     corp_code → {target_roe, target_payout_ratio, target_total_return_ratio,
-    period_start, buyback_planned, raw_text}. opacity_axes(목표 미공시 판정)와
-    is_cover_notice(raw_text 첨부 참조 여부)의 입력 전부를 담는다.
+    period_start, buyback_planned}. opacity_axes(목표 미공시 판정)와 is_unrankable(본문 전무
+    판정)의 입력 전부를 담는다. raw_text는 참조 검사 폐기(2026-07-28)로 더는 읽지 않는다.
 
     corp별 최신 1행을 Python에서 선택(정렬된 결과 첫 등장 유지 — SQLite/PostgreSQL 양쪽에서
     동일 동작). tie-break은 disclosure_date DESC → plan_id DESC(latest_valueup_plan과 동일).
@@ -43,7 +43,7 @@ def all_latest_plans(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     stmt = (
         text(
             "SELECT corp_code, target_roe, target_payout_ratio, "
-            "target_total_return_ratio, period_start, buyback_planned, raw_text "
+            "target_total_return_ratio, period_start, buyback_planned "
             "FROM valueup_plan "
             "WHERE disclosure_date <= :as_of "
             "ORDER BY corp_code, disclosure_date DESC, plan_id DESC"
@@ -60,7 +60,6 @@ def all_latest_plans(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
                 "target_total_return_ratio": row["target_total_return_ratio"],
                 "period_start": row["period_start"],
                 "buyback_planned": row["buyback_planned"],
-                "raw_text": row["raw_text"],
             }
     return latest
 
@@ -85,7 +84,7 @@ def upsert_opacity_score(session: Session, rec: dict[str, Any]) -> OpacityScore:
 
 def delete_opacity_score(session: Session, corp_code: str, as_of: str) -> None:
     """근거(순위 가능한 계획)를 잃은 (corp_code, as_of)의 오래된 score 정리(reconciliation
-    패턴). 계획 없음·표지 통지문·유효 peer<2로 순위 불가한 종목이 대상. 없으면 no-op(멱등)."""
+    패턴). 계획 없음·본문 전무·유효 peer<2로 순위 불가한 종목이 대상. 없으면 no-op(멱등)."""
     stmt = select(OpacityScore).where(
         OpacityScore.corp_code == corp_code, OpacityScore.as_of == as_of,
     )
