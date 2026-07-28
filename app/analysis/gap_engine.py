@@ -112,6 +112,17 @@ def _buyback_signals(
     return executed, retired, status
 
 
+def _axis_score(v: float) -> float:
+    """축 달성도를 [0,1]로 clamp. 상한(1.0)은 과달성이 다른 축의 신용을 사지 못하게,
+    **하한(0.0)은 한 축의 미달이 다른 축의 이행을 상쇄하지 못하게** 한다(교차리뷰
+    2026-07-23 ⑥). 이전엔 상한만 캡(`min(v,1.0)`)해 음수를 통과시켰다 — 적자연도(actual_roe
+    음수/target_roe 양수 → achievement 음수)에 도달 가능하고, 그 음수가 최종 clamp 전에
+    자사주·배당의 이행을 지웠다. 이는 5-1의 원칙("기업이 실제로 한 것을 지우지 않는다")과
+    정면으로 어긋난다 — 미달은 '그 축 0점'이지 '다른 약속을 무효화'가 아니다. 워싱 판정은
+    washing_flag가 별도로 하므로 execution_score를 깨끗한 [0,1] 가중평균으로 되돌린다."""
+    return max(0.0, min(v, 1.0))
+
+
 def _execution_score(
     achievement_rate: float | None,
     buyback_executed: bool | None,
@@ -155,7 +166,7 @@ def _execution_score(
     if roe_committed:
         if achievement_rate is None:
             return None, None  # 약속했는데 실적 미상 → 판단 불가
-        parts.append(("roe", w_achievement, min(achievement_rate, 1.0)))
+        parts.append(("roe", w_achievement, _axis_score(achievement_rate)))
 
     if buyback_committed:
         if buyback_executed is None:
@@ -167,12 +178,12 @@ def _execution_score(
         ratio = _safe_ratio(actual_total_return, target_total_return)
         if ratio is None:
             return None, None
-        parts.append(("total_return", w_payout, min(ratio, 1.0)))
+        parts.append(("total_return", w_payout, _axis_score(ratio)))
     elif target_payout is not None:
         ratio = _safe_ratio(actual_payout, target_payout)
         if ratio is None:
             return None, None
-        parts.append(("payout", w_payout, min(ratio, 1.0)))
+        parts.append(("payout", w_payout, _axis_score(ratio)))
 
     if not parts:
         return None, None  # 공시된 약속이 하나도 없다 — 채점할 대상 자체가 없음(AC5)
