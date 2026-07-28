@@ -141,10 +141,28 @@ def test_range_filters_and_combination(client) -> None:
     assert codes == {"00000001", "00000002", "00000004"}
 
 
-def test_washing_only_and_buyback_filters(client) -> None:
-    """AC2: washing_only + buyback_executed(true/false 모두 null 미포함)."""
-    r = client.get("/screening", params={"washing_only": True})
+def test_opacity_range_filter_replaces_washing_only(client) -> None:
+    """[AC2] 불투명도 범위 필터가 구 washing_only를 대체한다.
+
+    washing_flag는 실측 True=0인 '켜질 수 없는 경고등'이라 그 토글은 항상 빈 결과를 냈다
+    (죽은 필터). 이제 고의 판정 대신 격차로 거른다 — 순위 상위만 뽑는다.
+    """
+    # 상위만: 00000001(rank 1.0)만 통과, 00000002(0.0)는 탈락
+    r = client.get("/screening", params={"min_opacity_rank": 0.7})
     assert [i["corp_code"] for i in r.json()["items"]] == ["00000001"]
+    # 하위만(가장 투명한 쪽)
+    r2 = client.get("/screening", params={"max_opacity_rank": 0.3})
+    assert [i["corp_code"] for i in r2.json()["items"]] == ["00000002"]
+    # opacity 없는 종목(순위 불가)은 어느 범위에도 매칭되지 않는다(null 세탁 금지)
+    codes = {i["corp_code"] for i in
+             client.get("/screening", params={"min_opacity_rank": 0.0}).json()["items"]}
+    assert codes == {"00000001", "00000002"}
+    # 구 파라미터는 제거됨 — 알 수 없는 쿼리는 무시되고 전체가 나온다(필터 아님)
+    assert client.get("/screening", params={"washing_only": True}).json()["total"] == 4
+
+
+def test_buyback_filters(client) -> None:
+    """AC2: buyback_executed(true/false 모두 null 미포함)."""
     r_true = client.get("/screening", params={"buyback_executed": True})
     assert [i["corp_code"] for i in r_true.json()["items"]] == ["00000001"]
     r_false = client.get("/screening", params={"buyback_executed": False})
