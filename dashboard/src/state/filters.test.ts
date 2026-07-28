@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { DEFAULT_SORT, MCAP_BOUNDS, OPAQUE_MIN_RANK, toParams, useFilters } from "./filters";
+import { DEFAULT_SORT, MCAP_BOUNDS, DEFAULT_OPAQUE_MIN_RANK, toParams, useFilters } from "./filters";
 
 // zustand 스토어는 모듈 전역 — 테스트마다 초기 상태로 리셋
 const initial = useFilters.getState();
@@ -57,12 +57,28 @@ describe("filters store (3.3 리뷰 반영)", () => {
     expect(MCAP_BOUNDS.mid.max! + 1).toBe(MCAP_BOUNDS.large.min!);
   });
 
-  it("[AC2] toParams: opaqueOnly=false는 미전송, true면 min_opacity_rank 임계값", () => {
+  it("[AC2] toParams: 꺼짐(undefined)은 미전송, 켜면 min_opacity_rank 전송", () => {
     // 구 washing_only 대체 — 그 토글은 washing_flag(실측 True=0)에 걸려 항상 빈 결과였다.
     const p = toParams(useFilters.getState());
     expect(p.min_opacity_rank).toBeUndefined();
-    useFilters.getState().setOpaqueOnly(true);
-    expect(toParams(useFilters.getState()).min_opacity_rank).toBe(OPAQUE_MIN_RANK);
+    useFilters.getState().setOpaqueMinRank(DEFAULT_OPAQUE_MIN_RANK);
+    expect(toParams(useFilters.getState()).min_opacity_rank).toBe(DEFAULT_OPAQUE_MIN_RANK);
+  });
+
+  it("[2026-07-28] 임계는 화면 소유 — 다이얼로 옮긴 값이 그대로 전송된다", () => {
+    // config 고정이 아니라 화면 다이얼로 결정. 0.7은 기본 위치일 뿐 잠긴 정의가 아니다.
+    useFilters.getState().setOpaqueMinRank(0.35);
+    expect(toParams(useFilters.getState()).min_opacity_rank).toBe(0.35);
+    // 끄기 = 값을 지우는 것(별도 boolean 없음 → 켜짐/임계 불일치 상태가 생길 수 없다)
+    useFilters.getState().setOpaqueMinRank(undefined);
+    expect(toParams(useFilters.getState()).min_opacity_rank).toBeUndefined();
+  });
+
+  it("임계 변경은 페이지를 1로 되돌린다", () => {
+    // 모집단이 좁아지므로 이전 페이지 번호는 빈 화면이 되기 쉽다.
+    useFilters.getState().setPage(3);
+    useFilters.getState().setOpaqueMinRank(0.9);
+    expect(useFilters.getState().page).toBe(1);
   });
 
   it("[2026-07-28] Value-up 기본 정렬은 불투명도 내림차순", () => {
