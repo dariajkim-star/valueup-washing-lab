@@ -168,15 +168,31 @@ export function OpacityCell({ row }: { row: ScreeningRow }) {
 //   - unknown은 null — 못 읽은 걸 벌하지 않는다(OpacityCell '순위 불가'와 같은 원칙).
 // 셋 다 상세의 GapCard에서 4상태 전부 정직하게 표시되므로 목록에서 생략해도 정보가
 // 사라지지 않는다(목록은 사실 하나만, 상세는 전부).
+//
+// ⚠ [2026-07-28 실측 — 라벨을 "소각 이행"에서 "최근 소각"으로 바꾼 이유]
+// buyback_status는 **밸류업 계획 기간과 무관하다.** gap_engine이 쓰는 값은
+// `latest_financial_buyback`(valueup_score.py:74) — as_of 이전 **최신 재무 한 행**의
+// 소각 수량이고, 계획 period_start~period_end로 걸러지지 않는다.
+// retired 16종목을 계획 기간과 대조한 결과:
+//     계획기간 안 5 · 계획 시작 전 3 · 계획 종료 후 1 · 계획기간 미상 7
+// 즉 **열여섯 중 다섯**만 "약속한 기간에 소각했다"에 해당한다. 기아(이 프로젝트가
+// 두 달간 모범으로 삼은 종목)조차 소각은 2024Q4인데 계획은 2025~2027 — 약속하기
+// 전 해의 소각이다. 현대자동차는 계획이 2017~2022로 이미 끝났다.
+// "이행"은 약속을 전제하는 단어라, 그 연결이 데이터에 없는데도 인과를 주장하고
+// 있었다 — 우리가 washing_flag를 은퇴시킨 것과 같은 죄(없는 것을 있다고 말하기).
+//
+// 그렇다고 계획 기간으로 게이팅하지는 않는다: 미상 7종목을 "안 했다"로 미는 셈이라
+// is_unrankable에서 지킨 원칙("못 읽은 걸 벌하지 않는다")을 정면으로 어긴다.
+// 사실은 남기고, **사실에 붙인 문장만 정정한다.**
 export function BuybackRetiredBadge({ status }: { status: string | null }) {
   if (status !== "retired") return null;
   return (
     <span
       className="inline-flex w-fit items-center rounded px-1.5 py-px text-[9px] font-semibold"
       style={{ background: "#dcfce7", color: "#15803d" }}
-      title="자사주 소각 확인(DART 취득/처분현황 소각 수량 > 0) — 약속이 아니라 실행된 사실"
+      title="직전 재무 기간에 자사주 소각 수량 > 0 (DART 취득/처분현황). 밸류업 계획 기간과 무관하며, 계획 이행 여부를 뜻하지 않는다."
     >
-      소각 이행
+      최근 소각
     </span>
   );
 }
