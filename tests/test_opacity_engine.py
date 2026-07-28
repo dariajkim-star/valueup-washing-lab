@@ -3,19 +3,19 @@
 순수 함수 단위 테스트. 설계 근거·실데이터 검증은 opacity_engine 모듈 docstring 참조.
 핵심 계약 3가지를 못 박는다:
   1. opacity 축 4개 정의(pbr 제외, period 1축, payout=OR, buyback None만 미공시).
-  2. 표지 통지문 제외는 **첨부 참조 AND 본문 count==최대**일 때만(기아 count=0 오제외 방지).
+  2. 순위 불가 제외는 **본문 count==최대(4축 전부 미공시)** 기준 — 참조 문구와 무관
+     (2026-07-28 실측으로 참조 검사 폐기). 부분 공시자는 순위에 남는다(기아 오제외 방지).
   3. 순위는 mna와 동형 — 불투명 많을수록 높은 백분위, 동점 mid-rank, small-N 시장 폴백.
 """
 
 from __future__ import annotations
 
 from app.analysis.opacity_engine import (
-    is_cover_notice,
+    is_unrankable,
     opacity_axes,
     opacity_count,
     rank_from_plans,
     rank_opacity,
-    references_attachment,
 )
 
 # ── 축 정의 ──
@@ -85,38 +85,53 @@ def test_pbr_is_not_an_opacity_axis() -> None:
     assert opacity_count(_plan(target_pbr=1.5)) == 0
 
 
-# ── 표지 통지문 제외 ──
+# ── 순위 불가(본문 전무) 제외 ──
 
 
-def test_references_attachment_detects_notice_phrase() -> None:
-    assert references_attachment("상세한 내용은 첨부된 '기업가치 제고 계획'을 참고하시기 바랍니다")
-    assert references_attachment("세부사항은 첨부된 이행 현황을 참고")
-    assert not references_attachment("ROE 10% 배당성향 30% 자사주 취득")
-
-
-def test_cover_notice_requires_attachment_ref_AND_max_opacity() -> None:
-    """제외는 첨부 참조 **그리고** 본문 count==최대일 때만(실데이터로 강화된 조건)."""
-    ref = "상세한 내용은 첨부된 '기업가치 제고 계획'을 참고하시기 바랍니다"
-    # 본문 텅 빔 + 첨부 참조 → 표지 통지문(제외 대상)
-    shell = _plan(
+def _empty_body(**over: object) -> dict[str, object]:
+    """4축 전부 미공시(count==4) 계획."""
+    return _plan(
         target_roe=None, target_payout_ratio=None, target_total_return_ratio=None,
-        period_start=None, buyback_planned=None, raw_text=ref,
+        period_start=None, buyback_planned=None, **over,
     )
-    assert is_cover_notice(shell) is True
-    # 본문에 목표 다 있고 + 첨부 참조 → 멀쩡한 공시(기아 케이스). 제외 안 함.
+
+
+def test_unrankable_when_all_axes_missing() -> None:
+    """본문 4축이 전부 비면 순위 불가 — **참조 문구 유무와 무관하게**.
+
+    [2026-07-28 실 DB 실측] 이전 규칙은 "첨부 참조 문구 AND count==4"였는데, count==4인
+    6종목이 전부 외부 문서를 가리키고 있어 참조 검사의 변별력이 0이었다. 규칙은 그 6개를
+    내용이 아니라 정규식 운(회사명 길이·'첨부'냐 '게시'냐)으로 갈랐고, 그 결과 불투명순
+    정렬 1·2·3등이 전부 오탐이었다. 이제 count==4면 참조 문구와 무관하게 제외한다.
+    """
+    for raw in (
+        "상세한 내용은 첨부된 '기업가치 제고 계획'을 참고하시기 바랍니다",  # 첨부 명시
+        "게시된 '2025년 기업가치 제고 계획'을 참고하시기 바랍니다",          # 게시(첨부 아님)
+        "관련 웹페이지 https://example.com",                              # 웹페이지만
+        "기업가치 제고 계획입니다.",                                        # 아무 참조 없음
+    ):
+        plan = _empty_body(raw_text=raw)
+        assert opacity_count(plan) == 4
+        assert is_unrankable(plan) is True
+
+
+def test_partial_disclosure_stays_rankable() -> None:
+    """본문에 목표가 하나라도 있으면 순위 대상 — 첨부를 참조해도 마찬가지(기아 케이스).
+
+    과다 제외 방어: '첨부 참조' 문구만으로 제외하면 본문에 목표를 다 쓰고 첨부는 부록으로
+    붙인 멀쩡한 공시까지 잡아먹는다(26종목 중 15개 과다 제외 → Boundary 지적).
+    """
+    ref = "상세한 내용은 첨부된 '기업가치 제고 계획'을 참고하시기 바랍니다"
     rich = _plan(raw_text="ROE 10% 배당성향 30% 2024~2026 자사주 취득. " + ref)
     assert opacity_count(rich) == 0
-    assert is_cover_notice(rich) is False
-
-
-def test_max_opacity_without_attachment_is_not_excluded() -> None:
-    """본문 텅 비었어도 첨부 참조가 없으면 제외 아님 — 그건 진짜 불투명(순위 대상)."""
-    opaque = _plan(
-        target_roe=None, target_payout_ratio=None, target_total_return_ratio=None,
-        period_start=None, buyback_planned=None, raw_text="기업가치 제고 계획입니다.",
+    assert is_unrankable(rich) is False
+    # 3축 미공시(count==3)도 여전히 순위 대상 — 척도의 실질 최댓값
+    partial = _plan(
+        target_payout_ratio=None, target_total_return_ratio=None,
+        period_start=None, buyback_planned=None, raw_text=ref,
     )
-    assert opacity_count(opaque) == 4
-    assert is_cover_notice(opaque) is False
+    assert opacity_count(partial) == 3
+    assert is_unrankable(partial) is False
 
 
 # ── peer 상대 순위 ──
@@ -167,25 +182,29 @@ def test_rank_single_company_bucket_is_none() -> None:
     assert ranks["solo"] == (None, None)
 
 
-def test_rank_from_plans_excludes_only_shells() -> None:
-    """표지 통지문(첨부+count최대)만 모집단에서 빠지고, 본문 공시자는 순위에 남는다."""
-    ref = "상세한 내용은 첨부된 계획을 참고"
+def test_rank_from_plans_excludes_unrankable_regardless_of_reference() -> None:
+    """count==4는 참조 문구와 **무관하게** 모집단에서 빠지고, 부분 공시자만 순위에 남는다.
+
+    [2026-07-28] 이전엔 '첨부 참조가 없는 count==4'는 "진짜 불투명"으로 보고 순위 1.0을
+    줬다. 실 DB에서 그게 오탐 상위 3건을 만들었다 — 본문에 안 썼을 뿐 웹페이지·첨부로
+    공시한 기업들이었다. 이제 본문이 비면 '읽을 수 없음'으로 보고 순위를 매기지 않는다.
+    """
     plans = {
         "kia": _plan(),  # count 0
-        "shell": _plan(
-            target_roe=None, target_payout_ratio=None, target_total_return_ratio=None,
-            period_start=None, buyback_planned=None, raw_text=ref,
-        ),  # count 4 + 첨부 → 제외
-        "opaque": _plan(
-            target_roe=None, target_payout_ratio=None, target_total_return_ratio=None,
-            period_start=None, buyback_planned=None, raw_text="목표 없음",
-        ),  # count 4, 첨부 없음 → 순위에 남음
+        "shell_ref": _empty_body(raw_text="상세한 내용은 첨부된 계획을 참고"),  # count 4
+        "shell_noref": _empty_body(raw_text="목표 없음"),  # count 4, 참조 없음
+        "partial": _plan(  # count 3 — 척도의 실질 최댓값
+            target_payout_ratio=None, target_total_return_ratio=None,
+            period_start=None, buyback_planned=None,
+        ),
     }
     sectors: dict[str, str | None] = {c: None for c in plans}
     ranks = rank_from_plans(plans, sectors, peer_min=5)
-    assert "shell" not in ranks  # 제외 = 순위 dict에 없음
-    assert ranks["kia"][0] == 0.0  # 전부 공시 → 최저 불투명
-    assert ranks["opaque"][0] == 1.0  # 본문 텅 + 첨부 없음 → 최고 불투명
+    # 참조 유무와 무관하게 둘 다 제외 — 규칙이 정규식 운에 의존하지 않는다
+    assert "shell_ref" not in ranks
+    assert "shell_noref" not in ranks
+    assert ranks["kia"][0] == 0.0      # 전부 공시 → 최저 불투명
+    assert ranks["partial"][0] == 1.0  # 남은 모집단 안에서 최고 불투명
 
 
 # ── DB 배선(run) 통합 테스트 (SQLite in-memory) ──
@@ -235,8 +254,8 @@ def test_run_persists_relative_opacity_rank(engine) -> None:
     with Session_() as s:
         _seed_plan(s, "00000001")  # 4축 전부 공시 → count 0
         _seed_plan(s, "00000002", target_roe=None)  # count 1
-        _seed_plan(  # count 4(가장 불투명), 첨부 참조 없음
-            s, "00000003", target_roe=None, target_payout_ratio=None,
+        _seed_plan(  # count 3 — 순위 대상의 실질 최댓값(count 4는 순위 불가라 제외됨)
+            s, "00000003", target_payout_ratio=None,
             target_total_return_ratio=None, period_start=None, buyback_planned=None,
         )
         s.commit()
@@ -248,21 +267,21 @@ def test_run_persists_relative_opacity_rank(engine) -> None:
 
         rows = {r.corp_code: r for r in s.scalars(select(OpacityScore)).all()}
         assert rows["00000001"].opacity_count == 0
-        assert rows["00000003"].opacity_count == 4
+        assert rows["00000003"].opacity_count == 3
         # 상대 순위: 최다 미공시가 최고 백분위, 최소가 최저
         assert rows["00000003"].opacity_rank == pytest.approx(1.0)
         assert rows["00000001"].opacity_rank == pytest.approx(0.0)
         assert rows["00000003"].opacity_basis == "market"  # sector 미상 → 시장 모집단
 
 
-def test_run_excludes_cover_notice_from_table(engine) -> None:
-    """표지 통지문(첨부 참조 + 본문 count 최대)은 순위 불가 → opacity_score 행을 만들지 않는다.
+def test_run_excludes_unrankable_from_table(engine) -> None:
+    """본문 4축 전무(count==4)는 순위 불가 → opacity_score 행을 만들지 않는다.
     '못 낸(비가독) 것을 최대 불투명으로 오인'하지 않기 위한 방어가 DB까지 관통하는지 확인."""
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         _seed_plan(s, "00000001")  # 정상 공시
         _seed_plan(s, "00000002")  # 정상 공시(모집단 최소 확보)
-        _seed_plan(  # 첨부 참조 + 본문 전무 → 표지 통지문
+        _seed_plan(  # 본문 전무(count==4) → 순위 불가
             s, "00000009", raw_text="상세한 내용은 첨부된 기업가치 제고 계획을 참고하시기 바랍니다",
             target_roe=None, target_payout_ratio=None, target_total_return_ratio=None,
             period_start=None, buyback_planned=None,
@@ -271,7 +290,7 @@ def test_run_excludes_cover_notice_from_table(engine) -> None:
 
         result = run("2025-12-31", session_factory=Session_)
         assert result.scored == 2  # 정상 2건만 저장
-        assert result.deleted == 1  # 표지 통지문은 reconcile로 정리(행 없음)
+        assert result.deleted == 1  # 순위 불가는 reconcile로 정리(행 없음)
         assert s.scalars(
             select(OpacityScore).where(OpacityScore.corp_code == "00000009")
         ).one_or_none() is None
@@ -301,7 +320,7 @@ def test_run_reconciles_stale_row(engine) -> None:
         _seed_plan(s, "00000002")
         s.commit()
         run("2025-12-31", session_factory=Session_)  # 1차: 2건 저장
-        # 00000002의 계획을 표지 통지문으로 바꿔 순위 불가로 만든다
+        # 00000002의 계획을 본문 전무로 바꿔 순위 불가로 만든다
         plan = s.scalars(
             select(ValueupPlan).where(ValueupPlan.corp_code == "00000002")
         ).one()
