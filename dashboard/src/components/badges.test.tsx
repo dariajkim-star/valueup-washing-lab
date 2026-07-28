@@ -3,7 +3,14 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 // vitest globals 미사용 시 testing-library 자동 cleanup이 비활성 — 명시적 cleanup
 afterEach(cleanup);
-import { MnaCell, OpacityCell, ValueUpCell, WashingBadge, ScoreBasisChip } from "./badges";
+import {
+  BuybackRetiredBadge,
+  MnaCell,
+  OpacityCell,
+  ValueUpCell,
+  WashingBadge,
+  ScoreBasisChip,
+} from "./badges";
 import type { ScreeningRow } from "../api/screening";
 
 // null 시각 언어(3.2 범례)의 상태 우선순위 검증 — 금칙: 빈칸·0·"아니오"로 뭉개기.
@@ -33,6 +40,27 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     ...partial,
   };
 }
+
+describe("[AC3] BuybackRetiredBadge — 사실만, 판정 아님", () => {
+  it("retired → 소각 이행 배지", () => {
+    render(<BuybackRetiredBadge status="retired" />);
+    expect(screen.getByText("소각 이행")).toBeTruthy();
+  });
+  it("purchased_only·none은 배지 없음 — '안 했다'를 강조하면 판정이 된다", () => {
+    for (const s of ["purchased_only", "none"]) {
+      const { container } = render(<BuybackRetiredBadge status={s} />);
+      expect(container.textContent).toBe("");
+      cleanup();
+    }
+  });
+  it("unknown·null은 배지 없음 — 못 읽은 걸 벌하지 않는다", () => {
+    for (const s of ["unknown", null]) {
+      const { container } = render(<BuybackRetiredBadge status={s} />);
+      expect(container.textContent).toBe("");
+      cleanup();
+    }
+  });
+});
 
 describe("WashingBadge — 3상태", () => {
   it("true → 워싱 의심", () => {

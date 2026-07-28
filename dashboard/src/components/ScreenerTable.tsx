@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-table";
 import type { ScreeningRow } from "../api/screening";
 import { useFilters } from "../state/filters";
-import { MarketPill, MnaCell, OpacityCell, ValueUpCell } from "./badges"; // WashingBadge: 은퇴(불투명도로 대체)
+import { BuybackRetiredBadge, MarketPill, MnaCell, OpacityCell, ValueUpCell } from "./badges"; // WashingBadge: 은퇴(불투명도로 대체)
 import { ApiRequestError } from "../api/client";
 
 const col = createColumnHelper<ScreeningRow>();
@@ -51,9 +51,13 @@ export function ScreenerTable({
       col.accessor("corp_name", {
         header: () => <span>종목명</span>,
         cell: (c) => (
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-0.5">
             <span className="text-[13px] font-semibold text-gray-900">{c.getValue() ?? "—"}</span>
             <span className="text-[10px] text-gray-400">{c.row.original.corp_code}</span>
+            {/* AC3: 소각은 execution_score와 **독립인 사실**이라 이름 옆에 둔다.
+                Value-up 셀 안에 넣으면 점수가 '판단 불가'인 행에서 함께 사라진다 —
+                점수를 못 매겨도 소각은 확정될 수 있으므로 그 종속은 틀렸다. */}
+            <BuybackRetiredBadge status={c.row.original.buyback_status} />
           </div>
         ),
       }),
@@ -163,7 +167,9 @@ export function ScreenerTable({
         <tbody>
           {rows.length === 0 && !loading && (
             <tr>
-              <td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400">
+              {/* 하드코딩 8은 실제 열 수(7)와 어긋나 빈 상태 문구가 표 밖으로 밀렸다 —
+                  컬럼 정의에서 파생시켜 열 추가/삭제와 자동으로 맞게 둔다. */}
+              <td colSpan={columns.length} className="px-4 py-10 text-center text-sm text-gray-400">
                 조건에 맞는 종목이 없습니다
               </td>
             </tr>

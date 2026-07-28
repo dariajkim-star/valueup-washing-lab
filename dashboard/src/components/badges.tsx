@@ -158,6 +158,29 @@ export function OpacityCell({ row }: { row: ScreeningRow }) {
   );
 }
 
+// [AC3] 자사주 소각 **사실** 배지.
+// 은퇴한 워싱 배지의 대칭점이다: 워싱 배지는 고의를 판정해서(그리고 실측 True=0이라
+// 켜지지도 않아서) 죽었지만, 소각은 DART에서 수량으로 확인되는 사실이다 — 판정이 아니라
+// 관측. 그래서 "의심"이 아니라 사실만 말한다.
+//
+// retired일 때만 렌더한다:
+//   - purchased_only(매입만)·none은 "안 했다"를 배지로 강조하는 꼴이라 판정에 가까워진다.
+//   - unknown은 null — 못 읽은 걸 벌하지 않는다(OpacityCell '순위 불가'와 같은 원칙).
+// 셋 다 상세의 GapCard에서 4상태 전부 정직하게 표시되므로 목록에서 생략해도 정보가
+// 사라지지 않는다(목록은 사실 하나만, 상세는 전부).
+export function BuybackRetiredBadge({ status }: { status: string | null }) {
+  if (status !== "retired") return null;
+  return (
+    <span
+      className="inline-flex w-fit items-center rounded px-1.5 py-px text-[9px] font-semibold"
+      style={{ background: "#dcfce7", color: "#15803d" }}
+      title="자사주 소각 확인(DART 취득/처분현황 소각 수량 > 0) — 약속이 아니라 실행된 사실"
+    >
+      소각 이행
+    </span>
+  );
+}
+
 export function PopulationBasisChip({ basis }: { basis: string | null }) {
   if (!basis) return null;
   let label = "전체시장";
