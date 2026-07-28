@@ -40,3 +40,23 @@ def test_total_return_picks_target_over_nearby_result() -> None:
         "③ 주주환원: '25~'27 3년 평균 주주환원율 40% 목표\n"
     )
     assert parse_targets(text)["target_total_return_ratio"] == 40.0
+
+
+def test_total_return_does_not_steal_other_indicator_marker() -> None:
+    """[교차리뷰 2026-07-23 CONFIRMED] 표지 창이 다른 지표의 목표 표지를 훔치지 않는다.
+
+    _TARGET_MARK가 경쟁 라벨을 배제하기 전에는 "주주환원율 50% ROE 목표 12%"가 ROE의
+    '목표'를 빌려 50을 총주주환원율 목표로 오채택했다(틀린 non-null → NFR2 위반). 값과 표지
+    사이에 경쟁 지표 라벨(ROE·배당성향 등)이 끼면 순위 대상에서 뺀다(애매하면 null).
+    """
+    from app.ingest.dart_valueup import parse_targets
+
+    for text in (
+        "주주환원율 50% ROE 목표 12%",       # ROE의 목표를 빌림
+        "총주주환원율 50% ROE 12% 목표",     # ROE 라벨을 건너 표지 도달
+        "□ 주주환원율 45% 배당성향 30% 목표",  # 배당성향의 목표를 빌림
+    ):
+        assert parse_targets(text)["target_total_return_ratio"] is None
+
+    # 대조군: 값과 표지 사이에 경쟁 라벨이 없으면 정상 채택(과잉 차단 아님)
+    assert parse_targets("주주환원율 중장기 50% 목표")["target_total_return_ratio"] == 50.0

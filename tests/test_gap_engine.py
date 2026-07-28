@@ -131,6 +131,22 @@ def test_execution_score_caps_overachievement() -> None:
     assert score == pytest.approx(100.0)
 
 
+def test_execution_score_floors_negative_axis() -> None:
+    """[교차리뷰 2026-07-23 ⑥] 음수 축 달성도는 max(0,·)로 하한 — 한 축의 미달이 다른 축의
+    이행을 상쇄하지 않는다(상한 캡과 대칭). 적자연도(actual_roe 음수 → achievement 음수)에
+    자사주를 지킨 기업이 0점으로 지워지던 문제.
+    """
+    # ROE 달성 -0.5(적자) + 자사주 실행 1.0. 하한 없으면 raw=(0.5*-0.5+0.3*1)/0.8=0.0625→6.25.
+    # 하한 있으면 ROE축=0 → (0.5*0+0.3*1)/0.8=0.375 → 37.5.
+    score, basis = _execution_score(
+        achievement_rate=-0.5, buyback_executed=True,
+        actual_payout=None, target_payout=None,
+        w_achievement=0.5, w_buyback=0.3, w_payout=0.2,
+    )
+    assert score == pytest.approx(37.5)
+    assert basis == "roe+buyback"  # 자사주 이행이 음수 ROE에 지워지지 않는다
+
+
 # ── 5-1: 공시한 약속에 대해서만 채점 ──
 
 def test_execution_score_null_when_committed_but_actual_missing() -> None:
