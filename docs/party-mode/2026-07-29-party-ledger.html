@@ -1,3 +1,8 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>2026-07-29 · 워싱 스크리너 방 — 세션 원장</title>
 <style>
   :root {
@@ -66,6 +71,9 @@
     background: var(--bg);
     color: var(--ink);
     font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    /* 한국어는 어절 단위로 끊어야 읽힌다 — 기본 줄바꿈은 낱글자에서 잘린다("라/벨은"). */
+    word-break: keep-all;
+    overflow-wrap: break-word;
   }
   body {
     background-image:
@@ -386,6 +394,8 @@
     to { opacity: 1; transform: translateY(0); }
   }
 </style>
+</head>
+<body>
 
 <div class="page">
 
@@ -552,3 +562,6 @@
   <p class="footer-line">docs/party-mode · washing-lab · main f438eb9</p>
 
 </div>
+
+</body>
+</html>
