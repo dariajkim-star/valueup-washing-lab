@@ -180,6 +180,46 @@ class MacroIndicator(Base):
     frequency: Mapped[str | None] = mapped_column(String(1))  # M(월)/D(일) — look-ahead 판별용
 
 
+class PlanAttachment(Base):
+    """밸류업 계획 **첨부(PDF)** 원천 (writer = attachment ingest, 0017).
+
+    valueup_plan(본문)의 형제다. 같은 행에 섞지 않는 이유: valueup_plan upsert는
+    "재파싱 결과가 권위 → null 포함 전체 교체"라, 본문 재수집 한 번에 첨부 파싱 결과가
+    통째로 날아간다. 두 원천은 수명주기가 다르다.
+
+    ⚠ 취득은 자동화하지 않는다 — DART robots.txt가 뷰어·첨부·PDF 다운로드 경로를 전부
+    Disallow한다(2026-07-29 확인). 파일은 사람이 받아 attachments/에 두고, 코드는 읽기만
+    한다. acquired_by가 그 사실을 데이터에 남긴다.
+    """
+
+    __tablename__ = "plan_attachment"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "filename", name="uq_plan_attachment_plan_file"),
+    )
+
+    attachment_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    plan_id: Mapped[int] = mapped_column(Integer, index=True)
+    corp_code: Mapped[str] = mapped_column(String(8), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    sha256: Mapped[str] = mapped_column(String(64))  # 재파싱 멱등성 기준
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    acquired_by: Mapped[str] = mapped_column(String(20), default="manual")
+    acquired_at: Mapped[str | None] = mapped_column(String(10))
+    parsed_at: Mapped[str | None] = mapped_column(String(10))
+    target_roe: Mapped[float | None] = mapped_column(Float)
+    target_payout_ratio: Mapped[float | None] = mapped_column(Float)
+    target_total_return_ratio: Mapped[float | None] = mapped_column(Float)
+    target_pbr: Mapped[float | None] = mapped_column(Float)
+    period_start: Mapped[str | None] = mapped_column(String(10))
+    period_end: Mapped[str | None] = mapped_column(String(10))
+    buyback_planned: Mapped[bool | None] = mapped_column(Boolean)
+    # 필드 → 근거 페이지({"target_roe": 7}). "첨부 PDF p.7"을 화면에 쓰기 위한 것.
+    evidence_json: Mapped[str | None] = mapped_column(Text)
+    # 파싱 실패를 조용히 null로 넘기지 않는다 — 왜 못 읽었는지 남긴다.
+    parse_error: Mapped[str | None] = mapped_column(String(200))
+    extracted_text: Mapped[str | None] = mapped_column(Text)  # 원문 보존(재파싱 가능)
+
+
 class ValueupScore(Base):
     """Value-up 갭 스코어 (writer = gap_engine, AD-4). 자연키 (corp_code, as_of), AD-8.
 
