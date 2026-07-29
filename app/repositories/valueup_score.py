@@ -59,6 +59,7 @@ def latest_valueup_plan(
             "period_end": a.period_end,
             "buyback_planned": a.buyback_planned,
             "parse_error": a.parse_error,
+            "needs_review": a.needs_review,
         }
         for a in session.scalars(
             select(PlanAttachment).where(PlanAttachment.corp_code == corp_code)

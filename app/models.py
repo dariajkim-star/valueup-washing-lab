@@ -230,6 +230,16 @@ class PlanAttachment(Base):
     # 파싱 실패를 조용히 null로 넘기지 않는다 — 왜 못 읽었는지 남긴다.
     parse_error: Mapped[str | None] = mapped_column(String(200))
     extracted_text: Mapped[str | None] = mapped_column(Text)  # 원문 보존(재파싱 가능)
+    # OCR 층(0020). OCR을 적용한 페이지 목록(JSON) — evidence_json과 대조하면 어떤 값이
+    # OCR 유래인지 재구성된다. OCR 유래 목표가 있으면 needs_review=True로 적재되고,
+    # 사람이 승인(review_attachment CLI)하기 전에는 merge_attachment가 채점에 태우지
+    # 않는다. 첫 실측에서 OCR+파서가 이행 실적을 목표로 오인했다 — 틀린 non-null은
+    # null보다 위험하다.
+    ocr_pages: Mapped[str | None] = mapped_column(Text)
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False)
+    reviewed_by: Mapped[str | None] = mapped_column(String(50))
+    reviewed_at: Mapped[str | None] = mapped_column(String(10))
+    review_note: Mapped[str | None] = mapped_column(String(300))
 
 
 class ValueupScore(Base):

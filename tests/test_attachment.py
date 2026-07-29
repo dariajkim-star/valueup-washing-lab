@@ -146,6 +146,81 @@ class TestParsePdf:
         assert sha256_of(a) != sha256_of(b)
 
 
+class TestOcrFallback:
+    """OCR = 후보 추출기. native가 빈약한 페이지만 돌고, 유래 값은 needs_review로 표시.
+
+    tesseract 자체는 여기서 검증하지 않는다(환경 의존) — _ocr_ready/_ocr_page를 갈아끼워
+    **배선**(트리거 조건·필드 채움 규칙·검토 플래그·근거 페이지)을 검증한다.
+    """
+
+    def test_sparse_page_triggers_ocr_and_flags_review(self, tmp_path, monkeypatch):
+        """이미지 페이지(native 빈약)에서 OCR이 목표를 채우면 needs_review=True."""
+        import app.ingest.attachment as att
+
+        pdf = tmp_path / "20260206801698.pdf"
+        _make_pdf(pdf, ["", "Cover only"])  # 두 페이지 모두 native 빈약
+        monkeypatch.setattr(att, "_ocr_ready", lambda: True)
+        monkeypatch.setattr(
+            att, "_ocr_page",
+            lambda path, page_no: "ROE 10.0% target" if page_no == 1 else "",
+        )
+        r = parse_pdf(pdf)
+        assert r.parse_error is None  # OCR이 읽었으니 no_text_layer가 아니다
+        assert r.targets["target_roe"] == 10.0
+        assert r.evidence["target_roe"] == 1
+        assert r.ocr_pages == [1]
+        assert r.needs_review is True
+
+    def test_native_value_is_not_overridden_by_ocr(self, tmp_path, monkeypatch):
+        """native 우선 — merge_attachment의 '본문 우선'과 같은 정신."""
+        import app.ingest.attachment as att
+
+        pdf = tmp_path / "20260206801699.pdf"
+        _make_pdf(pdf, [
+            "ROE 12.5% target with enough native text on this page so the "
+            "ocr trigger threshold is comfortably exceeded by plain characters",
+            "",
+        ])
+        monkeypatch.setattr(att, "_ocr_ready", lambda: True)
+        monkeypatch.setattr(att, "_ocr_page", lambda path, page_no: "ROE 3.0% target")
+        r = parse_pdf(pdf)
+        assert r.targets["target_roe"] == 12.5
+        assert r.evidence["target_roe"] == 1
+        assert r.ocr_pages == [2]  # 빈 페이지만 OCR
+        # OCR이 새 필드를 채우지 못했으면 검토할 것도 없다
+        assert r.needs_review is False
+
+    def test_ocr_unavailable_keeps_honest_no_text_layer(self, tmp_path, monkeypatch):
+        """OCR 스택이 없으면 종전 동작 — 조용한 오동작 대신 정직한 '못 읽음'."""
+        import app.ingest.attachment as att
+
+        pdf = tmp_path / "20260206801700.pdf"
+        _make_pdf(pdf, [""])
+        monkeypatch.setattr(att, "_ocr_ready", lambda: False)
+        r = parse_pdf(pdf)
+        assert r.parse_error == "no_text_layer"
+        assert r.ocr_pages == []
+
+    def test_ocr_page_failure_is_isolated(self, tmp_path, monkeypatch):
+        """한 페이지 OCR 실패가 문서 전체를 죽이지 않는다."""
+        import app.ingest.attachment as att
+
+        pdf = tmp_path / "20260206801701.pdf"
+        _make_pdf(pdf, ["", ""])
+
+        def boom_then_text(path, page_no):
+            if page_no == 1:
+                raise RuntimeError("tesseract crashed")
+            return "ROE 9.0% target"
+
+        monkeypatch.setattr(att, "_ocr_ready", lambda: True)
+        monkeypatch.setattr(att, "_ocr_page", boom_then_text)
+        r = parse_pdf(pdf)
+        assert r.targets["target_roe"] == 9.0
+        assert r.ocr_pages == [2]
+        assert r.needs_review is True
+
+
 class TestScanDirectory:
     def test_skips_hidden_and_temp_files(self, tmp_path):
         (tmp_path / ".DS_Store").write_text("x")

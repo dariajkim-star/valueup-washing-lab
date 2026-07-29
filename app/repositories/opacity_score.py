@@ -69,6 +69,7 @@ def all_latest_plans(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
             "period_end": a.period_end,
             "buyback_planned": a.buyback_planned,
             "parse_error": a.parse_error,
+            "needs_review": a.needs_review,
         }
         for a in session.scalars(select(PlanAttachment)).all()
     }
