@@ -201,7 +201,7 @@ action_items:
   - epic: 6
     action: "첨부 OCR 층 도입 — 자동 입력기가 아니라 근거 보존형 후보 추출기로"
     owner: "리드+AI"
-    status: done  # 2026-07-29 리드 채택·구현(마이그 0020, feat/attachment-ocr-layer). 구조: OCR=수집층 / 검증=판정층 / 수동=승인·수정·기각 오버라이드(review_attachment CLI). 스파이크가 설계 필요를 즉시 실증 — OCR+파서가 ROE 10.0(p.7)을 맞히며 동시에 이행 실적 35.0(p.4)을 목표로 오인(틀린 non-null은 null보다 위험). needs_review 게이트로 승인 전 채점 반영 차단. 우리금융 9쪽(이미지 PDF, native 156자) 후보 3필드 적재 완료 — 승인 대기
+    status: done  # 2026-07-29 리드 채택·구현(마이그 0020, feat/attachment-ocr-layer). 구조: OCR=수집층 / 검증=판정층 / 수동=승인·수정·기각 오버라이드(review_attachment CLI). 스파이크가 설계 필요를 즉시 실증 — OCR+파서가 ROE 10.0(p.7)을 맞히며 동시에 이행 실적 35.0(p.4)을 목표로 오인(틀린 non-null은 null보다 위험). needs_review 게이트로 승인 전 채점 반영 차단. 우리금융 9쪽(이미지 PDF, native 156자) 후보 적재 → 리드 승인(payout 35.0 오탐 기각·총주주환원율 50 수동 보정) → 재채점: 모집단 23→24, 우리금융 공시 3축(불투명 1축, rank 0.125). 순위 불가 잔여 = other_metric 2건(하이닉스·LG엔솔)뿐 — 수집 문제 완전 소진, 남은 건 축 문제(P1-5)
   - epic: 6
     action: "epic 4·5·6 통합 회고 실시 여부 결정(개별 회고 3건 미실시 상태)"
     owner: "리드"
