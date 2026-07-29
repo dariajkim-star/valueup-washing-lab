@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.analysis.plan_selection import choose_plan
 from app.models import Company, Financial, ValueupPlan, ValueupScore
 
 
@@ -36,20 +37,30 @@ def latest_valueup_plan(
             ValueupPlan.disclosure_date <= as_of,
         )
         .order_by(ValueupPlan.disclosure_date.desc(), ValueupPlan.plan_id.desc())
-        .limit(1)
+        # limit(1) 제거(2026-07-29): 최신이 표지 통지문(0축)이면 그 이전 공시로 내려가야
+        # 하므로 후보 전체가 필요하다. 종목당 공시는 실측 최대 5건이라 비용은 무시할 만하다.
     )
-    obj = session.scalars(stmt).one_or_none()
-    if obj is None:
+    candidates = [
+        {
+            "plan_id": o.plan_id,
+            "disclosure_date": o.disclosure_date,
+            "rcept_no": o.rcept_no,
+            "target_roe": o.target_roe,
+            "target_payout_ratio": o.target_payout_ratio,
+            "target_total_return_ratio": o.target_total_return_ratio,
+            "target_pbr": o.target_pbr,  # 계산 미사용, 참고 보관만(리드 결정)
+            "period_start": o.period_start,
+            "period_end": o.period_end,
+            "buyback_planned": o.buyback_planned,
+        }
+        for o in session.scalars(stmt).all()
+    ]
+    choice = choose_plan(candidates)
+    if choice is None:
         return None
-    return {
-        "target_roe": obj.target_roe,
-        "target_payout_ratio": obj.target_payout_ratio,
-        "target_total_return_ratio": obj.target_total_return_ratio,
-        "target_pbr": obj.target_pbr,  # 계산 미사용, 참고 보관만(리드 결정)
-        "period_start": obj.period_start,
-        "period_end": obj.period_end,
-        "buyback_planned": obj.buyback_planned,
-    }
+    # 고른 공시의 신원(plan_id·공시일·접수번호)을 목표값과 **함께** 돌려준다 —
+    # 엔진이 그것을 valueup_score에 저장해야 화면이 실제 근거를 출처로 표시할 수 있다.
+    return {**choice.plan, "used_fallback": choice.used_fallback}
 
 
 def latest_metrics(session: Session, corp_code: str, as_of: str) -> dict[str, Any] | None:
@@ -118,6 +129,7 @@ def upsert_valueup_score(session: Session, rec: dict[str, Any]) -> ValueupScore:
         "target_roe", "actual_roe", "roe_gap",
         "achievement_rate", "progress_rate", "execution_score", "washing_flag",
         "buyback_executed", "buyback_retired", "buyback_status", "score_basis",
+        "source_plan_id",
     ):
         setattr(obj, field, rec[field])
     return obj
@@ -155,29 +167,32 @@ def list_scores(
     if filters.get("washing_only"):
         conds.append(ValueupScore.washing_flag.is_(True))
 
-    # 출처(0015): 점수가 **어느 공시에서 나왔는지**를 함께 서빙한다. 지금까지 화면은
+    # 출처(0015→0016): 점수가 **어느 공시에서 나왔는지**를 함께 서빙한다. 지금까지 화면은
     # "목표 ROE 10%"만 보여주고 그 숫자가 2024년 공시인지 2026년 공시인지 말하지 않았다.
-    # 자유서식 공시는 회사가 여러 번 내고 나중 것이 표지 통지문일 수도 있어(실측 7종목),
-    # 공시일 없이 목표만 보여주면 사용자가 그 값의 신선도를 판단할 수 없다.
     #
-    # 선택 규칙은 latest_valueup_plan(엔진이 쓰는 것)과 **글자 그대로 같아야** 한다 —
-    # 다르면 화면이 실제 채점 근거가 아닌 공시를 출처로 표시하게 된다.
-    latest_plan_id = (
-        select(ValueupPlan.plan_id)
+    # 0016부터 **선택 규칙을 여기서 재현하지 않는다.** 엔진이 실제로 고른 공시를
+    # valueup_score.source_plan_id에 기록하므로 조인만 하면 된다. 규칙(최신 우선 + 0축이면
+    # 과거 폴백)이 엔진과 서빙 두 곳에 있으면 어긋나는 순간 화면이 **실제 근거가 아닌
+    # 공시**를 출처로 표시하는데, 그건 출처 표기의 목적과 정확히 반대다.
+    #
+    # 그 종목의 **최신** 공시일도 함께 뽑는다 — 근거 공시가 최신이 아니면(=폴백) 화면이
+    # 그 사실을 말해야 하기 때문. "2024-10-29 공시 기준"만 쓰면 사용자는 왜 최신이 아닌지
+    # 모른다. 폴백했다는 사실 자체가 출처의 일부다.
+    newest_disclosure = (
+        select(func.max(ValueupPlan.disclosure_date))
         .where(
             ValueupPlan.corp_code == ValueupScore.corp_code,
             ValueupPlan.disclosure_date <= filters["as_of"],
         )
-        .order_by(ValueupPlan.disclosure_date.desc(), ValueupPlan.plan_id.desc())
-        .limit(1)
         .correlate(ValueupScore)
         .scalar_subquery()
+        .label("newest_disclosure_date")
     )
 
-    base = select(ValueupScore, Company, ValueupPlan).join(
+    base = select(ValueupScore, Company, ValueupPlan, newest_disclosure).join(
         Company, Company.corp_code == ValueupScore.corp_code
-    ).outerjoin(  # outer: 계획이 사라진 스코어도 행을 잃지 않는다(출처만 null)
-        ValueupPlan, ValueupPlan.plan_id == latest_plan_id
+    ).outerjoin(  # outer: 근거 기록이 없거나(0016 이전 채점분) 계획이 사라져도 행을 잃지 않는다
+        ValueupPlan, ValueupPlan.plan_id == ValueupScore.source_plan_id
     ).where(*conds)
 
     total = session.scalar(
@@ -192,12 +207,20 @@ def list_scores(
     ).all()
 
     items = []
-    for score, company, plan in rows:
+    for score, company, plan, newest_date in rows:
         items.append({
             # 출처(0015) — null 계약: plan_rcept_no가 null이면 "0015 이전 적재분"이라
             # 재수집 전까지 DART 원문으로 갈 수 없다는 뜻. 빈 문자열로 뭉개지 않는다.
             "plan_disclosure_date": plan.disclosure_date if plan else None,
             "plan_rcept_no": plan.rcept_no if plan else None,
+            # 근거 공시가 그 종목의 최신이 아니면 폴백이다(최신 공시에 목표가 없어 이전
+            # 공시로 내려간 경우). 파생값이라 저장하지 않고 서빙 시점에 판정한다.
+            "plan_is_fallback": (
+                plan is not None
+                and newest_date is not None
+                and plan.disclosure_date != newest_date
+            ),
+            "plan_newest_disclosure_date": newest_date,
             "corp_code": score.corp_code,
             "corp_name": company.corp_name,
             "market": company.market,

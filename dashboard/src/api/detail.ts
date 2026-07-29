@@ -22,6 +22,9 @@ export interface GapDetail {
   // 적재분이라 DART 원문으로 갈 수 없다 — 재수집해야 채워진다.
   plan_disclosure_date: string | null;
   plan_rcept_no: string | null;
+  // 근거 공시가 최신이 아닌가(최신 공시에 목표가 없어 이전 공시로 폴백).
+  plan_is_fallback: boolean;
+  plan_newest_disclosure_date: string | null;
 }
 
 // POST /valueup/refresh/{corp_code} 응답 — 단계별 보고(성공/실패 한 값으로 뭉치지 않는다).

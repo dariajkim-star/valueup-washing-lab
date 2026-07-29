@@ -62,7 +62,7 @@ function PlanProvenance({ gap }: { gap: GapDetail }) {
           <span className="text-[10px] font-semibold text-gray-400">출처</span>
           {gap.plan_disclosure_date ? (
             <span className="text-[11px] text-gray-600">
-              {gap.plan_disclosure_date} 공시
+              {gap.plan_disclosure_date} 공시 기준
               {gap.plan_rcept_no ? (
                 // 접수번호가 있을 때만 링크 — 없는 링크를 만들어내지 않는다.
                 <>
@@ -84,6 +84,15 @@ function PlanProvenance({ gap }: { gap: GapDetail }) {
             </span>
           ) : (
             <span className="text-[11px] text-gray-400">계획 공시 없음</span>
+          )}
+
+          {/* 폴백 사실 자체가 출처의 일부다 — 공시일만 쓰면 "왜 최신이 아닌가"를
+              사용자가 알 수 없고, 낡은 데이터로 오해하기 쉽다. 실제로는 최신 공시가
+              목표 없는 표지 통지문이라 그 이전 공시를 근거로 삼은 것이다. */}
+          {gap.plan_is_fallback && gap.plan_newest_disclosure_date && (
+            <span className="mt-0.5 text-[10px] text-amber-700">
+              ↑ 최신 공시({gap.plan_newest_disclosure_date})에는 목표가 없어 그 이전 공시를 사용
+            </span>
           )}
         </div>
 

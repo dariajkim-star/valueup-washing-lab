@@ -22,6 +22,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     target_roe: null, actual_roe: null, roe_gap: null, achievement_rate: null,
     progress_rate: null, execution_score: null, score_basis: null, washing_flag: null, buyback_status: null,
     plan_disclosure_date: null, plan_rcept_no: null,
+    plan_is_fallback: false, plan_newest_disclosure_date: null,
     ...partial,
   };
 }
@@ -75,6 +76,25 @@ describe("출처 표기(0015) — 목표값의 신선도를 감추지 않는다"
     render(<GapCard gap={gap({ plan_disclosure_date: "2024-11-27", plan_rcept_no: null })} />);
     expect(screen.queryByText("DART 원문")).toBeNull();
     expect(screen.getByText(/접수번호 미보유/)).toBeTruthy();
+  });
+
+  it("[2026-07-29] 폴백이면 왜 최신 공시가 아닌지 말한다", () => {
+    // 하나금융 실측 형태: 최신 2026-03-31은 표지 통지문이라 2024-10-29를 근거로 삼았다.
+    // 공시일만 쓰면 사용자가 '낡은 데이터'로 오해한다 — 폴백 사실이 출처의 일부다.
+    render(<GapCard gap={gap({
+      plan_disclosure_date: "2024-10-29", plan_rcept_no: "20241029000111",
+      plan_is_fallback: true, plan_newest_disclosure_date: "2026-03-31",
+    })} />);
+    expect(screen.getByText(/2024-10-29 공시 기준/)).toBeTruthy();
+    expect(screen.getByText(/최신 공시\(2026-03-31\)에는 목표가 없어/)).toBeTruthy();
+  });
+
+  it("폴백이 아니면 그 안내를 띄우지 않는다", () => {
+    render(<GapCard gap={gap({
+      plan_disclosure_date: "2026-03-31", plan_rcept_no: "20260331000222",
+      plan_is_fallback: false, plan_newest_disclosure_date: "2026-03-31",
+    })} />);
+    expect(screen.queryByText(/목표가 없어/)).toBeNull();
   });
 
   it("계획 공시 자체가 없으면 그렇게 말한다", () => {

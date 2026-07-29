@@ -16,6 +16,8 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.analysis.plan_selection import choose_plan
+
 from app.models import Company, OpacityScore
 
 
@@ -42,18 +44,28 @@ def all_latest_plans(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     """
     stmt = (
         text(
-            "SELECT corp_code, target_roe, target_payout_ratio, "
-            "target_total_return_ratio, period_start, buyback_planned "
-            "FROM valueup_plan "
+            "SELECT corp_code, plan_id, disclosure_date, target_roe, "
+            "target_payout_ratio, target_total_return_ratio, period_start, "
+            "buyback_planned FROM valueup_plan "
             "WHERE disclosure_date <= :as_of "
             "ORDER BY corp_code, disclosure_date DESC, plan_id DESC"
         )
     )
     rows = session.execute(stmt, {"as_of": as_of}).mappings().all()
-    latest: dict[str, dict[str, Any]] = {}
+    # corp별 후보를 최신순 그대로 모아 choose_plan에 넘긴다(2026-07-29 폴백 규칙).
+    # 이전엔 "corp별 첫 행 = 최신"만 취했는데, 그러면 최신이 표지 통지문(0축)인 종목이
+    # 이미 파싱해둔 과거 목표를 두고도 is_unrankable로 빠졌다(하나금융·LG화학·삼성화재).
+    # 선택 규칙은 gap쪽(latest_valueup_plan)과 **같은 함수**를 써야 한다 — 두 엔진이 서로
+    # 다른 공시를 근거로 삼으면 "목표는 보이는데 순위는 불가"인 자기모순이 생긴다.
+    by_corp: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        code = row["corp_code"]
-        if code not in latest:  # 정렬상 corp별 첫 행 = 최신
+        by_corp.setdefault(row["corp_code"], []).append(dict(row))
+
+    latest: dict[str, dict[str, Any]] = {}
+    for code, candidates in by_corp.items():
+        choice = choose_plan(candidates)
+        if choice is not None:
+            row = choice.plan
             latest[code] = {
                 "target_roe": row["target_roe"],
                 "target_payout_ratio": row["target_payout_ratio"],

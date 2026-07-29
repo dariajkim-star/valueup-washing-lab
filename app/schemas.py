@@ -186,3 +186,7 @@ class GapAnalysisOut(BaseModel):
     # 많다). rcept_no가 null이면 0015 이전 적재분 = DART 원문 링크 조립 불가.
     plan_disclosure_date: str | None = None
     plan_rcept_no: str | None = None
+    # 근거 공시가 그 종목의 최신이 아닌가(= 최신 공시에 목표가 없어 이전 공시로 폴백).
+    # 이 사실 자체가 출처의 일부다 — "2024-10-29 공시 기준"만 쓰면 왜 최신이 아닌지 모른다.
+    plan_is_fallback: bool = False
+    plan_newest_disclosure_date: str | None = None

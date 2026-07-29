@@ -213,6 +213,11 @@ class ValueupScore(Base):
     # 기업이 공시한 항목만으로 채점하므로 가중치 기반이 종목마다 다르다 — 그 사실을
     # 숨기면 점수를 종목 간 비교에 잘못 쓰게 된다(mna의 population_basis와 같은 이유).
     score_basis: Mapped[str | None] = mapped_column(String(40))
+    # 이 점수가 실제로 근거로 삼은 valueup_plan(0016). 서빙이 "최신 공시" 규칙을 **재현하지
+    # 않고** 이 id로 조인하게 하려는 것 — 규칙이 엔진과 서빙 두 곳에 있으면 어긋나는 순간
+    # 화면이 실제 근거가 아닌 공시를 출처로 표시한다(출처 표기의 목적과 정반대).
+    # null = 0016 이전 채점분(재채점해야 채워짐).
+    source_plan_id: Mapped[int | None] = mapped_column(Integer)
 
 
 class MnaScore(Base):
