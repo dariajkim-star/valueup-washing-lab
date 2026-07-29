@@ -1,0 +1,554 @@
+<title>2026-07-29 · 워싱 스크리너 방 — 세션 원장</title>
+<style>
+  :root {
+    --bg: #eef1ec;
+    --bg-wash: #e5e9e2;
+    --paper: #ffffff;
+    --ink: #1c2420;
+    --ink-soft: #4b564e;
+    --ink-faint: #838f86;
+    --rule: #d3dbcf;
+    --accent: #2c6e6b;
+    --accent-soft: #dbe9e6;
+    --stamp: #a13d2e;
+    --stamp-soft: #f3e3de;
+    --shadow: 0 1px 2px rgba(28, 36, 32, 0.06), 0 8px 24px rgba(28, 36, 32, 0.05);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141b18;
+      --bg-wash: #182019;
+      --paper: #1b2420;
+      --ink: #e8ede9;
+      --ink-soft: #aab6ae;
+      --ink-faint: #6d7a72;
+      --rule: #2c3630;
+      --accent: #6bc9c1;
+      --accent-soft: #1f3532;
+      --stamp: #e08871;
+      --stamp-soft: #35211d;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141b18;
+    --bg-wash: #182019;
+    --paper: #1b2420;
+    --ink: #e8ede9;
+    --ink-soft: #aab6ae;
+    --ink-faint: #6d7a72;
+    --rule: #2c3630;
+    --accent: #6bc9c1;
+    --accent-soft: #1f3532;
+    --stamp: #e08871;
+    --stamp-soft: #35211d;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 12px 32px rgba(0, 0, 0, 0.35);
+  }
+  :root[data-theme="light"] {
+    --bg: #eef1ec;
+    --bg-wash: #e5e9e2;
+    --paper: #ffffff;
+    --ink: #1c2420;
+    --ink-soft: #4b564e;
+    --ink-faint: #838f86;
+    --rule: #d3dbcf;
+    --accent: #2c6e6b;
+    --accent-soft: #dbe9e6;
+    --stamp: #a13d2e;
+    --stamp-soft: #f3e3de;
+    --shadow: 0 1px 2px rgba(28, 36, 32, 0.06), 0 8px 24px rgba(28, 36, 32, 0.05);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: ui-serif, "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  }
+  body {
+    background-image:
+      linear-gradient(180deg, var(--bg-wash) 0%, var(--bg) 320px);
+  }
+  ::selection { background: var(--accent-soft); color: var(--ink); }
+
+  .mono {
+    font-family: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+
+  .page {
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 56px 24px 88px;
+  }
+
+  /* ── Masthead ─────────────────────────────────────────────── */
+  .masthead {
+    text-align: center;
+    padding-bottom: 28px;
+    border-bottom: 3px double var(--ink-faint);
+    margin-bottom: 36px;
+  }
+  .masthead .kicker {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 10px;
+  }
+  .masthead h1 {
+    font-size: clamp(30px, 6vw, 44px);
+    line-height: 1.12;
+    margin: 0 0 10px;
+    text-wrap: balance;
+    letter-spacing: -0.01em;
+  }
+  .masthead .dek {
+    font-family: ui-serif, Georgia, serif;
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 16px;
+    margin: 0 0 16px;
+    max-width: 46ch;
+    margin-inline: auto;
+  }
+  .masthead .meta {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11.5px;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: center;
+    gap: 18px;
+    flex-wrap: wrap;
+  }
+
+  /* ── Section labels ───────────────────────────────────────── */
+  .section-label {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 48px 0 18px;
+  }
+  .section-label::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--rule);
+  }
+
+  /* ── Cast ─────────────────────────────────────────────────── */
+  .cast {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 560px) { .cast { grid-template-columns: repeat(2, 1fr); } }
+  .cast-card {
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 3px;
+    padding: 10px 12px;
+    box-shadow: var(--shadow);
+  }
+  .cast-card .icon { font-size: 18px; line-height: 1; }
+  .cast-card .name {
+    font-weight: 600;
+    font-size: 13.5px;
+    margin-top: 4px;
+  }
+  .cast-card .title {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 10px;
+    color: var(--ink-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  /* ── Timeline / log ───────────────────────────────────────── */
+  .log {
+    position: relative;
+    padding-left: 22px;
+    border-left: 2px solid var(--rule);
+  }
+  .entry { position: relative; padding-bottom: 26px; }
+  .entry:last-child { padding-bottom: 0; }
+  .entry::before {
+    content: "";
+    position: absolute;
+    left: -27px;
+    top: 5px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 3px var(--bg);
+  }
+  .entry .time {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+  }
+  .entry h3 {
+    margin: 4px 0 6px;
+    font-size: 17px;
+    line-height: 1.3;
+  }
+  .entry p {
+    margin: 0;
+    color: var(--ink-soft);
+    font-size: 14.5px;
+    line-height: 1.6;
+    max-width: 62ch;
+  }
+
+  /* ── Quote (persona voice) ────────────────────────────────── */
+  .quote {
+    display: flex;
+    gap: 10px;
+    margin: 14px 0;
+    align-items: flex-start;
+  }
+  .quote .who {
+    flex-shrink: 0;
+    font-size: 17px;
+    width: 26px;
+    text-align: center;
+  }
+  .quote blockquote {
+    margin: 0;
+    font-family: ui-serif, Georgia, serif;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .quote .by {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    margin-top: 2px;
+  }
+
+  /* ── Ledger cards (5 decisions) ───────────────────────────── */
+  .ledger {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .ledger-card {
+    position: relative;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 18px 20px 16px;
+    box-shadow: var(--shadow);
+    display: grid;
+    grid-template-columns: 34px 1fr;
+    gap: 4px 14px;
+  }
+  .ledger-card .num {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 20px;
+    color: var(--accent);
+    font-weight: 600;
+    line-height: 1.2;
+  }
+  .ledger-card h4 {
+    margin: 0;
+    font-size: 15.5px;
+    line-height: 1.35;
+  }
+  .ledger-card .verdict {
+    grid-column: 2;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    background: var(--accent-soft);
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 2px;
+    margin: 4px 0 8px;
+    width: fit-content;
+  }
+  .ledger-card p {
+    grid-column: 2;
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--ink-soft);
+  }
+  .ledger-card .stamp {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    color: var(--stamp);
+    background: var(--stamp-soft);
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    padding: 2px 6px;
+    transform: rotate(-2deg);
+  }
+
+  /* ── Ledger footer stats ──────────────────────────────────── */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 44px;
+  }
+  .stat {
+    background: var(--paper);
+    padding: 16px 10px;
+    text-align: center;
+  }
+  .stat .n {
+    font-family: ui-monospace, Consolas, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .stat .l {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 9.5px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-top: 3px;
+  }
+
+  /* ── Callback / closer ────────────────────────────────────── */
+  .closer {
+    margin-top: 48px;
+    padding: 22px 24px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+  }
+  .closer p {
+    margin: 0 0 6px;
+    font-family: ui-serif, Georgia, serif;
+    font-style: italic;
+    font-size: 15px;
+    line-height: 1.6;
+    color: var(--ink);
+  }
+  .closer .attr {
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 11px;
+    color: var(--ink-faint);
+    font-style: normal;
+  }
+
+  .footer-line {
+    margin-top: 56px;
+    text-align: center;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 10.5px;
+    color: var(--ink-faint);
+    letter-spacing: 0.04em;
+  }
+
+  a { color: var(--accent); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .entry, .ledger-card, .cast-card { animation: rise 0.5s ease both; }
+    .entry:nth-child(2) { animation-delay: 0.04s; }
+    .entry:nth-child(3) { animation-delay: 0.08s; }
+    .entry:nth-child(4) { animation-delay: 0.12s; }
+    .entry:nth-child(5) { animation-delay: 0.16s; }
+    .ledger-card:nth-child(2) { animation-delay: 0.05s; }
+    .ledger-card:nth-child(3) { animation-delay: 0.1s; }
+    .ledger-card:nth-child(4) { animation-delay: 0.15s; }
+    .ledger-card:nth-child(5) { animation-delay: 0.2s; }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <p class="kicker">워싱 스크리너 방 · 세션 원장</p>
+    <h1>실측이 이기고, 라벨은 사실을 말했다</h1>
+    <p class="dek">우리금융 첨부 하나가 OCR 층을 열었고, 그 여세로 방이 두 달치 미결 다섯 건을 하루에 닫았다.</p>
+    <p class="meta">
+      <span>2026-07-29</span>
+      <span>PR #18 · #19 머지</span>
+      <span>백엔드 372 · 프론트 86</span>
+      <span>tsc 0</span>
+    </p>
+  </header>
+
+  <section>
+    <p class="section-label">오늘의 방</p>
+    <div class="cast">
+      <div class="cast-card"><div class="icon">🔍</div><div class="name">레아</div><div class="title">Forensic Accountant</div></div>
+      <div class="cast-card"><div class="icon">😤</div><div class="name">Grumbal</div><div class="title">The Adversary</div></div>
+      <div class="cast-card"><div class="icon">🌶️</div><div class="name">Boundary</div><div class="title">Edge-Case Hunter</div></div>
+      <div class="cast-card"><div class="icon">📊</div><div class="name">Mary</div><div class="title">Business Analyst</div></div>
+      <div class="cast-card"><div class="icon">🏗️</div><div class="name">Winston</div><div class="title">System Architect</div></div>
+      <div class="cast-card"><div class="icon">💻</div><div class="name">Amelia</div><div class="title">Senior Engineer</div></div>
+      <div class="cast-card"><div class="icon">📋</div><div class="name">John</div><div class="title">Product Manager</div></div>
+      <div class="cast-card"><div class="icon">🎨</div><div class="name">Sally</div><div class="title">UX Designer</div></div>
+      <div class="cast-card"><div class="icon">📚</div><div class="name">Paige</div><div class="title">Technical Writer</div></div>
+    </div>
+  </section>
+
+  <section>
+    <p class="section-label">하루의 기록</p>
+    <div class="log">
+
+      <div class="entry">
+        <p class="time">오전 · 취득</p>
+        <h3>우리금융 IR에서 실계획서를 찾다</h3>
+        <p>DART 첨부 경로는 이미 죽어 있었다. 회사 IR 페이지를 뒤져 정적 PDF 직링크를 발견 — 문서엔 ROE 10%·총주주환원율 50%가 명시돼 있었다. 그런데 9쪽 전부가 이미지였다. 기계가 못 읽는 문서.</p>
+      </div>
+
+      <div class="entry">
+        <p class="time">오전 · 채택</p>
+        <h3>OCR을 붙이되, 자동 입력기로 만들지 않는다</h3>
+        <p>"OCR = 수집층 · 검증 규칙 = 판정층 · 수동 검토 = 예외층." 첫 스파이크가 그 구조의 필요를 곧바로 증명했다 — OCR과 파서가 ROE 10.0을 맞히면서, 동시에 2025년 이행 실적 35.0%를 목표로 오인했다.</p>
+        <div class="quote">
+          <div class="who">🔧</div>
+          <div>
+            <blockquote>틀린 non-null은 null보다 위험하다.</blockquote>
+            <div class="by">이 원칙이 오늘 세 번(OCR·other_metric·market_fallback) 같은 모양으로 되풀이됐다</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="entry">
+        <p class="time">오전 · 승인</p>
+        <h3>후보 3필드, 리드가 검토대에 서다</h3>
+        <p>배당성향 35.0%는 이행 실적 오탐이라 기각, 총주주환원율 50%는 근거 페이지를 대며 수동 보정. 재채점 결과 모집단 23 → 24. 순위 불가 잔여는 <code class="mono">other_metric</code> 두 종목뿐 — 수집 문제가 마침내 소진됐다.</p>
+      </div>
+
+      <div class="entry">
+        <p class="time">오후 · 소집</p>
+        <h3>방이 다시 열리다</h3>
+        <p>화이트보드에 미결 다섯 장이 붙었다. 레아는 문간에서 듣고, Grumbal은 지뢰를 하나씩 회수하러 왔다.</p>
+        <div class="quote">
+          <div class="who">😤</div>
+          <div>
+            <blockquote>내가 심어둔 거 회수하지. "sector sparsity, 전건 market_fallback, 3주째." 3주 걸렸다.</blockquote>
+          </div>
+        </div>
+        <div class="quote">
+          <div class="who">🌶️</div>
+          <div>
+            <blockquote>세어봤어? other_metric 4건 중 순위 불가는 2건뿐이야. 축 확장의 순수익은 정확히 2종목.</blockquote>
+          </div>
+        </div>
+        <div class="quote">
+          <div class="who">🔍</div>
+          <div>
+            <blockquote>축을 늘리는 건 판정으로 되돌리는 일이에요. 유니버스 33개에서는 — 지금 걸 지키세요.</blockquote>
+          </div>
+        </div>
+      </div>
+
+      <div class="entry">
+        <p class="time">오후 · 수렴</p>
+        <h3>다섯 안건이 하나의 문장으로 좁혀지다</h3>
+        <p>규칙을 넓히지 말고, 문장을 사실에 맞출 것. 축 확장 대신 캡션, 경고 배지 대신 라벨 교체, 사람의 규율 대신 기계의 테스트, 붕 떠 있던 문서 대신 실재하는 경로.</p>
+        <div class="quote">
+          <div class="who">🎨</div>
+          <div>
+            <blockquote>전건이면 그건 배지가 아니라 벽지예요. 정보가 0이 돼요.</blockquote>
+          </div>
+        </div>
+        <div class="quote">
+          <div class="who">📚</div>
+          <div>
+            <blockquote>문서가 없는 경로를 가리키는 건 문서가 거짓말하는 거예요.</blockquote>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <section>
+    <p class="section-label">결정 원장 — 다섯 건</p>
+    <div class="ledger">
+
+      <div class="ledger-card">
+        <span class="stamp">보류</span>
+        <div class="num">01</div>
+        <h4>불투명 4축 확장 여부</h4>
+        <span class="verdict">판정 대신 사실 표기</span>
+        <p>유니버스 33종목 기준 현상 유지 — 재론 조건은 유니버스 확대. 대신 하이닉스(CapEx)·LG엔솔(매출·EBITDA)을 목록에서 "순위 불가"가 아니라 <strong>"타 지표로 공시"</strong>로 분리해 표기한다.</p>
+      </div>
+
+      <div class="ledger-card">
+        <span class="stamp">승격</span>
+        <div class="num">02</div>
+        <h4>파티 주도 개발의 기록 형식</h4>
+        <span class="verdict">우리가 이미 갖고 있었다</span>
+        <p>새 템플릿을 짓지 않는다. 이 세션 로그가 쓰인 memlog 자체를 <strong>결정 원장</strong>으로 승격 — 결정·근거·AC·실측을 이 파일에 남긴다. gitignore 예외로 git 추적에 들어왔다.</p>
+      </div>
+
+      <div class="ledger-card">
+        <span class="stamp">교체</span>
+        <div class="num">03</div>
+        <h4>market_fallback 노출</h4>
+        <span class="verdict">경고가 아니라 문장</span>
+        <p>"업종 내 비교"라 써놓고 KSIC 희소로 전건이 실은 전체시장 비교였던 라벨을 <strong>"시장 전체 비교"</strong>로 교체. 근본 원인(KSIC sparse)은 백로그에 남는다 — 라벨 정정은 해결이 아니다.</p>
+      </div>
+
+      <div class="ledger-card">
+        <span class="stamp">강제</span>
+        <div class="num">04</div>
+        <h4>에픽 done ↔ 회고 확인</h4>
+        <span class="verdict">규율에서 절차로</span>
+        <p>v2에서 3연속 누락됐던 구멍. 이제 <code class="mono">test_sprint_status.py</code>가 done 에픽에 회고가 붙어 있는지, 그 회고 파일이 실재하는지를 매 실행마다 검사한다.</p>
+      </div>
+
+      <div class="ledger-card">
+        <span class="stamp">실재화</span>
+        <div class="num">05</div>
+        <h4>docs/party-mode/ 미추적 상태</h4>
+        <span class="verdict">경로가 가리키는 곳이 있어야 한다</span>
+        <p>통합 회고가 참조하던 경로가 git 밖에 있었다. 키프세이크 HTML과 결정 원장(memlog)을 포함해 전체를 커밋 — 클론한 사람 누구나 그 경로에서 실제 파일을 만난다.</p>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="stats">
+    <div class="stat"><div class="n">2</div><div class="l">PR 머지</div></div>
+    <div class="stat"><div class="n">372</div><div class="l">백엔드 테스트</div></div>
+    <div class="stat"><div class="n">86</div><div class="l">프론트 테스트</div></div>
+    <div class="stat"><div class="n">0</div><div class="l">리드 결정 대기</div></div>
+  </div>
+
+  <div class="closer">
+    <p>"우리가 이미 갖고 있었다" — 레아가 오늘도 그 말을 했다. 과거 공시, raw_text, related_url, 그리고 이제 memlog까지. 새로 짓기 전에, 안 쓰고 있던 걸 먼저 보는 것. 이 방이 계속 배우는 한 가지 교훈이다.</p>
+    <p class="attr">— 워싱 스크리너 방, 2026-07-29 저녁</p>
+  </div>
+
+  <p class="footer-line">docs/party-mode · washing-lab · main f438eb9</p>
+
+</div>
