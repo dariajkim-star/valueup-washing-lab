@@ -18,7 +18,11 @@ import argparse
 
 from sqlalchemy import select
 
-from app.analysis.plan_selection import choose_plan, disclosed_axis_count
+from app.analysis.plan_selection import (
+    OTHER_METRIC,
+    choose_plan,
+    disclosed_axis_count,
+)
 from app.db import SessionLocal
 from app.models import Company, PlanAttachment, ValueupPlan
 
@@ -54,6 +58,10 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
                 "target_payout_ratio": p.target_payout_ratio,
                 "target_total_return_ratio": p.target_total_return_ratio,
                 "period_start": p.period_start, "buyback_planned": p.buyback_planned,
+                # 재공시를 건너뛰어 **실계획**을 대상으로 삼는다(0018). 이게 없으면
+                # 우리금융에 03-23(고배당기업 표시용 재공시)의 첨부를 요구하게 된다.
+                "body_signal": p.body_signal,
+                "body_reference_date": p.body_reference_date,
             }
             for p in candidates
         ]
@@ -83,6 +91,7 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
                 f"{rcept}.pdf" if rcept
                 else f"{corp_code}_{chosen['disclosure_date']}.pdf"
             ),
+            "body_signal": chosen.get("body_signal"),
         })
     out.sort(key=lambda r: (r["priority"], r["corp_name"]))
     return out
@@ -105,6 +114,10 @@ def main() -> int:
     for r in rows:
         tag = "순위 불가" if r["priority"] == 1 else f"부분 공시({r['axes']}/4축)"
         print(f"[{tag}] {r['corp_name']} ({r['corp_code']}) · {r['disclosure_date']} 공시")
+        if r["body_signal"] == OTHER_METRIC:
+            # 받아도 우리 축이 안 나올 수 있다는 신호 — 헛수고를 미리 알린다.
+            print("   주의:  본문에 목표가 있으나 **우리 4축 밖**의 지표다"
+                  "(예: 매출·EBITDA·CapEx). 첨부에도 ROE·환원율이 없을 수 있다.")
         if r["url"]:
             print(f"   열기:  {r['url']}")
         else:

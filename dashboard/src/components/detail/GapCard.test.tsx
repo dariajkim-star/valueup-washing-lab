@@ -23,6 +23,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     progress_rate: null, execution_score: null, score_basis: null, washing_flag: null, buyback_status: null,
     plan_disclosure_date: null, plan_rcept_no: null,
     plan_is_fallback: false, plan_newest_disclosure_date: null,
+    plan_body_signal: "axis_targets",
     ...partial,
   };
 }
@@ -105,6 +106,23 @@ describe("출처 표기(0015) — 목표값의 신선도를 감추지 않는다"
   it("업데이트 버튼이 있다", () => {
     render(<GapCard gap={gap({})} />);
     expect(screen.getByText("업데이트")).toBeTruthy();
+  });
+
+  it("[2026-07-29] 다른 지표로 공시한 회사를 부실 공시로 보이게 하지 않는다", () => {
+    // LG엔솔 실측: 매출 2배·EBITDA Margin 10% 중반을 명확히 약속했다. 우리 축이 아닐 뿐.
+    render(<GapCard gap={gap({ plan_body_signal: "other_metric" })} />);
+    expect(screen.getByText(/우리가 재는 4축.*밖의 지표/)).toBeTruthy();
+  });
+
+  it("재공시는 그 사실을 말한다", () => {
+    render(<GapCard gap={gap({ plan_body_signal: "refiling" })} />);
+    expect(screen.getByText(/다른 공시를 가리키는 재공시/)).toBeTruthy();
+  });
+
+  it("정상(axis_targets)에는 설명을 붙이지 않는다 — 값이 이미 화면에 있다", () => {
+    const { container } = render(<GapCard gap={gap({ plan_body_signal: "axis_targets" })} />);
+    expect(container.textContent).not.toContain("밖의 지표");
+    expect(container.textContent).not.toContain("재공시");
   });
 
   it("[2026-07-28] 자사주 라벨은 '이행'을 주장하지 않는다", () => {

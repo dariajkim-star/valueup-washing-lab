@@ -94,6 +94,12 @@ function PlanProvenance({ gap }: { gap: GapDetail }) {
               ↑ 최신 공시({gap.plan_newest_disclosure_date})에는 목표가 없어 그 이전 공시를 사용
             </span>
           )}
+
+          {/* [2026-07-29] 목표가 비어 있을 때 **왜**인지 말한다.
+              "미공시"와 "다른 지표로 공시"는 다른 사실이다 — LG엔솔은 매출 2배·EBITDA
+              Margin 10% 중반을 명확히 약속했다. 그걸 "순위 불가"로만 표시하면 부실 공시로
+              읽히는데, 부실한 건 그 회사가 아니라 우리 자다. */}
+          <BodySignalNote signal={gap.plan_body_signal} />
         </div>
 
         <button
@@ -141,6 +147,36 @@ function buybackLabel(status: string | null): string {
     default:
       return "판단 불가";
   }
+}
+
+// 본문이 우리 4축을 못 채운 이유. axis_targets(정상)는 굳이 말하지 않는다 — 값이 이미
+// 화면에 있으므로 설명이 노이즈다. 나머지 셋만 각자 다른 행동을 함의하므로 구분해 쓴다.
+function BodySignalNote({ signal }: { signal: string | null }) {
+  if (!signal || signal === "axis_targets") return null;
+  const NOTE: Record<string, { text: string; tone: string }> = {
+    // 부실 공시가 아니다 — 회사는 명확히 약속했고 우리 자에 그 눈금이 없다.
+    other_metric: {
+      text: "이 회사는 목표를 공시했으나 우리가 재는 4축(ROE·환원율·기간·자사주) 밖의 지표다(예: 매출·EBITDA·CapEx).",
+      tone: "#1d4ed8",
+    },
+    // 계획 문서가 아니라 다른 공시를 가리키는 행정적 재공시.
+    refiling: {
+      text: "이 공시는 계획이 아니라 다른 공시를 가리키는 재공시다 — 위 출처가 그 실제 계획이다.",
+      tone: "#b45309",
+    },
+    // 진짜 표지 통지문. 첨부·웹페이지에 실물이 있다.
+    no_targets: {
+      text: "본문에 목표 수치가 없다 — 실제 계획은 첨부나 회사 웹페이지에 있다(수집 범위 밖).",
+      tone: "#6b7280",
+    },
+  };
+  const note = NOTE[signal];
+  if (!note) return null;
+  return (
+    <span className="mt-1 text-[10px] leading-snug" style={{ color: note.tone }}>
+      {note.text}
+    </span>
+  );
 }
 
 function Stat({ label, value, color }: { label: string; value: string; color: string }) {

@@ -26,6 +26,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     washing_flag: null, buyback_status: null,
     plan_disclosure_date: null, plan_rcept_no: null,
     plan_is_fallback: false, plan_newest_disclosure_date: null,
+    plan_body_signal: null,
     ...partial,
   };
 }

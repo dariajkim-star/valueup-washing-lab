@@ -45,6 +45,14 @@ from typing import Any
 # 두 벌로 두면 한쪽만 바뀌어 "채점에 쓴 축"과 "불투명도를 센 축"이 어긋난다.
 OPACITY_AXES = ("roe", "payout", "period", "buyback")
 
+# 본문 신호 종류(0018). 판정 로직은 plan_signals가 갖지만 **상수는 여기 둔다** —
+# 선택 규칙(아래 choose_plan)이 refiling을 알아야 하는데, plan_signals가 이 모듈을
+# import하므로 반대 방향 import는 순환이 된다. 낮은 층이 어휘를 소유한다.
+AXIS_TARGETS = "axis_targets"
+OTHER_METRIC = "other_metric"
+REFILING = "refiling"
+NO_TARGETS = "no_targets"
+
 
 def opacity_axes(plan: Mapping[str, Any]) -> dict[str, bool]:
     """축별 '미공시(True=불투명)' 판정. 설계 근거는 opacity_engine 모듈 문서 참조.
@@ -83,16 +91,53 @@ def choose_plan(ordered_plans: Sequence[Mapping[str, Any]]) -> PlanChoice | None
     """채점 근거로 쓸 공시를 고른다. `ordered_plans`는 **최신 우선** 정렬이어야 한다
     (disclosure_date DESC → plan_id DESC — 동일 접수일의 정정공시를 나중 것으로).
 
-    규칙: 최신을 쓴다. 단 최신이 0축(목표 전무)이면, 목표가 하나라도 있는 가장 최근
-    공시로 내려간다. 그런 공시가 없으면 최신을 그대로 쓴다(폴백 아님 — 실제로 아무도
-    목표를 공시하지 않은 것이고, 그건 순위 불가로 정직하게 남아야 한다).
+    규칙 (적용 순서):
+      1. **재공시는 계획이 아니다.** 최신이 refiling이면(예: 고배당기업 표시를 위한
+         재공시) 그것이 가리킨 공시로 간다. 가리킨 날짜를 못 읽었으면 그 문서를 후보에서
+         빼고 다음으로 내려간다 — 어느 쪽이든 "계획을 담지 않은 문서"를 근거로 삼지 않는다.
+         실측: 금융지주 3사(신한·우리·하나)의 최신 공시가 전부 이 유형이었고, 그것이
+         그들이 0축이던 이유였다.
+      2. 최신(위에서 정해진)이 0축이면 목표가 하나라도 있는 가장 최근 공시로 내려간다.
+      3. 그런 공시가 없으면 최신을 그대로 쓴다(폴백 아님 — 실제로 아무도 목표를 공시하지
+         않은 것이고, 그건 순위 불가로 정직하게 남아야 한다).
     """
     if not ordered_plans:
         return None
-    latest = ordered_plans[0]
-    if disclosed_axis_count(latest) > 0:
-        return PlanChoice(plan=latest, used_fallback=False)
-    for older in ordered_plans[1:]:
+
+    candidates = list(ordered_plans)
+    used_fallback = False
+
+    # 1) 재공시 건너뛰기 — 연쇄(재공시가 재공시를 가리키는 경우)도 따라간다.
+    #    무한 루프 방지를 위해 방문한 날짜를 기억하고, 후보 수만큼만 시도한다.
+    seen_dates: set[str] = set()
+    for _ in range(len(candidates)):
+        head = candidates[0]
+        if head.get("body_signal") != REFILING:
+            break
+        ref = head.get("body_reference_date")
+        if ref and ref not in seen_dates:
+            seen_dates.add(ref)
+            target = [c for c in candidates if c.get("disclosure_date") == ref]
+            if target:
+                # 가리킨 공시를 맨 앞으로(그 뒤로는 그보다 오래된 것들만 남긴다)
+                idx = candidates.index(target[0])
+                candidates = candidates[idx:]
+                used_fallback = True
+                continue
+        # 날짜를 못 읽었거나 그 공시가 없다 → 이 문서를 빼고 다음으로
+        if len(candidates) == 1:
+            break  # 남은 게 이것뿐이면 그대로 둔다(빈 결과보다 낫다)
+        candidates = candidates[1:]
+        used_fallback = True
+
+    head = candidates[0]
+    if disclosed_axis_count(head) > 0:
+        return PlanChoice(plan=head, used_fallback=used_fallback)
+
+    # 2) 0축이면 목표가 있는 가장 최근 공시로
+    for older in candidates[1:]:
         if disclosed_axis_count(older) > 0:
             return PlanChoice(plan=older, used_fallback=True)
-    return PlanChoice(plan=latest, used_fallback=False)
+
+    # 3) 아무도 목표를 공시하지 않았다
+    return PlanChoice(plan=head, used_fallback=used_fallback)

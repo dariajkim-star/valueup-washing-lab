@@ -25,6 +25,8 @@ export interface GapDetail {
   // 근거 공시가 최신이 아닌가(최신 공시에 목표가 없어 이전 공시로 폴백).
   plan_is_fallback: boolean;
   plan_newest_disclosure_date: string | null;
+  // 본문이 왜 우리 축을 못 채웠는가: axis_targets / other_metric / refiling / no_targets
+  plan_body_signal: string | null;
 }
 
 // POST /valueup/refresh/{corp_code} 응답 — 단계별 보고(성공/실패 한 값으로 뭉치지 않는다).

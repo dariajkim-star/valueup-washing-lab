@@ -138,6 +138,12 @@ class ValueupPlan(Base):
     period_end: Mapped[str | None] = mapped_column(String(10))  # 목표기간 종료
     buyback_planned: Mapped[bool | None] = mapped_column(Boolean)  # 자사주 계획 언급 여부
     raw_text: Mapped[str | None] = mapped_column(Text)  # 공시 원문(항상 보존)
+    # 본문이 **왜** 우리 축을 못 채웠는가(0018). axis_targets / other_metric / refiling /
+    # no_targets. "미공시"와 "다른 지표로 공시"와 "다른 공시를 가리킴"은 서로 다른 사실이고,
+    # 한 칸에 뭉치면 화면이 LG엔솔(매출·EBITDA로 명확히 공시)을 부실 공시로 보이게 한다.
+    body_signal: Mapped[str | None] = mapped_column(String(24))
+    # refiling일 때 가리킨 공시일. 못 읽으면 null(추측하지 않는다).
+    body_reference_date: Mapped[str | None] = mapped_column(String(10))
 
 
 class Ownership(Base):

@@ -46,7 +46,7 @@ def all_latest_plans(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
         text(
             "SELECT corp_code, plan_id, disclosure_date, target_roe, "
             "target_payout_ratio, target_total_return_ratio, period_start, "
-            "buyback_planned FROM valueup_plan "
+            "buyback_planned, body_signal, body_reference_date FROM valueup_plan "
             "WHERE disclosure_date <= :as_of "
             "ORDER BY corp_code, disclosure_date DESC, plan_id DESC"
         )

@@ -52,6 +52,9 @@ def latest_valueup_plan(
             "period_start": o.period_start,
             "period_end": o.period_end,
             "buyback_planned": o.buyback_planned,
+            # 선택 규칙이 재공시를 건너뛰려면 신호가 후보에 실려야 한다(0018)
+            "body_signal": o.body_signal,
+            "body_reference_date": o.body_reference_date,
         }
         for o in session.scalars(stmt).all()
     ]
@@ -213,6 +216,9 @@ def list_scores(
             # 재수집 전까지 DART 원문으로 갈 수 없다는 뜻. 빈 문자열로 뭉개지 않는다.
             "plan_disclosure_date": plan.disclosure_date if plan else None,
             "plan_rcept_no": plan.rcept_no if plan else None,
+            # 본문 신호(0018) — 축을 못 채웠을 때 **왜**인지. 화면이 "순위 불가"라고만
+            # 말하면 LG엔솔(매출·EBITDA로 명확히 공시)이 부실 공시로 읽힌다.
+            "plan_body_signal": plan.body_signal if plan else None,
             # 근거 공시가 그 종목의 최신이 아니면 폴백이다(최신 공시에 목표가 없어 이전
             # 공시로 내려간 경우). 파생값이라 저장하지 않고 서빙 시점에 판정한다.
             "plan_is_fallback": (

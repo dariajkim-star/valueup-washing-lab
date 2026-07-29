@@ -190,3 +190,7 @@ class GapAnalysisOut(BaseModel):
     # 이 사실 자체가 출처의 일부다 — "2024-10-29 공시 기준"만 쓰면 왜 최신이 아닌지 모른다.
     plan_is_fallback: bool = False
     plan_newest_disclosure_date: str | None = None
+    # 본문이 왜 우리 축을 못 채웠는가(0018): axis_targets / other_metric / refiling /
+    # no_targets. "미공시"와 "다른 지표로 공시"는 다른 사실이다 — 전자는 부실 공시고
+    # 후자는 우리 자에 눈금이 없는 것이다.
+    plan_body_signal: str | None = None
