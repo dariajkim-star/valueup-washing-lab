@@ -3,7 +3,14 @@ import { cleanup, render, screen } from "@testing-library/react";
 
 // vitest globals 미사용 시 testing-library 자동 cleanup이 비활성 — 명시적 cleanup
 afterEach(cleanup);
-import { MnaCell, OpacityCell, ValueUpCell, WashingBadge, ScoreBasisChip } from "./badges";
+import {
+  BuybackRetiredBadge,
+  MnaCell,
+  OpacityCell,
+  ValueUpCell,
+  WashingBadge,
+  ScoreBasisChip,
+} from "./badges";
 import type { ScreeningRow } from "../api/screening";
 
 // null 시각 언어(3.2 범례)의 상태 우선순위 검증 — 금칙: 빈칸·0·"아니오"로 뭉개기.
@@ -33,6 +40,36 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     ...partial,
   };
 }
+
+describe("[AC3] BuybackRetiredBadge — 사실만, 판정 아님", () => {
+  it("retired → '최근 소각' 배지", () => {
+    render(<BuybackRetiredBadge status="retired" />);
+    expect(screen.getByText("최근 소각")).toBeTruthy();
+  });
+
+  it("라벨은 계획 '이행'을 주장하지 않는다", () => {
+    // 실측: retired 16종목 중 소각이 계획 기간 안에 든 건 5종목뿐(시작 전 3·종료 후 1·
+    // 미상 7). buyback_status는 계획 기간으로 걸러지지 않으므로(latest_financial_buyback),
+    // "이행"이라는 단어는 데이터에 없는 인과를 주장한다. 되돌림 방지용 회귀 테스트.
+    const { container } = render(<BuybackRetiredBadge status="retired" />);
+    expect(container.textContent).not.toContain("이행");
+    expect(container.querySelector("[title]")?.getAttribute("title")).toContain("계획 기간과 무관");
+  });
+  it("purchased_only·none은 배지 없음 — '안 했다'를 강조하면 판정이 된다", () => {
+    for (const s of ["purchased_only", "none"]) {
+      const { container } = render(<BuybackRetiredBadge status={s} />);
+      expect(container.textContent).toBe("");
+      cleanup();
+    }
+  });
+  it("unknown·null은 배지 없음 — 못 읽은 걸 벌하지 않는다", () => {
+    for (const s of ["unknown", null]) {
+      const { container } = render(<BuybackRetiredBadge status={s} />);
+      expect(container.textContent).toBe("");
+      cleanup();
+    }
+  });
+});
 
 describe("WashingBadge — 3상태", () => {
   it("true → 워싱 의심", () => {

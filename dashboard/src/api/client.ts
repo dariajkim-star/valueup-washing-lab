@@ -18,6 +18,35 @@ export class ApiRequestError extends Error {
   }
 }
 
+async function parseError(res: Response): Promise<ApiRequestError> {
+  let body: { detail?: unknown; code?: string } = {};
+  try {
+    body = await res.json();
+  } catch {
+    /* 본문 없는 에러 */
+  }
+  return new ApiRequestError({
+    detail: body.detail ?? res.statusText,
+    code: body.code,
+    status: res.status,
+  });
+}
+
+// 쓰기 경로(현재는 /valueup/refresh 하나). GET과 달리 쿼리스트링이 아니라 경로에 대상을
+// 담고, 응답 본문이 **무엇이 실제로 바뀌었는지**를 단계별로 돌려준다.
+export async function apiPost<T>(path: string, params?: Record<string, unknown>): Promise<T> {
+  const qs = new URLSearchParams();
+  if (params) {
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === null || v === "") continue;
+      qs.append(k, String(v));
+    }
+  }
+  const res = await fetch(`/api${path}${qs.toString() ? `?${qs}` : ""}`, { method: "POST" });
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as T;
+}
+
 export async function apiGet<T>(path: string, params?: Record<string, unknown>): Promise<T> {
   const qs = new URLSearchParams();
   if (params) {

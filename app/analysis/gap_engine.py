@@ -318,6 +318,8 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
             "buyback_retired": retired,
             "buyback_status": status,
             "score_basis": score_basis,
+            # 근거 공시의 신원(0016) — 서빙이 선택 규칙을 재현하지 않고 이것으로 조인한다.
+            "source_plan_id": plan.get("plan_id"),
         },
     )
     return True

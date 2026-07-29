@@ -33,6 +33,8 @@ from sqlalchemy.orm import Session
 
 from app.analysis.gap_engine import _validate_as_of  # as_of 검증 재사용(중복 정의 금지)
 from app.analysis.mna_engine import _pct_rank_high, _sector_bucket
+from app.analysis.plan_selection import OPACITY_AXES
+from app.analysis.plan_selection import opacity_axes as _plan_opacity_axes
 from app.config import settings
 from app.db import SessionLocal
 from app.repositories import opacity_score as repo
@@ -48,18 +50,11 @@ logger = logging.getLogger(__name__)
 #     (각각 세면 총주주환원율만 약속한 기업이 부당하게 불투명해진다 — Boundary 지적).
 #   - buyback: None만 '미공시'. False는 "자사주 계획 없음"을 **공시한** 것이므로 불투명 아님
 #     (_washing_flag가 buyback_planned를 3치로 다루는 것과 같은 기준).
-_OPACITY_AXES = ("roe", "payout", "period", "buyback")
-
-
-def opacity_axes(plan: Mapping[str, object]) -> dict[str, bool]:
-    """계획의 목표 공시 여부 → 축별 '미공시(True=불투명)' 판정. 4축(위 설계 근거)."""
-    return {
-        "roe": plan.get("target_roe") is None,
-        "payout": plan.get("target_payout_ratio") is None
-        and plan.get("target_total_return_ratio") is None,
-        "period": plan.get("period_start") is None,
-        "buyback": plan.get("buyback_planned") is None,
-    }
+# 축 정의의 실제 소유자는 plan_selection이다(2026-07-29). 공시 선택 규칙이 "목표가 몇 축
+# 있는가"로 폴백을 판정하므로, 축을 두 벌로 두면 **채점에 쓴 축**과 **불투명도를 센 축**이
+# 어긋난다. 여기서는 이름만 유지(호출부·테스트 호환).
+_OPACITY_AXES = OPACITY_AXES
+opacity_axes = _plan_opacity_axes
 
 
 def opacity_count(plan: Mapping[str, object]) -> int:

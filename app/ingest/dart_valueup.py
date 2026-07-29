@@ -29,6 +29,7 @@ from requests.adapters import HTTPAdapter
 from sqlalchemy.orm import Session
 from urllib3.util.retry import Retry
 
+from app.analysis.plan_signals import classify_body
 from app.config import settings
 from app.ingest.base import SourceAdapter
 from app.ingest.dart import (
@@ -358,6 +359,10 @@ class DartValueupAdapter(SourceAdapter):
                         "disclosure_date": disclosure_date,
                         "report_nm": report_nm,
                         "raw_text": raw_text,
+                        # 출처 추적(0015): 여기까지 이미 손에 쥔 값인데 예전엔 document.xml
+                        # 호출에만 쓰고 버렸다 — 그래서 "어느 공시에서 나온 목표인가"를
+                        # DB만 보고는 알 수 없었고, 첨부 목록 URL도 조립할 수 없었다.
+                        "rcept_no": str(rcept_no),
                     }
                 )
             total_page = _safe_int(data.get("total_page"), 1)
@@ -422,8 +427,14 @@ class DartValueupAdapter(SourceAdapter):
                 "corp_code": corp_code,
                 "disclosure_date": plan["disclosure_date"],
                 "raw_text": plan.get("raw_text"),
+                "rcept_no": plan.get("rcept_no"),  # 출처 추적(0015)
             }
             rec.update(parse_targets(plan.get("raw_text")))
+            # 본문 신호(0018): 축을 못 채웠을 때 **왜**인지를 수집 시점에 함께 굳힌다.
+            # 원문이 여기 있을 때 판정해야 서빙이 raw_text를 다시 읽지 않는다.
+            signal = classify_body(plan.get("raw_text"), rec)
+            rec["body_signal"] = signal.kind
+            rec["body_reference_date"] = signal.referenced_date
             recs.append(rec)
         return recs
 

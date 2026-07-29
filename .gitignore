@@ -30,3 +30,9 @@ _bmad/
 
 # Tableau export 산출물(3.5) — 재생성 가능
 exports/
+
+# 밸류업 계획 첨부 PDF(수동 취득분) — 타사 저작물이고 용량이 크다.
+# 규약·실행법을 적은 README와 폴더 구조만 추적한다. 파싱 결과(목표·근거 페이지·원문
+# 텍스트)는 DB에 남으므로 파일을 지워도 분석 결과는 보존된다.
+attachments/*
+!attachments/README.md

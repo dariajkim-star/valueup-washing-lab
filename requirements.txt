@@ -18,6 +18,12 @@ pykrx==1.0.51                  # KRX 시세 / 시가총액 / PBR
 requests==2.32.3               # OpenDART REST 직접 호출(재무·공시·배당·자사주) + ECOS REST
                                # dart-fss는 XBRL 파싱 불안정으로 1.2에서 제거(REST 전환) — 스토리 문서 참조
 
+# 첨부(PDF) 파싱 — 대기업 다수가 밸류업 계획을 본문이 아니라 첨부 PDF로 낸다.
+# DART robots.txt가 뷰어·다운로드 경로(/dsaf001/main.do, /report/download.do, /pdf/download/)를
+# 전부 Disallow하므로 **취득은 자동화하지 않는다**(사람이 받아 attachments/에 둔다).
+# 코드가 하는 일은 받아둔 파일의 파싱·목표 추출·출처 기록뿐이다.
+pdfplumber==0.11.4             # 본문 + 표 추출(계획서가 대개 표 중심 덱)
+
 # 분석
 pandas==2.2.3
 numpy==2.2.1

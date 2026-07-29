@@ -121,6 +121,11 @@ class ValueupPlan(Base):
         String(8), ForeignKey("company.corp_code"), index=True
     )
     disclosure_date: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD (접수일)
+    # DART 접수번호(14자리, 선행 0 있음 → 문자열). **출처 추적의 최소 단위**:
+    # 이 값이 있어야 DART 뷰어·첨부 목록 URL을 조립할 수 있다. 수집기가 document.xml을
+    # 부를 때 이미 갖고 있던 값인데 저장하지 않아 첨부 수집의 1차 관문이 막혀 있었다.
+    # null = 이 컬럼 신설(0015) 이전에 적재된 행 — 재수집해야 채워진다.
+    rcept_no: Mapped[str | None] = mapped_column(String(14), index=True)
     # 목표치 (best-effort 파싱, 없으면 null)
     target_roe: Mapped[float | None] = mapped_column(Float)  # %
     target_payout_ratio: Mapped[float | None] = mapped_column(Float)  # 배당성향 %
@@ -133,6 +138,15 @@ class ValueupPlan(Base):
     period_end: Mapped[str | None] = mapped_column(String(10))  # 목표기간 종료
     buyback_planned: Mapped[bool | None] = mapped_column(Boolean)  # 자사주 계획 언급 여부
     raw_text: Mapped[str | None] = mapped_column(Text)  # 공시 원문(항상 보존)
+    # 본문이 **왜** 우리 축을 못 채웠는가(0018). axis_targets / other_metric / refiling /
+    # no_targets. "미공시"와 "다른 지표로 공시"와 "다른 공시를 가리킴"은 서로 다른 사실이고,
+    # 한 칸에 뭉치면 화면이 LG엔솔(매출·EBITDA로 명확히 공시)을 부실 공시로 보이게 한다.
+    body_signal: Mapped[str | None] = mapped_column(String(24))
+    # refiling일 때 가리킨 공시일. 못 읽으면 null(추측하지 않는다).
+    body_reference_date: Mapped[str | None] = mapped_column(String(10))
+    # 공시의 '관련 웹페이지' 필드가 가리킨 URL(0019). DART 첨부 경로가 닫힌 뒤 남은 길이며,
+    # 회사가 규제 공시에서 스스로 지목한 주소다. 실측 49/60 공시가 담고 있다.
+    related_url: Mapped[str | None] = mapped_column(String(500))
 
 
 class Ownership(Base):
@@ -175,6 +189,49 @@ class MacroIndicator(Base):
     frequency: Mapped[str | None] = mapped_column(String(1))  # M(월)/D(일) — look-ahead 판별용
 
 
+class PlanAttachment(Base):
+    """밸류업 계획 **첨부(PDF)** 원천 (writer = attachment ingest, 0017).
+
+    valueup_plan(본문)의 형제다. 같은 행에 섞지 않는 이유: valueup_plan upsert는
+    "재파싱 결과가 권위 → null 포함 전체 교체"라, 본문 재수집 한 번에 첨부 파싱 결과가
+    통째로 날아간다. 두 원천은 수명주기가 다르다.
+
+    ⚠ 취득은 자동화하지 않는다 — DART robots.txt가 뷰어·첨부·PDF 다운로드 경로를 전부
+    Disallow한다(2026-07-29 확인). 파일은 사람이 받아 attachments/에 두고, 코드는 읽기만
+    한다. acquired_by가 그 사실을 데이터에 남긴다.
+    """
+
+    __tablename__ = "plan_attachment"
+    __table_args__ = (
+        UniqueConstraint("plan_id", "filename", name="uq_plan_attachment_plan_file"),
+    )
+
+    attachment_id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    plan_id: Mapped[int] = mapped_column(Integer, index=True)
+    corp_code: Mapped[str] = mapped_column(String(8), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    sha256: Mapped[str] = mapped_column(String(64))  # 재파싱 멱등성 기준
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    acquired_by: Mapped[str] = mapped_column(String(20), default="manual")
+    # ir_site로 받았을 때의 정확한 출처 URL(0019). 같은 파일을 다시 받을 때 어디로
+    # 가야 하는지도 여기 있다.
+    source_url: Mapped[str | None] = mapped_column(String(500))
+    acquired_at: Mapped[str | None] = mapped_column(String(10))
+    parsed_at: Mapped[str | None] = mapped_column(String(10))
+    target_roe: Mapped[float | None] = mapped_column(Float)
+    target_payout_ratio: Mapped[float | None] = mapped_column(Float)
+    target_total_return_ratio: Mapped[float | None] = mapped_column(Float)
+    target_pbr: Mapped[float | None] = mapped_column(Float)
+    period_start: Mapped[str | None] = mapped_column(String(10))
+    period_end: Mapped[str | None] = mapped_column(String(10))
+    buyback_planned: Mapped[bool | None] = mapped_column(Boolean)
+    # 필드 → 근거 페이지({"target_roe": 7}). "첨부 PDF p.7"을 화면에 쓰기 위한 것.
+    evidence_json: Mapped[str | None] = mapped_column(Text)
+    # 파싱 실패를 조용히 null로 넘기지 않는다 — 왜 못 읽었는지 남긴다.
+    parse_error: Mapped[str | None] = mapped_column(String(200))
+    extracted_text: Mapped[str | None] = mapped_column(Text)  # 원문 보존(재파싱 가능)
+
+
 class ValueupScore(Base):
     """Value-up 갭 스코어 (writer = gap_engine, AD-4). 자연키 (corp_code, as_of), AD-8.
 
@@ -208,6 +265,11 @@ class ValueupScore(Base):
     # 기업이 공시한 항목만으로 채점하므로 가중치 기반이 종목마다 다르다 — 그 사실을
     # 숨기면 점수를 종목 간 비교에 잘못 쓰게 된다(mna의 population_basis와 같은 이유).
     score_basis: Mapped[str | None] = mapped_column(String(40))
+    # 이 점수가 실제로 근거로 삼은 valueup_plan(0016). 서빙이 "최신 공시" 규칙을 **재현하지
+    # 않고** 이 id로 조인하게 하려는 것 — 규칙이 엔진과 서빙 두 곳에 있으면 어긋나는 순간
+    # 화면이 실제 근거가 아닌 공시를 출처로 표시한다(출처 표기의 목적과 정반대).
+    # null = 0016 이전 채점분(재채점해야 채워짐).
+    source_plan_id: Mapped[int | None] = mapped_column(Integer)
 
 
 class MnaScore(Base):
