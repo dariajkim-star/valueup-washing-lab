@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.schemas import GapAnalysisOut, Page
+from app.models import Company
+from app.schemas import GapAnalysisOut, Page, RefreshOut
+from app.services import refresh as refresh_service
 from app.services import valueup as service
 
 router = APIRouter(prefix="/valueup", tags=["valueup"])
@@ -63,3 +65,25 @@ def washing_ranking(
     filters = {"market": market, "min_progress": min_progress,
                "as_of": as_of.isoformat() if as_of else None}
     return service.washing_ranking(db, filters, page, size)
+
+
+@router.post(
+    "/refresh/{corp_code}",
+    response_model=RefreshOut,
+    description=(
+        "해당 종목의 밸류업 공시를 DART에서 다시 받아 valueup_plan을 갱신하고(rcept_no 포함) "
+        "점수를 재계산한다. **불투명도 순위는 전 종목이 함께 재계산된다** — opacity_rank는 "
+        "모집단 백분위라 한 종목만 갱신하면 서로 다른 모집단 기준의 등수가 섞이기 때문. "
+        "외부 API(DART) 호출이 포함돼 수 초 이상 걸릴 수 있다."
+    ),
+)
+def refresh_company(
+    corp_code: str = Path(min_length=8, max_length=8, pattern=r"^\d{8}$"),
+    as_of: date | None = Query(None, description="재채점 기준일(YYYY-MM-DD), 기본=오늘"),
+    db: Session = Depends(get_db),
+) -> RefreshOut:
+    # 존재하지 않는 종목에 DART 호출을 낭비하지 않는다(그리고 404가 200 빈 결과보다 정직하다)
+    if db.get(Company, corp_code) is None:
+        raise HTTPException(status_code=404, detail=f"종목을 찾을 수 없습니다: {corp_code}")
+    r = refresh_service.refresh_company(corp_code, as_of.isoformat() if as_of else None)
+    return RefreshOut(**vars(r), complete=r.complete)

@@ -24,6 +24,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     target_roe: null, actual_roe: null, roe_gap: null, achievement_rate: null,
     progress_rate: null, execution_score: null, score_basis: null,
     washing_flag: null, buyback_status: null,
+    plan_disclosure_date: null, plan_rcept_no: null,
     ...partial,
   };
 }

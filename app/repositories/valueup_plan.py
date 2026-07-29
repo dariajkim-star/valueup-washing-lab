@@ -43,4 +43,9 @@ def upsert_valueup_plan(session: Session, rec: dict) -> ValueupPlan:
     for field in _TARGET_FIELDS:
         setattr(obj, field, rec.get(field))  # null 포함 전체 교체
     obj.raw_text = rec.get("raw_text")
+    # 출처(0015): 접수번호는 **null로 덮어쓰지 않는다.** 목표 필드와 규칙이 다른 이유 —
+    # 목표는 재파싱 결과가 권위(오탐 정정이 목적)지만, rcept_no는 파싱 산물이 아니라
+    # 그 문서의 신원이다. 이미 아는 신원을 모른다고 되돌릴 이유가 없다.
+    if rec.get("rcept_no"):
+        obj.rcept_no = rec["rcept_no"]
     return obj

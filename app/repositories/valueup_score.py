@@ -155,8 +155,29 @@ def list_scores(
     if filters.get("washing_only"):
         conds.append(ValueupScore.washing_flag.is_(True))
 
-    base = select(ValueupScore, Company).join(
+    # 출처(0015): 점수가 **어느 공시에서 나왔는지**를 함께 서빙한다. 지금까지 화면은
+    # "목표 ROE 10%"만 보여주고 그 숫자가 2024년 공시인지 2026년 공시인지 말하지 않았다.
+    # 자유서식 공시는 회사가 여러 번 내고 나중 것이 표지 통지문일 수도 있어(실측 7종목),
+    # 공시일 없이 목표만 보여주면 사용자가 그 값의 신선도를 판단할 수 없다.
+    #
+    # 선택 규칙은 latest_valueup_plan(엔진이 쓰는 것)과 **글자 그대로 같아야** 한다 —
+    # 다르면 화면이 실제 채점 근거가 아닌 공시를 출처로 표시하게 된다.
+    latest_plan_id = (
+        select(ValueupPlan.plan_id)
+        .where(
+            ValueupPlan.corp_code == ValueupScore.corp_code,
+            ValueupPlan.disclosure_date <= filters["as_of"],
+        )
+        .order_by(ValueupPlan.disclosure_date.desc(), ValueupPlan.plan_id.desc())
+        .limit(1)
+        .correlate(ValueupScore)
+        .scalar_subquery()
+    )
+
+    base = select(ValueupScore, Company, ValueupPlan).join(
         Company, Company.corp_code == ValueupScore.corp_code
+    ).outerjoin(  # outer: 계획이 사라진 스코어도 행을 잃지 않는다(출처만 null)
+        ValueupPlan, ValueupPlan.plan_id == latest_plan_id
     ).where(*conds)
 
     total = session.scalar(
@@ -171,8 +192,12 @@ def list_scores(
     ).all()
 
     items = []
-    for score, company in rows:
+    for score, company, plan in rows:
         items.append({
+            # 출처(0015) — null 계약: plan_rcept_no가 null이면 "0015 이전 적재분"이라
+            # 재수집 전까지 DART 원문으로 갈 수 없다는 뜻. 빈 문자열로 뭉개지 않는다.
+            "plan_disclosure_date": plan.disclosure_date if plan else None,
+            "plan_rcept_no": plan.rcept_no if plan else None,
             "corp_code": score.corp_code,
             "corp_name": company.corp_name,
             "market": company.market,

@@ -121,6 +121,11 @@ class ValueupPlan(Base):
         String(8), ForeignKey("company.corp_code"), index=True
     )
     disclosure_date: Mapped[str] = mapped_column(String(10))  # ISO YYYY-MM-DD (접수일)
+    # DART 접수번호(14자리, 선행 0 있음 → 문자열). **출처 추적의 최소 단위**:
+    # 이 값이 있어야 DART 뷰어·첨부 목록 URL을 조립할 수 있다. 수집기가 document.xml을
+    # 부를 때 이미 갖고 있던 값인데 저장하지 않아 첨부 수집의 1차 관문이 막혀 있었다.
+    # null = 이 컬럼 신설(0015) 이전에 적재된 행 — 재수집해야 채워진다.
+    rcept_no: Mapped[str | None] = mapped_column(String(14), index=True)
     # 목표치 (best-effort 파싱, 없으면 null)
     target_roe: Mapped[float | None] = mapped_column(Float)  # %
     target_payout_ratio: Mapped[float | None] = mapped_column(Float)  # 배당성향 %

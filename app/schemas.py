@@ -139,6 +139,28 @@ class MacroSnapshotOut(BaseModel):
     value: float | None = None
 
 
+class RefreshOut(BaseModel):
+    """단건 새로고침 결과 — 단계별로 보고한다.
+
+    '성공/실패' 한 값으로 뭉치지 않는 이유: 부분 성공이 정상 경로다(수집은 됐는데 채점이
+    실패하거나, 반대이거나). 어느 단계가 어떻게 됐는지 화면이 말할 수 있어야 사용자가
+    다시 눌러야 할지 판단한다 — 이 프로젝트의 null 계약과 같은 정신.
+    """
+
+    corp_code: str
+    as_of: str
+    plans_ingested: int = 0
+    ingest_ok: bool = False
+    ingest_error: str | None = None
+    scored: bool = False
+    score_error: str | None = None
+    # 주의: 전 종목 재계산 결과다(백분위라 부분 갱신 불가) — 이 종목만의 상태가 아니다.
+    opacity_reranked: bool = False
+    opacity_error: str | None = None
+    warnings: list[str] = []
+    complete: bool = False
+
+
 class GapAnalysisOut(BaseModel):
     """valueup_score + company 조인 결과 (2.4 갭분석/워싱랭킹).
 
@@ -159,3 +181,8 @@ class GapAnalysisOut(BaseModel):
     score_basis: str | None = None  # 채점 근거(5-1) — ScreeningOut과 같은 계약
     washing_flag: bool | None = None
     buyback_status: str | None = None
+    # 출처(0015) — 이 점수가 **어느 공시**에서 나왔는가. 목표값만 보여주고 출처를 감추면
+    # 사용자가 신선도를 판단할 수 없다(실측: 7종목이 최신 공시보다 과거 공시에 목표가 더
+    # 많다). rcept_no가 null이면 0015 이전 적재분 = DART 원문 링크 조립 불가.
+    plan_disclosure_date: str | None = None
+    plan_rcept_no: str | None = None

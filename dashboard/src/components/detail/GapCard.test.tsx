@@ -1,9 +1,17 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render as rtlRender, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { GapCard } from "./GapCard";
 import type { GapDetail } from "../../api/detail";
 
 afterEach(cleanup);
+
+// GapCard는 출처 블록에서 새로고침 mutation을 쓴다(2026-07-29) → QueryClient 필요.
+// 재시도를 끄는 이유: 테스트가 네트워크 실패를 기다리며 늘어지지 않게.
+function render(ui: React.ReactElement) {
+  const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
+  return rtlRender(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>);
+}
 
 // 3.4 재리뷰 High — `v ? v*100 : null` truthiness가 정상값 0을 "—"(판단불가)로 세탁하던
 // 버그의 회귀 테스트. 0%와 null은 다른 의미다(백엔드 null≠0 계약의 프론트 연장).
@@ -13,6 +21,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     corp_code: "00000000", corp_name: null, market: null, as_of: "2026-07-13",
     target_roe: null, actual_roe: null, roe_gap: null, achievement_rate: null,
     progress_rate: null, execution_score: null, score_basis: null, washing_flag: null, buyback_status: null,
+    plan_disclosure_date: null, plan_rcept_no: null,
     ...partial,
   };
 }
@@ -50,5 +59,37 @@ describe("GapCard — 0과 null 구분", () => {
   it("gap=null(성공+빈결과)이면 미집계 안내", () => {
     render(<GapCard gap={null} />);
     expect(screen.getByText(/엔진 미집계/)).toBeTruthy();
+  });
+});
+
+describe("출처 표기(0015) — 목표값의 신선도를 감추지 않는다", () => {
+  it("공시일과 DART 원문 링크를 접수번호로 조립한다", () => {
+    render(<GapCard gap={gap({ plan_disclosure_date: "2024-11-27", plan_rcept_no: "20241127000123" })} />);
+    expect(screen.getByText(/2024-11-27 공시/)).toBeTruthy();
+    const link = screen.getByText("DART 원문") as HTMLAnchorElement;
+    expect(link.href).toContain("rcpNo=20241127000123");
+  });
+
+  it("접수번호가 null이면 링크를 만들어내지 않고 이유를 말한다", () => {
+    // 0015 이전 적재분 — 빈칸으로 뭉개면 사용자는 왜 원문에 못 가는지 알 수 없다.
+    render(<GapCard gap={gap({ plan_disclosure_date: "2024-11-27", plan_rcept_no: null })} />);
+    expect(screen.queryByText("DART 원문")).toBeNull();
+    expect(screen.getByText(/접수번호 미보유/)).toBeTruthy();
+  });
+
+  it("계획 공시 자체가 없으면 그렇게 말한다", () => {
+    render(<GapCard gap={gap({ plan_disclosure_date: null, plan_rcept_no: null })} />);
+    expect(screen.getByText("계획 공시 없음")).toBeTruthy();
+  });
+
+  it("업데이트 버튼이 있다", () => {
+    render(<GapCard gap={gap({})} />);
+    expect(screen.getByText("업데이트")).toBeTruthy();
+  });
+
+  it("[2026-07-28] 자사주 라벨은 '이행'을 주장하지 않는다", () => {
+    // buyback_status는 계획 기간과 무관한 직전 재무 기간 값 — 목록 배지와 같은 단어를 쓴다.
+    render(<GapCard gap={gap({ buyback_status: "retired" })} />);
+    expect(screen.getByText("최근 소각")).toBeTruthy();
   });
 });
