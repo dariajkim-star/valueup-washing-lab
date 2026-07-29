@@ -177,7 +177,24 @@ action_items:
   - epic: 6
     action: "첨부(PDF/HWP)·관련 웹페이지 수집 — opacity의 구조적 사각지대"
     owner: "리드"
-    status: open  # DART OpenAPI로 첨부 취득 불가(메모리: opacity-rank-attachment-blackhole). 대기업 목표가 본문 대신 첨부에 있어 미공시로 잡힌다 — 별도 원천 결정 필요
+    status: done  # 2026-07-29 착수·결론. DART 경로 폐기(robots.txt Disallow + 첨부 실물 부재, 실증 2회) / 회사 IR 경로 채택(robots 전부 허용) → LG화학 1건 자동 취득 성공(불투명 86→55) / 나머지는 JS 다운로드라 정적 HTTP 불가 → 수동 취득+자동 파싱 경로 구축 완료. 상세: v2-backlog P1-3
+  # ===== 2026-07-29 첨부 수집 국면 =====
+  - epic: 6
+    action: "첨부 PDF 파싱 층 — 페이지 단위 근거·본문 결합·못읽음 구분"
+    owner: "AI"
+    status: done  # 마이그 0017·0019. LG화학 실물로 검증(15쪽, ROE 10.0%/배당성향 20.0% p.12). merge_attachment로 채점 반영
+  - epic: 6
+    action: "본문 신호 분류 — '미공시'와 '다른 지표로 공시'와 '재공시' 구분"
+    owner: "AI"
+    status: done  # 마이그 0018. 60건 분류: axis_targets 40·no_targets 13·other_metric 4·refiling 3. 금융지주 3사의 최신 공시가 전부 재공시였음이 드러남
+  - epic: 6
+    action: "P1-5 불투명 4축이 기업의 실제 약속을 담지 못하는 문제 — 축 확장 여부"
+    owner: "리드"
+    status: open  # 수집으로 안 풀린다(축이 없는 것이지 문서가 없는 것이 아님). SK하이닉스(CapEx)·LG엔솔(매출·EBITDA)은 명확히 공시했으나 우리 축 밖. 유니버스 33종목에선 현 상태 유지 권고
+  - epic: 6
+    action: "IR 사이트 헤드리스 브라우저 자동화 착수 여부"
+    owner: "리드"
+    status: open  # 신한 등은 계획서를 연도별로 보유하나 다운로드가 JS 이벤트 전용(href·onclick·data-* 전무). 사이트별 어댑터가 필요해 비용 대비 판단 요함
   - epic: 6
     action: "epic 4·5·6 통합 회고 실시 여부 결정(개별 회고 3건 미실시 상태)"
     owner: "리드"
