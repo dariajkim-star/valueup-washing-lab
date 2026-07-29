@@ -54,7 +54,8 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
         rows = [
             {
                 "plan_id": p.plan_id, "disclosure_date": p.disclosure_date,
-                "rcept_no": p.rcept_no, "target_roe": p.target_roe,
+                "rcept_no": p.rcept_no, "related_url": p.related_url,
+                "target_roe": p.target_roe,
                 "target_payout_ratio": p.target_payout_ratio,
                 "target_total_return_ratio": p.target_total_return_ratio,
                 "period_start": p.period_start, "buyback_planned": p.buyback_planned,
@@ -92,6 +93,7 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
                 else f"{corp_code}_{chosen['disclosure_date']}.pdf"
             ),
             "body_signal": chosen.get("body_signal"),
+            "related_url": chosen.get("related_url"),
         })
     out.sort(key=lambda r: (r["priority"], r["corp_name"]))
     return out
@@ -118,10 +120,15 @@ def main() -> int:
             # 받아도 우리 축이 안 나올 수 있다는 신호 — 헛수고를 미리 알린다.
             print("   주의:  본문에 목표가 있으나 **우리 4축 밖**의 지표다"
                   "(예: 매출·EBITDA·CapEx). 첨부에도 ROE·환원율이 없을 수 있다.")
-        if r["url"]:
-            print(f"   열기:  {r['url']}")
+        # ⚠ DART에는 첨부 실물이 없다(2026-07-29 실증 2회: robots.txt Disallow + 사람이
+        # 직접 받아도 본문 통지문 HTML뿐). 실물은 회사 IR 페이지에 있으므로 그쪽을
+        # 1순위로 안내한다. DART 링크는 원문 대조용으로만 남긴다.
+        if r["related_url"]:
+            print(f"   받기:  {r['related_url']}   ← 회사 IR(계획서 실물)")
         else:
-            print("   열기:  접수번호 미보유 — 상세 화면의 '업데이트'로 재수집 후 다시 실행")
+            print("   받기:  공시에 '관련 웹페이지'가 없다 — 회사 IR을 직접 찾아야 함")
+        if r["url"]:
+            print(f"   원문:  {r['url']}   (DART 공시 본문 — 첨부 실물은 없음)")
         print(f"   저장:  attachments/{r['save_as']}\n")
     print("받은 뒤:  python -m app.ingest.run_attachments")
     return 0

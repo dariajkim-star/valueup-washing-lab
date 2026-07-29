@@ -39,6 +39,8 @@ class IrRunResult:
     fetched: int = 0
     parsed: list[tuple[str, str, int]] = field(default_factory=list)  # (종목, 파일, 축수)
     skipped: list[tuple[str, str]] = field(default_factory=list)      # (종목, 사유)
+    # 1홉으로 찾아낸 것 (종목, 랜딩페이지, 실제 PDF) — 출처 체인을 사람이 검증할 수 있게
+    followed: list[tuple[str, str, str]] = field(default_factory=list)
 
 
 def backfill_urls(dry_run: bool = False) -> int:
@@ -57,7 +59,8 @@ def backfill_urls(dry_run: bool = False) -> int:
     return n
 
 
-def run(corp_code: str | None = None, dry_run: bool = False) -> IrRunResult:
+def run(corp_code: str | None = None, dry_run: bool = False,
+        follow: bool = False) -> IrRunResult:
     result = IrRunResult()
     fetcher = IrSiteFetcher()
 
@@ -77,9 +80,25 @@ def run(corp_code: str | None = None, dry_run: bool = False) -> IrRunResult:
     for plan_id, code, name, url, rcept, date in targets:
         stem = rcept or f"{code}_{date}"
         dest = ATTACH_DIR / f"{stem}.pdf"
-        fr = fetcher.fetch_pdf(url, dest)
+        pdf_url = url
+        fr = fetcher.fetch_pdf(pdf_url, dest)
+
+        # 1홉 추적: 공시가 준 주소가 랜딩 페이지면 그 안의 계획서 PDF 링크까지만 따라간다.
+        # 실측상 이 경우가 다수다(49건 중 43건이 not_pdf). 페이지의 페이지로는 넘어가지
+        # 않으므로 크롤링이 아니다.
+        if follow and fr.error and fr.error.startswith("not_pdf"):
+            found, ferr, cands = fetcher.resolve_plan_pdf(url)
+            if found:
+                pdf_url = found
+                fr = fetcher.fetch_pdf(pdf_url, dest)
+                if not fr.error:
+                    result.followed.append((name or code, url, pdf_url))
+            else:
+                result.skipped.append((name or code, f"{ferr} ({url})"))
+                continue
+
         if fr.error:
-            result.skipped.append((name or code, f"{fr.error} ({url})"))
+            result.skipped.append((name or code, f"{fr.error} ({pdf_url})"))
             continue
         result.fetched += 1
 
@@ -102,7 +121,9 @@ def run(corp_code: str | None = None, dry_run: bool = False) -> IrRunResult:
                     )
                     session.add(obj)
                 obj.acquired_by = "ir_site"
-                obj.source_url = url
+                # 실제로 받은 PDF의 주소(1홉으로 찾았다면 그 결과). 랜딩 페이지는
+                # valueup_plan.related_url에 이미 있어 출처 체인이 복원된다.
+                obj.source_url = pdf_url
                 obj.sha256 = parsed.sha256
                 obj.page_count = parsed.page_count
                 obj.parsed_at = today_iso()
@@ -121,6 +142,8 @@ def main() -> int:
                     help="raw_text에서 related_url만 채우고 종료(네트워크 0)")
     ap.add_argument("--corp", help="특정 corp_code만")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--follow", action="store_true",
+                    help="랜딩 페이지면 그 안의 계획서 PDF 링크까지 1홉 추적")
     args = ap.parse_args()
 
     if args.backfill_urls:
@@ -128,10 +151,16 @@ def main() -> int:
         print(f"{'(dry-run) ' if args.dry_run else ''}related_url 채움: {n}건")
         return 0
 
-    r = run(args.corp, args.dry_run)
+    r = run(args.corp, args.dry_run, follow=args.follow)
     print(f"\n받음 {r.fetched}건")
     for name, fn, axes in r.parsed:
         print(f"  ✓ {name[:20]:22s} {fn}  목표 {axes}/4축")
+    if r.followed:
+        print(f"\n1홉 추적으로 찾음 {len(r.followed)}건 — 출처 체인을 확인하세요")
+        for name, page, pdf in r.followed:
+            print(f"  {name[:20]:22s}")
+            print(f"     페이지: {page}")
+            print(f"     PDF   : {pdf}")
     if r.skipped:
         print(f"\n건너뜀 {len(r.skipped)}건")
         for name, why in r.skipped:
