@@ -22,6 +22,9 @@ export interface ScreeningRow {
   opacity_rank: number | null;
   opacity_count: number | null; // 미공시 축 수(0~4). 본문 전무(4)는 순위에서 제외돼 실질 0~3
   opacity_basis: string | null; // sector:{KSIC} / market_fallback / market
+  // 근거 공시의 본문 신호(0018): axis_targets/other_metric/refiling/no_targets.
+  // '순위 불가'가 부실 공시인지 "타 지표로 공시"(우리 자에 눈금 없음)인지 구분용.
+  plan_body_signal: string | null;
   has_valueup_score: boolean; // false=엔진 미집계(산출불가와 구분)
   has_mna_score: boolean;
   has_opacity_score: boolean;

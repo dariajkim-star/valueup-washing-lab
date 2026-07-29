@@ -22,6 +22,10 @@ dashboard/.vite/
 
 # BMAD 내부 워크플로우 로그(deliverable 아님)
 **/.memlog.md
+# 예외 — washing-lab 파티 memlog는 **결정 원장**으로 승격됐다(파티 결정 2026-07-29).
+# epic-6이 create-story를 건너뛴 대가가 2주치 거짓 문서였고, 파티 주도 개발의 결정·근거·
+# AC·실측이 이 파일에 남는다. 원장이 git 밖이면 그 계약이 성립하지 않는다.
+!docs/party-mode/memories/washing-lab/.memlog.md
 
 # BMAD 도구 자체 — 프로젝트별 설치본(도구이지 제품 산출물이 아니라 커밋하지 않는다).
 # 각 프로젝트 폴더에서 claude를 실행하면 여기 스킬이 스코프로 로드된다.

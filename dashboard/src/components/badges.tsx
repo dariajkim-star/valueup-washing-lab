@@ -131,10 +131,20 @@ export function OpacityCell({ row }: { row: ScreeningRow }) {
   if (!row.has_opacity_score || row.opacity_rank === null) {
     // 순위 불가 — 계획 미공시이거나 본문 4축이 전부 비어 **읽을 수 없는** 공시.
     // 0("최투명")으로도, 1("최불투명")으로도 표시하지 않는다. 못 읽은 걸 벌하지 않는다.
+    // other_metric은 별도 표기(파티 결정 2026-07-29) — 회사는 명확히 약속했고(예: CapEx·
+    // 매출·EBITDA) 우리 자에 그 눈금이 없을 뿐이다. "부실 공시"와 묶으면 판정이 된다.
+    const otherMetric = row.plan_body_signal === "other_metric";
     return (
       <div className="flex flex-col items-end gap-0.5">
         <span className="text-[15px] font-bold text-gray-400">—</span>
-        <span className="text-[10px] text-gray-400">순위 불가</span>
+        <span
+          className="text-[10px] text-gray-400"
+          title={otherMetric
+            ? "목표를 공시했으나 우리가 재는 4축(ROE·환원율·기간·자사주) 밖의 지표다(예: 매출·EBITDA·CapEx). 상세 화면에 설명이 있다."
+            : undefined}
+        >
+          {otherMetric ? "타 지표로 공시" : "순위 불가"}
+        </span>
       </div>
     );
   }
@@ -197,12 +207,20 @@ export function BuybackRetiredBadge({ status }: { status: string | null }) {
   );
 }
 
+// [파티 결정 2026-07-29] market_fallback 라벨 "전체시장 폴백" → "시장 전체 비교".
+// 실측: KSIC sparsity로 peer 버킷이 서지 않아 **전건**이 market_fallback이다(3주째).
+// "폴백"은 일시적 강등처럼 읽히지만 현실은 상시 상태다 — 조건부 경고 배지 대신
+// 지금 사실인 문장으로 쓴다(소각 배지 "최근 소각" 정정과 같은 계열: 판정이 아니라 사실).
+// KSIC sparse 해소는 백로그에 살아 있다 — 라벨 정정이 문제 해결이 아니다.
 export function PopulationBasisChip({ basis }: { basis: string | null }) {
   if (!basis) return null;
-  let label = "전체시장";
+  let label = "시장 전체 비교";
+  let title: string | undefined;
   if (basis.startsWith("sector:")) label = `업종 내 (KSIC ${basis.slice(7)})`;
-  else if (basis === "market_fallback") label = "전체시장 폴백";
-  return <span className="text-[9px] text-gray-400">{label}</span>;
+  else if (basis === "market_fallback") {
+    title = "업종(KSIC) 데이터가 희소해 업종 내 비교가 서지 않아, 시장 전체를 모집단으로 비교한 순위다.";
+  }
+  return <span className="text-[9px] text-gray-400" title={title}>{label}</span>;
 }
 
 export function MarketPill({ market }: { market: string | null }) {

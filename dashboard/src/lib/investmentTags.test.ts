@@ -13,6 +13,7 @@ function header(partial: Partial<ScreeningRow>): ScreeningRow {
     washing_flag: null, buyback_status: null, buyback_executed: null,
     mna_target_score: null, population_basis: null,
     opacity_rank: null, opacity_count: null, opacity_basis: null,
+    plan_body_signal: null,
     has_valueup_score: true, has_mna_score: true, has_opacity_score: true,
     ...partial,
   };
