@@ -74,6 +74,54 @@ def disclosed_axis_count(plan: Mapping[str, Any]) -> int:
     return len(OPACITY_AXES) - sum(opacity_axes(plan).values())
 
 
+_MERGEABLE = (
+    "target_roe",
+    "target_payout_ratio",
+    "target_total_return_ratio",
+    "target_pbr",
+    "period_start",
+    "period_end",
+    "buyback_planned",
+)
+
+
+def merge_attachment(plan: dict[str, Any], attachment: Mapping[str, Any] | None) -> dict[str, Any]:
+    """본문 목표 + 첨부(계획서 PDF) 목표를 한 공시의 **유효 목표**로 합친다.
+
+    공시 본문은 "첨부된 계획을 참고하라"는 통지문인 경우가 많고, 실물은 첨부다. 둘은
+    경쟁하는 두 값이 아니라 **같은 공시의 두 조각**이므로 합쳐야 그 공시의 실제 약속이 된다.
+
+    규칙: 본문이 우선, 첨부는 **빈 축만 채운다.**
+      - 본문은 규제 공시 원문이고 우리가 오래 검증한 파서가 읽은 것이다.
+      - 첨부는 PDF 레이아웃 파싱이라 오탐 여지가 상대적으로 크다.
+      - 그래서 충돌 시 본문을 남기고, 첨부는 **없는 것만** 보탠다(값을 덮어써서 조용히
+        바뀌는 일이 없게). 충돌 사실은 target_conflicts에 남겨 숨기지 않는다.
+
+    파싱 실패한 첨부(parse_error)는 무시한다 — 못 읽은 것을 목표 없음으로도, 목표로도
+    쓰지 않는다.
+    """
+    merged = dict(plan)
+    merged.setdefault("attachment_filled", [])
+    merged.setdefault("target_conflicts", [])
+    if not attachment or attachment.get("parse_error"):
+        return merged
+
+    filled: list[str] = []
+    conflicts: list[str] = []
+    for field_name in _MERGEABLE:
+        att_v = attachment.get(field_name)
+        if att_v is None:
+            continue
+        if merged.get(field_name) is None:
+            merged[field_name] = att_v
+            filled.append(field_name)
+        elif merged[field_name] != att_v:
+            conflicts.append(field_name)
+    merged["attachment_filled"] = filled
+    merged["target_conflicts"] = conflicts
+    return merged
+
+
 @dataclass(frozen=True)
 class PlanChoice:
     """고른 공시 + 그 선택이 폴백이었는지.

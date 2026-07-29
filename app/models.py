@@ -144,6 +144,9 @@ class ValueupPlan(Base):
     body_signal: Mapped[str | None] = mapped_column(String(24))
     # refiling일 때 가리킨 공시일. 못 읽으면 null(추측하지 않는다).
     body_reference_date: Mapped[str | None] = mapped_column(String(10))
+    # 공시의 '관련 웹페이지' 필드가 가리킨 URL(0019). DART 첨부 경로가 닫힌 뒤 남은 길이며,
+    # 회사가 규제 공시에서 스스로 지목한 주소다. 실측 49/60 공시가 담고 있다.
+    related_url: Mapped[str | None] = mapped_column(String(500))
 
 
 class Ownership(Base):
@@ -210,6 +213,9 @@ class PlanAttachment(Base):
     sha256: Mapped[str] = mapped_column(String(64))  # 재파싱 멱등성 기준
     page_count: Mapped[int | None] = mapped_column(Integer)
     acquired_by: Mapped[str] = mapped_column(String(20), default="manual")
+    # ir_site로 받았을 때의 정확한 출처 URL(0019). 같은 파일을 다시 받을 때 어디로
+    # 가야 하는지도 여기 있다.
+    source_url: Mapped[str | None] = mapped_column(String(500))
     acquired_at: Mapped[str | None] = mapped_column(String(10))
     parsed_at: Mapped[str | None] = mapped_column(String(10))
     target_roe: Mapped[float | None] = mapped_column(Float)

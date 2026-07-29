@@ -16,9 +16,9 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from app.analysis.plan_selection import choose_plan
+from app.analysis.plan_selection import choose_plan, merge_attachment
 
-from app.models import Company, OpacityScore
+from app.models import Company, OpacityScore, PlanAttachment
 
 
 def list_all_corp_codes(session: Session) -> list[str]:
@@ -57,9 +57,26 @@ def all_latest_plans(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     # 이미 파싱해둔 과거 목표를 두고도 is_unrankable로 빠졌다(하나금융·LG화학·삼성화재).
     # 선택 규칙은 gap쪽(latest_valueup_plan)과 **같은 함수**를 써야 한다 — 두 엔진이 서로
     # 다른 공시를 근거로 삼으면 "목표는 보이는데 순위는 불가"인 자기모순이 생긴다.
+    # 첨부 목표를 같은 공시에 합친다(gap쪽과 동일 — 두 엔진이 다른 목표를 보면
+    # "점수는 있는데 순위는 불가" 같은 자기모순이 생긴다).
+    attachments = {
+        a.plan_id: {
+            "target_roe": a.target_roe,
+            "target_payout_ratio": a.target_payout_ratio,
+            "target_total_return_ratio": a.target_total_return_ratio,
+            "target_pbr": a.target_pbr,
+            "period_start": a.period_start,
+            "period_end": a.period_end,
+            "buyback_planned": a.buyback_planned,
+            "parse_error": a.parse_error,
+        }
+        for a in session.scalars(select(PlanAttachment)).all()
+    }
+
     by_corp: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        by_corp.setdefault(row["corp_code"], []).append(dict(row))
+        merged = merge_attachment(dict(row), attachments.get(row["plan_id"]))
+        by_corp.setdefault(row["corp_code"], []).append(merged)
 
     latest: dict[str, dict[str, Any]] = {}
     for code, candidates in by_corp.items():

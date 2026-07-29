@@ -11,6 +11,7 @@ from app.analysis.plan_selection import (
     REFILING,
     choose_plan,
     disclosed_axis_count,
+    merge_attachment,
     opacity_axes,
 )
 
@@ -51,6 +52,58 @@ class TestAxisCounting:
         full = plan(target_roe=10.0, target_payout_ratio=30.0,
                     period_start="2025", buyback_planned=True)
         assert disclosed_axis_count(full) == 4
+
+
+class TestMergeAttachment:
+    """본문 + 첨부(계획서 PDF) = 그 공시의 유효 목표.
+
+    실측(LG화학 2026-04-01): 본문 0축인 공시에 첨부가 ROE 10.0·배당성향 20.0(p.12)을
+    담고 있었다. 합치지 않으면 이미 파싱해 둔 목표를 두고도 그 공시를 0축으로 취급한다.
+    """
+
+    def test_attachment_fills_empty_axes(self):
+        merged = merge_attachment(
+            plan(plan_id=1),
+            {"target_roe": 10.0, "target_payout_ratio": 20.0, "parse_error": None},
+        )
+        assert merged["target_roe"] == 10.0
+        assert merged["target_payout_ratio"] == 20.0
+        assert disclosed_axis_count(merged) == 2
+        assert set(merged["attachment_filled"]) == {"target_roe", "target_payout_ratio"}
+
+    def test_body_wins_on_conflict_and_conflict_is_recorded(self):
+        """본문이 우선 — 첨부가 값을 조용히 덮어쓰지 않는다. 충돌은 숨기지 않는다."""
+        merged = merge_attachment(
+            plan(plan_id=1, target_roe=12.0),
+            {"target_roe": 10.0, "parse_error": None},
+        )
+        assert merged["target_roe"] == 12.0
+        assert merged["target_conflicts"] == ["target_roe"]
+
+    def test_unreadable_attachment_is_ignored(self):
+        """못 읽은 첨부는 목표로도, 목표 없음으로도 쓰지 않는다."""
+        merged = merge_attachment(
+            plan(plan_id=1),
+            {"target_roe": 10.0, "parse_error": "no_text_layer"},
+        )
+        assert merged["target_roe"] is None
+        assert merged["attachment_filled"] == []
+
+    def test_no_attachment_is_a_noop(self):
+        merged = merge_attachment(plan(plan_id=1, target_roe=9.0), None)
+        assert merged["target_roe"] == 9.0
+        assert merged["attachment_filled"] == []
+
+    def test_merged_plan_can_win_selection_without_fallback(self):
+        """LG화학 실측 형태: 첨부 결합으로 최신 공시가 유효해져 폴백이 불필요해진다."""
+        latest = merge_attachment(
+            plan(plan_id=2, disclosure_date="2026-04-01"),
+            {"target_roe": 10.0, "target_payout_ratio": 20.0, "parse_error": None},
+        )
+        older = plan(plan_id=1, disclosure_date="2024-11-22", target_roe=10.0)
+        c = choose_plan([latest, older])
+        assert c.plan["plan_id"] == 2
+        assert c.used_fallback is False
 
 
 class TestChoosePlan:

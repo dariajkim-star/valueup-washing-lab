@@ -12,8 +12,14 @@ from typing import Any
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 
-from app.analysis.plan_selection import choose_plan
-from app.models import Company, Financial, ValueupPlan, ValueupScore
+from app.analysis.plan_selection import choose_plan, merge_attachment
+from app.models import (
+    Company,
+    Financial,
+    PlanAttachment,
+    ValueupPlan,
+    ValueupScore,
+)
 
 
 def list_all_corp_codes(session: Session) -> list[str]:
@@ -40,6 +46,25 @@ def latest_valueup_plan(
         # limit(1) 제거(2026-07-29): 최신이 표지 통지문(0축)이면 그 이전 공시로 내려가야
         # 하므로 후보 전체가 필요하다. 종목당 공시는 실측 최대 5건이라 비용은 무시할 만하다.
     )
+    # 첨부(계획서 PDF)에서 읽은 목표를 같은 공시의 본문 목표와 합친다(0017·0019).
+    # 공시 본문이 "첨부된 계획을 참고하라"인 경우 실물은 첨부이므로, 합치지 않으면
+    # 우리가 이미 파싱해 둔 목표를 두고도 그 공시를 0축으로 취급하게 된다.
+    attachments = {
+        a.plan_id: {
+            "target_roe": a.target_roe,
+            "target_payout_ratio": a.target_payout_ratio,
+            "target_total_return_ratio": a.target_total_return_ratio,
+            "target_pbr": a.target_pbr,
+            "period_start": a.period_start,
+            "period_end": a.period_end,
+            "buyback_planned": a.buyback_planned,
+            "parse_error": a.parse_error,
+        }
+        for a in session.scalars(
+            select(PlanAttachment).where(PlanAttachment.corp_code == corp_code)
+        ).all()
+    }
+
     candidates = [
         {
             "plan_id": o.plan_id,
@@ -57,6 +82,9 @@ def latest_valueup_plan(
             "body_reference_date": o.body_reference_date,
         }
         for o in session.scalars(stmt).all()
+    ]
+    candidates = [
+        merge_attachment(c, attachments.get(c["plan_id"])) for c in candidates
     ]
     choice = choose_plan(candidates)
     if choice is None:

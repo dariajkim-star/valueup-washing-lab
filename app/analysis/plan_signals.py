@@ -111,6 +111,35 @@ def classify_body(raw_text: str | None, targets: Mapping[str, Any]) -> BodySigna
     return BodySignal(NO_TARGETS)
 
 
+# ── 관련 웹페이지 URL 추출(0019) ──
+# DART 첨부 경로가 닫힌 뒤 남은 길. 회사가 규제 공시에서 **스스로 지목한** 주소이므로
+# 크롤링이 아니라 '공시가 준 링크'다.
+_URL = r"https?://[^\s\"'<>)\]]+"
+# '관련 웹페이지' 라벨 뒤에 오는 URL을 우선한다 — 본문 어디에나 있는 URL(예: 관계사
+# 링크)을 계획 출처로 오인하지 않기 위해. 라벨과 URL 사이에 표 마크업 잔재가 낄 수 있어
+# 넉넉한 창을 두되 다른 URL을 건너뛰지는 않는다.
+_LABELED_URL = re.compile(r"관련\s*웹\s*페이지[^h]{0,200}?(" + _URL + ")")
+_ANY_URL = re.compile(_URL)
+# 우리 자신(DART)으로 되돌아가는 링크는 IR 출처가 아니다.
+_SELF_HOSTS = ("dart.fss.or.kr", "fss.or.kr", "kind.krx.co.kr")
+
+
+def extract_related_url(raw_text: str | None) -> str | None:
+    """공시 본문에서 '관련 웹페이지' URL. 없으면 None(추측하지 않는다).
+
+    라벨 매칭을 먼저 시도하고, 실패하면 본문의 첫 외부 URL로 폴백한다. 폴백을 두는 이유는
+    서식이 회사마다 조금씩 다르기 때문이고, DART 자기 링크는 양쪽 모두에서 제외한다.
+    """
+    text = raw_text or ""
+    for rx, group in ((_LABELED_URL, 1), (_ANY_URL, 0)):
+        for m in rx.finditer(text):
+            url = m.group(group).rstrip(".,;)")
+            if any(h in url for h in _SELF_HOSTS):
+                continue
+            return url
+    return None
+
+
 # 화면·CLI에서 쓰는 사람 말. 코드 상수와 표시 문구를 한 곳에 묶어 둘이 갈라지지 않게 한다.
 SIGNAL_LABEL = {
     AXIS_TARGETS: "본문에서 목표 확보",
