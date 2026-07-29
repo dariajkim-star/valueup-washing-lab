@@ -12,7 +12,7 @@ from typing import Any
 from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.orm import Session
 
-from app.models import Company, MnaScore, OpacityScore, ValueupScore
+from app.models import Company, MnaScore, OpacityScore, ValueupPlan, ValueupScore
 
 # 정렬 허용 필드 화이트리스트(AD-6 `field`/`-field` 규약). 사용자 입력을 컬럼 객체로만
 # 매핑 — 여기 없는 필드는 InvalidSortError(라우터가 400으로 변환). metrics.py 패턴의 ORM 판.
@@ -179,7 +179,7 @@ def list_screening(
         conds.append(Company.corp_code.in_(passing_mcap))
 
     base = (
-        select(Company, ValueupScore, MnaScore, OpacityScore)
+        select(Company, ValueupScore, MnaScore, OpacityScore, ValueupPlan.body_signal)
         .select_from(Company)
         .join(
             ValueupScore,
@@ -196,6 +196,14 @@ def list_screening(
             OpacityScore,
             and_(OpacityScore.corp_code == Company.corp_code,
                  OpacityScore.as_of == as_of),
+            isouter=True,
+        )
+        # 근거 공시의 본문 신호(0018) — 선택 규칙을 재현하지 않고 source_plan_id(0016)로
+        # 조인만 한다. 목록의 '순위 불가'가 "부실 공시"인지 "타 지표로 공시(other_metric)"
+        # 인지 구분하기 위한 것(파티 결정 2026-07-29: 판정 대신 사실 표기).
+        .join(
+            ValueupPlan,
+            ValueupPlan.plan_id == ValueupScore.source_plan_id,
             isouter=True,
         )
         # 세 스코어 모두 없는 종목 제외 — 회사정보만 있는 노이즈 행 방지
@@ -219,7 +227,7 @@ def list_screening(
     ).all()
 
     items = []
-    for company, vs, ms, os in rows:
+    for company, vs, ms, os, body_signal in rows:
         m = metrics_map.get(company.corp_code)
         items.append({
             "corp_code": company.corp_code,
@@ -251,6 +259,8 @@ def list_screening(
             "opacity_rank": os.opacity_rank if os else None,
             "opacity_count": os.opacity_count if os else None,
             "opacity_basis": os.opacity_basis if os else None,
+            # '순위 불가'의 이유 구분용(0018 신호). 상세(plan_body_signal)와 같은 값.
+            "plan_body_signal": body_signal,
         })
     return items, total
 

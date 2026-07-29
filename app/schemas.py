@@ -78,6 +78,10 @@ class ScreeningOut(BaseModel):
     opacity_rank: float | None = None
     opacity_count: int | None = None
     opacity_basis: str | None = None
+    # 근거 공시의 본문 신호(0018) — '순위 불가'가 "부실 공시(no_targets)"인지
+    # "타 지표로 공시(other_metric — 우리 자에 눈금이 없음)"인지 목록에서 구분한다.
+    # 상세의 plan_body_signal과 같은 값(source_plan_id 조인만, 선택규칙 재현 없음).
+    plan_body_signal: str | None = None
 
 
 class MnaRankingOut(BaseModel):

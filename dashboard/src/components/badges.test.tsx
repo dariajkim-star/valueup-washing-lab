@@ -34,6 +34,7 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     opacity_rank: null,
     opacity_count: null,
     opacity_basis: null,
+    plan_body_signal: null,
     has_valueup_score: true,
     has_mna_score: true,
     has_opacity_score: true,
@@ -120,8 +121,10 @@ describe("MnaCell — 상태 우선순위: 미집계 > 미지원업종 > 산출�
   });
   it("값 있으면 점수 + population_basis chip", () => {
     render(<MnaCell row={row({ mna_target_score: 71.1, population_basis: "market_fallback" })} />);
+    // [파티 결정 2026-07-29] "전체시장 폴백" → "시장 전체 비교"(전건이 fallback인 현실을
+    // 일시 강등처럼 읽히는 "폴백" 대신 지금 사실인 문장으로).
     expect(screen.getByText("71.1")).toBeTruthy();
-    expect(screen.getByText("전체시장 폴백")).toBeTruthy();
+    expect(screen.getByText("시장 전체 비교")).toBeTruthy();
   });
   it("sector null(미분류) + null → 산출 불가(미지원으로 오판하지 않음)", () => {
     render(<MnaCell row={row({ sector: null, mna_target_score: null })} />);
@@ -194,6 +197,23 @@ describe("OpacityCell — 불투명도(washing_flag 대체)", () => {
 
   it("has_opacity_score=true인데 rank null이어도 순위 불가로 (peer 부족)", () => {
     render(<OpacityCell row={row({ has_opacity_score: true, opacity_rank: null })} />);
+    expect(screen.getByText("순위 불가")).toBeTruthy();
+  });
+
+  it('순위 불가 + other_metric → "타 지표로 공시"(부실 공시와 구분)', () => {
+    // [파티 결정 2026-07-29] 회사는 명확히 약속했고(CapEx·매출·EBITDA) 우리 자에
+    // 눈금이 없을 뿐 — "순위 불가" 한 마디로 묶으면 사실 표기가 판정이 된다.
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null, plan_body_signal: "other_metric",
+    })} />);
+    expect(screen.getByText("타 지표로 공시")).toBeTruthy();
+    expect(screen.queryByText("순위 불가")).toBeNull();
+  });
+
+  it("순위 불가 + no_targets는 여전히 '순위 불가'", () => {
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null, plan_body_signal: "no_targets",
+    })} />);
     expect(screen.getByText("순위 불가")).toBeTruthy();
   });
 
