@@ -24,6 +24,13 @@ requests==2.32.3               # OpenDART REST 직접 호출(재무·공시·배
 # 코드가 하는 일은 받아둔 파일의 파싱·목표 추출·출처 기록뿐이다.
 pdfplumber==0.11.4             # 본문 + 표 추출(계획서가 대개 표 중심 덱)
 
+# OCR 층(0020) — 이미지 기반 PDF(우리금융 실측: 9쪽 전부)용. **선택 의존성**:
+# 없으면 attachment 파싱이 종전대로 no_text_layer로 정직하게 남긴다.
+# tesseract 바이너리(+kor.traineddata)는 별도 설치: winget install UB-Mannheim.TesseractOCR,
+# 한국어 데이터는 %LOCALAPPDATA%\tessdata\kor.traineddata (TESSDATA_PREFIX로 지정 가능).
+pymupdf==1.28.0                # 페이지 렌더링(OCR 입력 이미지)
+pytesseract==0.3.13            # tesseract 호출 래퍼
+
 # 분석
 pandas==2.2.3
 numpy==2.2.1

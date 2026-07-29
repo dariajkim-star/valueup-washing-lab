@@ -24,6 +24,16 @@
     HWP는 순정 파서가 없고, 스캔본 PDF는 텍스트 레이어가 없다. 둘 다 "목표 미공시"가
     아니라 **"우리가 못 읽었다"**이므로 parse_error에 사유를 남긴다. 이 구분이 무너지면
     is_unrankable에서 지킨 원칙("못 읽은 걸 벌하지 않는다")이 첨부 층에서 되살아난다.
+
+■ OCR은 자동 입력기가 아니라 후보 추출기다 (2026-07-29 결정)
+    이미지 기반 PDF(우리금융 실측: 9쪽 전부, native 156자)는 OCR 없이 못 읽는다.
+    native 텍스트가 빈약한 페이지에만 OCR(tesseract kor+eng)을 돌리고, OCR 유래 목표가
+    하나라도 있으면 needs_review=True — merge_attachment가 채점에 태우지 않고, 사람이
+    review_attachment CLI로 승인·수정·기각해야 풀린다. 첫 스파이크에서 OCR+파서가
+    ROE 10.0을 맞히면서 동시에 이행 실적(배당성향 35.0)을 목표로 오인했다 — 틀린
+    non-null은 null보다 위험하므로 자동 확정하지 않는다.
+    OCR 스택(pymupdf·pytesseract·tesseract)이 없으면 종전대로 no_text_layer로 남긴다 —
+    의존성 부재가 조용한 오동작이 되지 않게.
 """
 
 from __future__ import annotations
@@ -61,6 +71,13 @@ _CORP_DATE_NAME = re.compile(r"^(\d{8})_(\d{4}-\d{2}-\d{2})$")
 _MIN_TEXT_CHARS = 20
 _MIN_TEXT_CHARS_PER_PAGE = 5
 
+# 페이지 단위 OCR 트리거 — native 텍스트(공백 제외)가 이 미만이면 이미지 페이지로 본다.
+# 우리금융 실측: pdfplumber native가 9쪽 합계 156자(페이지당 ~17자) — 전 페이지가 걸린다.
+# LG화학 같은 텍스트 PDF는 페이지당 수백 자라 걸리지 않는다.
+_OCR_TRIGGER_CHARS = 50
+_OCR_DPI = 220
+_OCR_LANG = "kor+eng"
+
 
 @dataclass
 class AttachmentRef:
@@ -83,6 +100,9 @@ class ParsedAttachment:
     evidence: dict[str, int] = field(default_factory=dict)  # 필드 → 페이지(1-base)
     extracted_text: str | None = None
     parse_error: str | None = None
+    ocr_pages: list[int] = field(default_factory=list)  # OCR을 적용한 페이지(1-base)
+    # OCR 유래 목표가 하나라도 있으면 True — 사람이 승인하기 전에는 채점에 안 들어간다.
+    needs_review: bool = False
 
     @property
     def disclosed_axis_count(self) -> int:
@@ -133,6 +153,58 @@ def _page_text(page: Any) -> str:
     return "\n".join(parts)
 
 
+def _find_tesseract() -> str | None:
+    """tesseract 실행 파일 탐색 — env 우선, PATH, Windows 기본 설치 경로 순."""
+    import os
+    import shutil
+
+    env = os.environ.get("TESSERACT_CMD")
+    if env and Path(env).exists():
+        return env
+    hit = shutil.which("tesseract")
+    if hit:
+        return hit
+    default = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
+    return str(default) if default.exists() else None
+
+
+def _ocr_ready() -> bool:
+    """OCR 스택(pymupdf·pytesseract·tesseract 바이너리) 가용 여부.
+
+    없으면 False — 호출자는 종전 동작(no_text_layer)으로 남긴다. 의존성 부재가
+    조용한 오동작이 아니라 정직한 '못 읽음'이 되게 한다.
+    """
+    try:
+        import fitz  # noqa: F401
+        import pytesseract
+    except ImportError:
+        return False
+    return _find_tesseract() is not None
+
+
+def _ocr_page(path: Path, page_no: int) -> str:
+    """페이지 하나를 렌더링해 OCR(kor+eng). page_no는 1-base."""
+    import os
+
+    import fitz
+    import pytesseract
+
+    pytesseract.pytesseract.tesseract_cmd = _find_tesseract()
+    # 한국어 데이터가 시스템 tessdata에 없을 수 있어 로컬 경로를 기본값으로 보탠다.
+    local = Path(os.environ.get("LOCALAPPDATA", "")) / "tessdata"
+    if "TESSDATA_PREFIX" not in os.environ and (local / "kor.traineddata").exists():
+        os.environ["TESSDATA_PREFIX"] = str(local)
+
+    import io
+
+    from PIL import Image
+
+    with fitz.open(str(path)) as doc:
+        pix = doc[page_no - 1].get_pixmap(dpi=_OCR_DPI)
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+    return pytesseract.image_to_string(img, lang=_OCR_LANG)
+
+
 def parse_pdf(path: Path) -> ParsedAttachment:
     """PDF에서 목표를 읽고 필드별 근거 페이지를 남긴다.
 
@@ -175,6 +247,35 @@ def parse_pdf(path: Path) -> ParsedAttachment:
         result.parse_error = f"parse_error:{type(e).__name__}"
         return result
 
+    # ── OCR 폴백: native가 빈약한 페이지만, 아직 못 채운 필드만 ──────────────
+    # native 우선(merge_attachment의 '본문 우선'과 같은 정신 — 검증된 추출이 이긴다).
+    # OCR 유래 값은 후보다: needs_review=True로 표시되고 사람이 승인해야 채점에 들어간다.
+    sparse = [
+        i for i, t in enumerate(page_texts, start=1)
+        if len(re.sub(r"\s", "", t)) < _OCR_TRIGGER_CHARS
+    ]
+    if sparse and any(targets[f] is None for f in _TARGET_FIELDS) and _ocr_ready():
+        ocr_filled = False
+        for idx in sparse:
+            try:
+                ocr_text = _ocr_page(path, idx)
+            except Exception as e:  # noqa: BLE001 — 한 페이지 실패가 문서를 죽이지 않게
+                logger.warning("OCR 실패 %s p.%d: %s", path.name, idx, type(e).__name__)
+                continue
+            if not ocr_text.strip():
+                continue
+            result.ocr_pages.append(idx)
+            page_texts[idx - 1] = (
+                page_texts[idx - 1] + f"\n[OCR p.{idx}]\n{ocr_text}"
+            ).strip()
+            found = parse_targets(ocr_text)
+            for f in _TARGET_FIELDS:
+                if targets[f] is None and found.get(f) is not None:
+                    targets[f] = found[f]
+                    evidence[f] = idx
+                    ocr_filled = True
+        result.needs_review = ocr_filled
+
     full_text = "\n".join(page_texts)
     result.extracted_text = full_text
     result.targets = targets
@@ -183,7 +284,8 @@ def parse_pdf(path: Path) -> ParsedAttachment:
     # 텍스트가 거의 없으면 스캔본이다 — "목표 미공시"가 아니라 "우리가 못 읽었다".
     # 단 **목표를 실제로 뽑았으면 못 읽었다고 하지 않는다** — 읽어낸 문서를 unreadable로
     # 표시하면 그 값이 하류에서 신뢰 불가로 취급되는 자기모순이 생긴다.
-    if result.disclosed_axis_count == 0:
+    # OCR이 텍스트를 얻어냈다면(ocr_pages) 이제는 읽은 문서다 — no_text_layer가 아니다.
+    if result.disclosed_axis_count == 0 and not result.ocr_pages:
         chars = len(re.sub(r"\s", "", full_text))
         floor = max(_MIN_TEXT_CHARS, _MIN_TEXT_CHARS_PER_PAGE * (result.page_count or 1))
         if chars < floor:

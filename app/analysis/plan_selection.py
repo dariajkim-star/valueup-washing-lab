@@ -99,11 +99,15 @@ def merge_attachment(plan: dict[str, Any], attachment: Mapping[str, Any] | None)
 
     파싱 실패한 첨부(parse_error)는 무시한다 — 못 읽은 것을 목표 없음으로도, 목표로도
     쓰지 않는다.
+
+    검토 대기 첨부(needs_review, 0020)도 무시한다 — OCR 유래 값은 후보이지 사실이
+    아니다. 첫 실측에서 OCR+파서가 이행 실적을 목표로 오인했다(배당성향 35.0). 사람이
+    승인(review_attachment CLI)하면 needs_review가 풀리고 그때 채점에 들어간다.
     """
     merged = dict(plan)
     merged.setdefault("attachment_filled", [])
     merged.setdefault("target_conflicts", [])
-    if not attachment or attachment.get("parse_error"):
+    if not attachment or attachment.get("parse_error") or attachment.get("needs_review"):
         return merged
 
     filled: list[str] = []

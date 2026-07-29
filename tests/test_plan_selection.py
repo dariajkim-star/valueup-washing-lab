@@ -89,6 +89,28 @@ class TestMergeAttachment:
         assert merged["target_roe"] is None
         assert merged["attachment_filled"] == []
 
+    def test_needs_review_attachment_is_ignored(self):
+        """OCR 유래 값은 후보다 — 사람이 승인하기 전에는 채점에 들어가지 않는다.
+
+        실측(우리금융 스파이크): OCR+파서가 ROE 10.0을 맞히면서 동시에 2025 이행
+        실적(배당성향 35.0)을 목표로 오인했다. 틀린 non-null은 null보다 위험하다.
+        """
+        merged = merge_attachment(
+            plan(plan_id=1),
+            {"target_roe": 10.0, "target_payout_ratio": 35.0,
+             "parse_error": None, "needs_review": True},
+        )
+        assert merged["target_roe"] is None
+        assert merged["attachment_filled"] == []
+
+    def test_reviewed_attachment_merges(self):
+        """승인되면(needs_review=False) 보통 첨부와 같다."""
+        merged = merge_attachment(
+            plan(plan_id=1),
+            {"target_roe": 10.0, "parse_error": None, "needs_review": False},
+        )
+        assert merged["target_roe"] == 10.0
+
     def test_no_attachment_is_a_noop(self):
         merged = merge_attachment(plan(plan_id=1, target_roe=9.0), None)
         assert merged["target_roe"] == 9.0

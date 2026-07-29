@@ -43,6 +43,8 @@ class AttachmentRunResult:
     skipped: list[tuple[str, str]] = field(default_factory=list)  # (파일명, 사유)
     unreadable: list[tuple[str, str]] = field(default_factory=list)  # (파일명, parse_error)
     matched: list[tuple[str, str, int]] = field(default_factory=list)  # (파일명, 종목, 공시축수)
+    # OCR 유래 값이 있어 사람 승인이 필요한 건 — (파일명, OCR 페이지, 추출 목표)
+    needs_review: list[tuple[str, list[int], dict]] = field(default_factory=list)
 
 
 def _resolve_plan(session, ref: AttachmentRef) -> ValueupPlan | None:
@@ -85,6 +87,15 @@ def _upsert(session, plan: ValueupPlan, parsed: ParsedAttachment) -> PlanAttachm
     obj.evidence_json = evidence_to_json(parsed.evidence)
     obj.parse_error = parsed.parse_error
     obj.extracted_text = parsed.extracted_text
+    # OCR 층(0020). 내용이 바뀌어 재파싱된 경우 이전 승인은 무효다 — 승인은 특정
+    # sha256의 추출 결과에 대한 판정이었으므로 검토 기록을 리셋한다.
+    import json as _json
+
+    obj.ocr_pages = _json.dumps(parsed.ocr_pages) if parsed.ocr_pages else None
+    obj.needs_review = parsed.needs_review
+    obj.reviewed_by = None
+    obj.reviewed_at = None
+    obj.review_note = None
     return obj
 
 
@@ -124,6 +135,11 @@ def run(directory: Path = DEFAULT_DIR, *, force: bool = False,
 
                 if parsed.parse_error:
                     result.unreadable.append((name, parsed.parse_error))
+                if parsed.needs_review:
+                    result.needs_review.append((
+                        name, parsed.ocr_pages,
+                        {k: v for k, v in parsed.targets.items() if v is not None},
+                    ))
                 if not dry_run:
                     _upsert(session, plan, parsed)
                 result.parsed += 1
@@ -145,6 +161,11 @@ def main() -> int:
     print(f"\n파싱 {r.parsed}건")
     for name, corp, axes in r.matched:
         print(f"  ✓ {name} → {corp} (목표 {axes}/4축)")
+    if r.needs_review:
+        print(f"\n검토 필요 {len(r.needs_review)}건 — OCR 유래 값은 승인 전까지 채점에 안 들어감")
+        for name, pages, cand in r.needs_review:
+            print(f"  ? {name} (OCR p.{','.join(map(str, pages))}): {cand}")
+        print("  검토:  python -m app.ingest.review_attachment <파일명> --show")
     if r.unreadable:
         print(f"\n못 읽음 {len(r.unreadable)}건 — '미공시'가 아니라 '읽지 못함'으로 기록됨")
         for name, err in r.unreadable:
