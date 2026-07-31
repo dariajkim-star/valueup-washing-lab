@@ -27,6 +27,13 @@ export interface GapDetail {
   plan_newest_disclosure_date: string | null;
   // 본문이 왜 우리 축을 못 채웠는가: axis_targets / other_metric / refiling / no_targets
   plan_body_signal: string | null;
+  // 환원 축(2026-07-31) — 목표·실적·달성배율. payout_achievement는 캡 없는 원값이라
+  // 1.0 초과가 "목표 초과 달성"을 뜻한다(점수는 [0,1] clamp라 이 정보가 지워진다).
+  target_payout_ratio: number | null;
+  target_total_return_ratio: number | null;
+  actual_payout_ratio: number | null;
+  actual_total_return_ratio: number | null;
+  payout_achievement: number | null;
 }
 
 // POST /valueup/refresh/{corp_code} 응답 — 단계별 보고(성공/실패 한 값으로 뭉치지 않는다).

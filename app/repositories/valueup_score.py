@@ -269,8 +269,49 @@ def list_scores(
             "washing_flag": score.washing_flag,
             "buyback_status": score.buyback_status,
             "score_basis": score.score_basis,
+            # 환원 축 투명화(2026-07-31) — 목표는 근거 공시에서, 실적은 **엔진과 같은
+            # 선택 규칙**(latest_metrics: look-ahead 차단)으로 읽는다. 규칙이 갈리면
+            # 화면 숫자와 점수가 어긋나 출처 표기의 목적이 무너진다.
+            **_payout_axis(session, score.corp_code, score.as_of, plan),
         })
     return items, total
+
+
+def _payout_axis(
+    session: Session, corp_code: str, as_of: str, plan: ValueupPlan | None
+) -> dict[str, Any]:
+    """환원 축의 목표·실적·달성배율. 채점에 쓰인 축(총주주환원율 우선)을 그대로 따른다.
+
+    달성배율에 **캡을 걸지 않는 것**이 이 함수의 요점이다. execution_score는 _axis_score가
+    [0,1]로 clamp해 과달성을 지우는데(의도된 설계 — 과달성이 다른 축의 신용을 사지 못하게),
+    그 결과 "목표를 낮게 잡고 초과한" 기업과 "야심찬 목표를 겨우 맞춘" 기업이 똑같이 100점이
+    된다. 실측(표본 359)에서 payout 단독 100점 21개 중 16개가 자기 과거 실적보다 낮은
+    목표였다. 점수는 건드리지 않고, 그 사실을 상세 화면이 말할 수 있게 원값을 함께 준다.
+    """
+    out: dict[str, Any] = {
+        "target_payout_ratio": plan.target_payout_ratio if plan else None,
+        "target_total_return_ratio": plan.target_total_return_ratio if plan else None,
+        "actual_payout_ratio": None,
+        "actual_total_return_ratio": None,
+        "payout_achievement": None,
+    }
+    if plan is None:
+        return out
+    metrics = latest_metrics(session, corp_code, as_of)
+    if metrics is None:
+        return out
+    out["actual_payout_ratio"] = metrics.get("payout_ratio")
+    out["actual_total_return_ratio"] = metrics.get("total_return_ratio")
+    # 채점과 같은 우선순위: 총주주환원율이 있으면 그쪽(더 포괄적인 약속)
+    if plan.target_total_return_ratio:
+        target, actual = plan.target_total_return_ratio, out["actual_total_return_ratio"]
+    elif plan.target_payout_ratio:
+        target, actual = plan.target_payout_ratio, out["actual_payout_ratio"]
+    else:
+        return out
+    if actual is not None and target:
+        out["payout_achievement"] = round(actual / target, 3)
+    return out
 
 
 def delete_valueup_score(session: Session, corp_code: str, as_of: str) -> None:

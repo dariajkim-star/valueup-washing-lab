@@ -198,3 +198,19 @@ class GapAnalysisOut(BaseModel):
     # no_targets. "미공시"와 "다른 지표로 공시"는 다른 사실이다 — 전자는 부실 공시고
     # 후자는 우리 자에 눈금이 없는 것이다.
     plan_body_signal: str | None = None
+    # ── 환원 축의 목표·실적·달성배율 (2026-07-31) ─────────────────────────────
+    # 그간 상세는 ROE 축만 목표/실적을 보여줬다. 그래서 `score_basis="payout"`인 100점이
+    # **왜** 100점인지 화면에서 확인할 수 없었다.
+    #
+    # 실측(표본 359): payout 단독 100점 21개사 중 **16개가 자기 과거 실적보다 낮은 목표**를
+    # 공시했다(예: 목표 배당성향 10% / 실적 33.7%, 목표 15% / 2023년 133.6%).
+    # `_axis_score`가 [0,1]로 clamp하므로 과달성이 점수에서 사라지고, 낮은 목표일수록
+    # 만점을 받기 쉬운 구조다.
+    #
+    # payout_achievement는 **캡을 걸지 않는다**(실적/목표 원값). 점수는 그대로 두고
+    # 사실만 드러낸다 — 고의를 판정하지 않고 격차를 보여준다는 원칙(레아).
+    target_payout_ratio: float | None = None
+    target_total_return_ratio: float | None = None
+    actual_payout_ratio: float | None = None
+    actual_total_return_ratio: float | None = None
+    payout_achievement: float | None = None  # 실적/목표(무제한). 1.0 초과 = 목표 초과 달성

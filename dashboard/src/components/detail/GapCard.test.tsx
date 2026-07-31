@@ -24,6 +24,9 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     plan_disclosure_date: null, plan_rcept_no: null,
     plan_is_fallback: false, plan_newest_disclosure_date: null,
     plan_body_signal: "axis_targets",
+    target_payout_ratio: null, target_total_return_ratio: null,
+    actual_payout_ratio: null, actual_total_return_ratio: null,
+    payout_achievement: null,
     ...partial,
   };
 }
@@ -129,5 +132,34 @@ describe("출처 표기(0015) — 목표값의 신선도를 감추지 않는다"
     // buyback_status는 계획 기간과 무관한 직전 재무 기간 값 — 목록 배지와 같은 단어를 쓴다.
     render(<GapCard gap={gap({ buyback_status: "retired" })} />);
     expect(screen.getByText("최근 소각")).toBeTruthy();
+  });
+});
+
+describe("[2026-07-31] 환원 축 — 만점의 근거를 화면이 말한다", () => {
+  it("목표·실적·달성배율을 표시한다(한세실업 실측 형태)", () => {
+    // 실측: 목표 배당성향 10% / 실적 33.7% → 100점. 점수만으론 이 사실이 안 보였다.
+    render(<GapCard gap={gap({
+      execution_score: 100, score_basis: "payout",
+      target_payout_ratio: 10.0, actual_payout_ratio: 33.73, payout_achievement: 3.373,
+    })} />);
+    expect(screen.getByText("배당성향")).toBeTruthy();
+    expect(screen.getByText(/목표 10\.0%/)).toBeTruthy();
+    expect(screen.getByText(/실적 33\.7%/)).toBeTruthy();
+    expect(screen.getByText("목표 대비 3.37배")).toBeTruthy();
+  });
+
+  it("총주주환원율이 있으면 그쪽을 쓴다(채점과 같은 우선순위)", () => {
+    render(<GapCard gap={gap({
+      target_payout_ratio: 20.0, target_total_return_ratio: 50.0,
+      actual_payout_ratio: 25.0, actual_total_return_ratio: 55.0, payout_achievement: 1.1,
+    })} />);
+    expect(screen.getByText("총주주환원율")).toBeTruthy();
+    expect(screen.getByText(/목표 50\.0%/)).toBeTruthy();
+  });
+
+  it("환원 축이 없으면 아예 렌더하지 않는다(빈 칸 노이즈 금지)", () => {
+    const { container } = render(<GapCard gap={gap({ target_roe: 10 })} />);
+    expect(container.textContent).not.toContain("목표 대비");
+    expect(container.textContent).not.toContain("배당성향");
   });
 });

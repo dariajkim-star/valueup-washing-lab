@@ -36,12 +36,59 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
         <MiniStat label="진척률" value={fmt(percentage(gap.progress_rate))} />
         <MiniStat label="자사주" value={buybackLabel(gap.buyback_status)} />
       </div>
+      <PayoutAxis gap={gap} />
       {/* [2026-07-23 파티 결정 B] washing_flag 화면 임시 은닉 — 로직·API 무변경. ScreenerTable 참조.
       <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
         워싱 판정: <WashingBadge flag={gap.washing_flag} />
       </div> */}
 
       <PlanProvenance gap={gap} />
+    </div>
+  );
+}
+
+// [2026-07-31] 환원 축(배당성향·총주주환원율)의 목표 → 실적 → **달성 배율**.
+//
+// 왜 필요한가: 화면은 ROE 축만 목표/실적을 보여줬다. 그래서 `score_basis="payout"`인
+// 100점이 왜 100점인지 확인할 방법이 없었다. 표본을 359로 늘려 실측하니 payout 단독
+// 100점 21개사 중 **16개가 자기 과거 실적보다 낮은 목표**였다(목표 배당성향 10% / 실적
+// 33.7%). 점수는 [0,1] clamp 때문에 과달성을 지우므로, 낮은 목표일수록 만점이 쉽다.
+//
+// 그래서 배율에 캡을 걸지 않고 원값을 쓴다. **판정하지 않는다** — "워싱"이라 부르지 않고
+// "목표 대비 3.4배"라는 사실만 적는다. 왜 낮게 잡았는지는 우리가 알 수 없다(일회성 이익
+// 기저효과일 수도 있다). 해석은 사용자 몫이고, 우리 몫은 격차를 감추지 않는 것이다.
+function PayoutAxis({ gap }: { gap: GapDetail }) {
+  // 채점과 같은 우선순위: 총주주환원율이 있으면 그쪽(더 포괄적인 약속)
+  const useTotal = gap.target_total_return_ratio !== null;
+  const target = useTotal ? gap.target_total_return_ratio : gap.target_payout_ratio;
+  const actual = useTotal ? gap.actual_total_return_ratio : gap.actual_payout_ratio;
+  if (target === null && actual === null) return null;
+  const label = useTotal ? "총주주환원율" : "배당성향";
+  const m = gap.payout_achievement;
+  // 2배 이상만 강조 — 목표를 크게 웃돌면 "목표가 낮았다"는 신호가 강해진다.
+  // 1배 미만(미달)은 빨강이 아니라 회색: 미달 자체는 점수에 이미 반영돼 있다.
+  const tone = m === null ? "#9ca3af" : m >= 2 ? "#b45309" : "#6b7280";
+  return (
+    <div className="mt-3 flex items-center gap-3 rounded-lg bg-gray-50 px-3 py-2">
+      <span className="text-[11px] font-semibold text-gray-600">{label}</span>
+      <span className="text-xs text-gray-500">
+        목표 {target === null ? "—" : `${target.toFixed(1)}%`}
+        <span className="px-1.5 text-gray-300">→</span>
+        실적 {actual === null ? "—" : `${actual.toFixed(1)}%`}
+      </span>
+      {m !== null && (
+        <span
+          className="ml-auto text-xs font-bold tabular-nums"
+          style={{ color: tone }}
+          title={
+            m >= 2
+              ? "실적이 목표를 크게 웃돈다 — 목표가 낮게 설정됐을 수 있다(판정 아님, 사실 표기)."
+              : "실적 ÷ 목표. 1.0 초과는 목표 초과 달성."
+          }
+        >
+          목표 대비 {m.toFixed(2)}배
+        </span>
+      )}
     </div>
   );
 }
