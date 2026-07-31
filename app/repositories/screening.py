@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Company, MnaScore, OpacityScore, ValueupPlan, ValueupScore
@@ -265,6 +265,19 @@ def list_screening(
     return items, total
 
 
+def _disclosed_axis_count_sql() -> Any:
+    """score_basis("roe+buyback+payout")의 축 수를 SQL로 센다 — '+' 개수 + 1.
+
+    execution_score **동점을 깨는 2차 키**로만 쓴다(정렬 키이지 점수가 아니다).
+    null/빈 문자열은 0축.
+    """
+    basis = func.coalesce(ValueupScore.score_basis, "")
+    return case(
+        (basis == "", 0),
+        else_=func.length(basis) - func.length(func.replace(basis, "+", "")) + 1,
+    )
+
+
 def _order_by(sort: str | None) -> list[Any]:
     """sort=`field`/`-field`를 화이트리스트로 안전 변환(null last 명시 + corp_code 안정 정렬).
 
@@ -272,6 +285,17 @@ def _order_by(sort: str | None) -> list[Any]:
     의미를 암시하지 않는다. 입력 검증은 validate_sort가 서비스 진입에서 선수행하지만,
     여기서도 방어적으로 재검증(단일 진입점 우회 대비).
     `is None`(truthiness 아님): 빈 문자열은 기본 정렬이 아니라 검증 오류다.
+
+    ■ execution_score 동점은 **공시 축 수**로 깬다 (파티 결정 2026-07-31)
+        표본을 33 → 359로 늘린 뒤 실측: 채점된 84종목 중 **49개(58%)가 100점 동점**이고,
+        그중 43개가 단일축이다(payout 단독 21 · buyback 단독 20). 세 축을 다 지킨
+        기아가 자사주 하나만 공시한 20개와 같은 자리에 놓인다.
+        척도가 상단에서 포화됐으므로 표시 순서를 corp_code(무의미)에 맡기지 않고,
+        "같은 100점이라도 더 많이 약속하고 지킨 쪽이 위"로 깬다. 점수 계산은 그대로다 —
+        채점 계약을 바꾸지 않고 정렬만 바꾼다(score_basis는 이미 서빙 중이라 화면이
+        그 이유를 설명할 수 있다).
+        33종목 때 진단("자사주가 이진축이라 문제")도 이 실측으로 갱신됐다: payout 단독이
+        더 많다 — 이진축 특유의 문제가 아니라 **단일축 채점 자체**가 만점을 남발한다.
     """
     if sort is None:
         return [Company.corp_code.asc()]
@@ -280,4 +304,8 @@ def _order_by(sort: str | None) -> list[Any]:
     field = sort[1:] if desc else sort
     col = SORT_COLUMNS[field]
     direction = col.desc() if desc else col.asc()
-    return [col.is_(None), direction, Company.corp_code.asc()]  # null last(명시적)
+    keys: list[Any] = [col.is_(None), direction]
+    if field == "execution_score":
+        keys.append(_disclosed_axis_count_sql().desc())
+    keys.append(Company.corp_code.asc())  # 안정 정렬(마지막)
+    return keys

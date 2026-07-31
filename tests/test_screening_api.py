@@ -186,6 +186,36 @@ def test_sort_whitelist_and_null_last(client) -> None:
     assert r3.json()["code"] == "INVALID_SORT"
 
 
+def test_execution_score_tie_broken_by_axis_count(client, engine) -> None:
+    """동점 100점은 **공시 축 수**로 깬다 — 정렬 키일 뿐 점수는 그대로.
+
+    실측 근거(표본 33→359, 2026-07-31): 채점 84종목 중 49개(58%)가 100점 동점이고
+    그중 43개가 단일축이다. 세 축을 다 지킨 기아가 자사주 하나만 공시한 20개와 같은
+    자리에 놓이던 문제. corp_code(무의미한 안정 정렬)에 표시 순서를 맡기지 않는다.
+    """
+    # 같은 100점, 축 수만 다른 세 종목(코드 오름차순 = 축 수 오름차순으로 배치해
+    # corp_code 정렬이었다면 정반대로 나오게 만든다).
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        for code, name, basis in (
+            ("00000101", "자사주만", "buyback"),
+            ("00000102", "두축", "roe+payout"),
+            ("00000103", "세축", "roe+buyback+payout"),
+        ):
+            s.add(Company(corp_code=code, corp_name=name, market="KOSPI", sector="26100"))
+            s.add(ValueupScore(
+                corp_code=code, as_of=AS_OF, execution_score=100.0, score_basis=basis,
+            ))
+        s.commit()
+
+    codes = [
+        i["corp_code"]
+        for i in client.get("/screening", params={"sort": "-execution_score"}).json()["items"]
+        if i["corp_code"].startswith("000001")
+    ]
+    assert codes == ["00000103", "00000102", "00000101"]  # 3축 → 2축 → 1축
+
+
 def test_opacity_served_with_null_contract(client) -> None:
     """opacity_score 3번째 join 실증: rank/count/basis + has_opacity_score가 응답에 실린다.
     opacity 없는 종목은 null + has_opacity_score=False(washing_flag과 같은 null 계약)."""
