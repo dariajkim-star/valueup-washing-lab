@@ -113,6 +113,57 @@ def test_sum_debt_handles_duplicate_labels() -> None:
     assert _sum_debt([{"account_nm": "자산총계", "thstrm_amount": "100"}]) is None
 
 
+def test_sum_debt_matches_ifrs_tags_and_excludes_cash_flow() -> None:
+    """[2026-07-31] 표준 태그로 잡고, **현금흐름표 항목은 제외**한다.
+
+    실측(라이브 DART): 현대모비스의 차입 계정은 "유동 차입금 및 비유동차입금(사채 포함)의
+    유동성 대체 부분 합계"처럼 회사마다 문구가 달라 라벨 완전일치로는 못 잡았다(커버리지
+    67.5%). 그런데 같은 응답에 "장기차입금의 상환" 같은 **현금흐름** 항목이 있어, 부분일치로
+    넓히면 잔액에 유출입을 더한 틀린 값이 나온다. sj_div='BS' 한정이 그 방어다.
+    """
+    from app.ingest.dart import _sum_debt
+
+    rows = [
+        # 재무상태표 — 표준 태그로 매칭(한글 문구는 회사마다 다름)
+        {"sj_div": "BS", "account_id": "ifrs-full_LongtermBorrowings",
+         "account_nm": "비유동차입금(사채 포함)의 비유동성 부분", "thstrm_amount": "1,927,485,000,000"},
+        {"sj_div": "BS", "account_id": "ifrs-full_CurrentLeaseLiabilities",
+         "account_nm": "유동성리스부채", "thstrm_amount": "145,865,000,000"},
+        # 표준계정코드 미사용(삼성전자 형태) — 한글 라벨 완전일치로 구제
+        {"sj_div": "BS", "account_id": "-표준계정코드 미사용-",
+         "account_nm": "단기차입금", "thstrm_amount": "1,000,000"},
+        # 현금흐름표 — 잔액이 아니라 유출입이므로 절대 더하면 안 된다
+        {"sj_div": "CF", "account_id": "ifrs-full_RepaymentsOfBorrowings",
+         "account_nm": "장기차입금의 상환", "thstrm_amount": "999,999,999,999"},
+        {"sj_div": "BS", "account_id": "ifrs-full_Assets",
+         "account_nm": "자산총계", "thstrm_amount": "119,855,209,000,000"},  # 무시
+    ]
+    assert _sum_debt(rows) == 1_927_485_000_000 + 145_865_000_000 + 1_000_000
+
+
+def test_sum_debt_keeps_working_without_sj_div() -> None:
+    """sj_div가 없는 응답(구형·픽스처)에서는 필터를 적용하지 않는다 — 통째로 날리지 않게."""
+    from app.ingest.dart import _sum_debt
+
+    assert _sum_debt([{"account_nm": "차입금", "thstrm_amount": "100"}]) == 100
+
+
+def test_normalize_nulls_total_debt_when_exceeding_liabilities() -> None:
+    """총차입금 > 총부채면 이중 합산 의심 — 틀린 값 대신 null(NFR2)."""
+    from app.ingest.dart import DartAdapter
+
+    raw = {
+        "company": {"corp_code": "00000001", "corp_name": "테스트"},
+        "periods": [
+            {"year": 2025, "quarter": 4, "fs_div": "CFS",
+             "accounts": {"부채총계": 1000}, "total_debt": 5000},
+        ],
+    }
+    _, fins = DartAdapter().normalize(raw)
+    assert fins[0]["total_liabilities"] == 1000
+    assert fins[0]["total_debt"] is None  # 5000 > 1000 → 신뢰 불가
+
+
 def test_normalize_uses_period_total_debt() -> None:
     """normalize는 fetch가 넘긴 period['total_debt']를 사용."""
     from app.ingest.dart import DartAdapter
@@ -253,13 +304,29 @@ def test_buyback_totals_zero_activity_is_zero() -> None:
     assert _buyback_totals(rows) == (0, 0)
 
 
-def test_buyback_totals_dash_is_none_per_field() -> None:
-    """AC4: '-'/빈값(파싱불가)만 있는 필드는 None(unknown). 취득만 있고 소각은 '-'."""
+def test_buyback_dash_only_field_is_zero_activity() -> None:
+    """[2026-07-31 계약 변경] 칼럼은 왔는데 값이 '-'뿐이면 **0**(활동 없음)이다.
+
+    이전엔 None(미상)이었다. 라이브 대조가 근거다 — 삼성전자·기아·경농이 모두 같은
+    18행 표를 제출했고 차이는 수치 유무뿐이었다(삼성 6행·기아 3행에 값, 경농 0행).
+    DART 표의 '-'는 "그 기간 해당 활동 없음"이지 미공시가 아니다.
+
+    이전 계약의 대가: "자사주를 약속하고 실행하지 않은" 기업이 '판단 불가'로 처리돼
+    execution_score가 통째로 죽었다(실측 28건). 워싱 신호가 미상으로 세탁된 셈이다.
+    """
     from app.ingest.dart import _buyback_totals
 
     rows = [{"acqs_mth1": "직접 취득", "acqs_mth2": "-", "acqs_mth3": "-",
              "change_qy_acqs": "3,000,000", "change_qy_incnr": "-"}]
-    assert _buyback_totals(rows) == (3_000_000, None)
+    assert _buyback_totals(rows) == (3_000_000, 0)
+
+
+def test_buyback_missing_column_stays_unknown() -> None:
+    """칼럼 자체가 없으면 여전히 None — '값이 없음'과 '칼럼이 안 옴'은 다르다."""
+    from app.ingest.dart import _buyback_totals
+
+    rows = [{"acqs_mth1": "직접 취득", "acqs_mth3": "-", "change_qy_acqs": "1,000"}]
+    assert _buyback_totals(rows) == (1_000, None)  # incnr 칼럼 부재 → 미상 유지
 
 
 def test_buyback_totals_summary_only_fallback() -> None:

@@ -10,6 +10,7 @@ fetch: REST 호출(키 필요). normalize: 계정명 매핑(순수, 테스트 �
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import time
@@ -23,6 +24,8 @@ from urllib3.util.retry import Retry
 
 from app.config import settings
 from app.ingest.base import SourceAdapter
+
+logger = logging.getLogger(__name__)
 from app.repositories.financials import upsert_company, upsert_financial
 
 _BASE = "https://opendart.fss.or.kr/api"
@@ -50,6 +53,28 @@ _ACCOUNT_MAP: dict[str, tuple[str, ...]] = {
 _DEBT_LABELS = (
     "차입금", "단기차입금", "장기차입금", "유동성장기부채", "사채", "리스부채",
 )
+
+# [2026-07-31] 총차입금 커버리지 67.5% → 개선. 라벨 완전일치만으로는 대부분을 놓쳤다.
+#
+# 실측(라이브 DART): 현대모비스의 차입 계정은 "유동 차입금 및 비유동차입금(사채 포함)의
+# 유동성 대체 부분 합계"·"비유동성리스부채"처럼 회사마다 문구가 다르고, 메리츠금융지주는
+# "차입부채" 하나뿐이다. 위 6개 완전일치로는 셋 다 못 잡는다.
+#
+# 그렇다고 "차입"을 부분일치로 잡으면 **틀린 값**이 나온다 — 같은 응답에 "장기차입금의
+# 상환"·"차입금의 순증감" 같은 **현금흐름표 항목**(잔액이 아니라 유출입)이 섞여 있다.
+# 그래서 (1) 재무상태표(sj_div='BS')로 한정하고 (2) IFRS 표준 태그로 매칭한다.
+# 표준계정코드를 안 쓰는 회사(삼성전자 '단기차입금')를 위해 기존 라벨 완전일치를 남긴다.
+_DEBT_ACCOUNT_IDS = frozenset({
+    "ifrs-full_Borrowings",
+    "ifrs-full_ShorttermBorrowings",
+    "ifrs-full_LongtermBorrowings",
+    "ifrs-full_CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings",
+    "ifrs-full_CurrentLeaseLiabilities",
+    "ifrs-full_NoncurrentLeaseLiabilities",
+    "ifrs-full_BondsIssued",
+    "ifrs-full_NoncurrentPortionOfNoncurrentBondsIssued",
+    "ifrs-full_NoncurrentPortionOfNoncurrentLoansReceived",
+})
 
 
 class DartAdapterError(RuntimeError):
@@ -269,12 +294,27 @@ class DartAdapter(SourceAdapter):
             }
             for col, labels in _ACCOUNT_MAP.items():
                 rec[col] = _pick(accounts, labels)
-            # total_debt는 fetch에서 '모든 차입 행' 합산(중복 라벨 포함)해 넘겨받음
+            # total_debt는 fetch에서 '모든 차입 행' 합산(중복 라벨 포함)해 넘겨받음.
+            # 정합성 게이트(2026-07-31): 총차입금이 총부채를 넘으면 합계·소계를 이중으로
+            # 더했을 가능성이 크다(ifrs-full_Borrowings 총계와 개별 항목이 함께 오는 경우).
+            # 그때는 **틀린 값 대신 null**을 남긴다 — 이 프로젝트의 NFR2("null > 틀린 값").
             rec["total_debt"] = period.get("total_debt")
+            liabilities = rec.get("total_liabilities")
+            if (
+                rec["total_debt"] is not None
+                and liabilities is not None
+                and rec["total_debt"] > liabilities
+            ):
+                logger.warning(
+                    "총차입금(%s) > 총부채(%s) — 이중 합산 의심으로 null 처리 corp_code=%s %s",
+                    rec["total_debt"], liabilities, corp_code, period.get("year"),
+                )
+                rec["total_debt"] = None
             # 배당총액(1.9): alotMatter 행에서 집계(백만원→KRW 스케일). rows None/[] → null.
             rec["dividend_total"] = _dividend_total(period.get("dividend_rows"))
             # 자사주 취득/소각 신호(1.8): tesstkAcqsDspsSttus 행에서 집계(수량, 액 아님).
-            # buyback_rows None(미상/실패)·[](미공시) 모두 (None, None) → 기존값 보존.
+            # buyback_rows None(미상/실패)·[](표 자체가 안 옴) → (None, None) 기존값 보존.
+            # 행이 오면 수치가 전무해도 0(활동 없음)으로 확정한다(2026-07-31).
             rec["buyback_amount"], rec["buyback_retired_amount"] = _buyback_totals(
                 period.get("buyback_rows")
             )
@@ -409,12 +449,25 @@ def _buyback_field_total(
          - 그 외(상충 총계) → None.
       2) 총계 없으면 leaf 행 합(0 가능 → '활동 0' 확정).
       3) 소계만 있으면 None — 소계 중첩/부분 계층을 검증할 수 없어 합산하지 않는다.
+      4) [2026-07-31] 행은 정상인데 이 필드에 **수치가 하나도 없으면 0**(활동 없음).
+
+    4)의 근거(라이브 대조): 삼성전자·기아·경농이 모두 **같은 18행 표**를 제출했고,
+    차이는 수치 유무뿐이다(삼성 6행·기아 3행에 값, 경농 0행). DART 표에서 '-'는
+    "그 기간에 해당 활동 없음"이지 미공시가 아니다. 이전엔 이를 None(미상)으로 두어
+    **"약속하고 안 했다"가 "판단 불가"로 세탁**됐고, buyback을 약속한 종목의
+    execution_score가 통째로 죽었다(실측 28건).
+    표가 **아예 오지 않은 경우**(요청 실패·미제출)는 호출자가 rows=None/[]로 넘기므로
+    여기 오지 않는다 — 그쪽은 계속 미상이다.
     """
     totals: list[tuple[str, int]] = []
     leaves: list[int] = []
+    subtotal_seen = False
+    field_present = False  # 이 필드 칼럼이 응답에 실제로 왔나('-'여도 온 것)
     for row in rows:
         if not isinstance(row, Mapping):  # 형태 이탈 요소(비dict) 방어
             continue
+        if field in row:
+            field_present = True
         v = _parse_quantity(row.get(field))
         if v is None:
             continue
@@ -423,6 +476,8 @@ def _buyback_field_total(
             totals.append((_norm_label(row.get("stock_knd", "")), v))
         elif kind == "leaf":
             leaves.append(v)
+        else:
+            subtotal_seen = True
         # subtotal은 수집하지 않음(계층 불명 → 단독 사용 금지)
     if totals:
         if len(totals) == 1:
@@ -436,7 +491,11 @@ def _buyback_field_total(
         return None  # 상충 총계 → 애매 → null
     if leaves:
         return sum(leaves)
-    return None  # 소계만/파싱값 전무 → null(미공시·불명과 동일 취급)
+    if subtotal_seen:
+        return None  # 소계만 있음 → 계층 불명, 합산 불가(기존 계약 유지)
+    if field_present:
+        return 0  # 칼럼은 왔는데 수치가 전무 → '활동 없음'이라는 사실
+    return None  # 칼럼 자체가 없음 → 미상(응답 형태 이상·구버전)
 
 
 def _buyback_totals(
@@ -455,18 +514,34 @@ def _buyback_totals(
 
 
 def _sum_debt(rows: Sequence[Mapping[str, Any]]) -> int | None:
-    """총차입금 = 차입 라벨에 매칭되는 '모든 행'의 합(중복 라벨·유동/비유동 포함).
+    """총차입금 = **재무상태표**의 차입 계정 합(유동/비유동·리스·사채 포함). 없으면 None.
 
     dedup dict가 아니라 원본 rows에서 계산 — 같은 '차입금'이 유동/비유동에 각각
-    등장하는 경우(하이닉스 등)를 모두 합산한다. 하나도 없으면 None.
+    등장하는 경우(하이닉스 등)를 모두 합산한다.
+
+    매칭은 두 경로다(2026-07-31):
+      1) IFRS 표준 태그(account_id) — 회사마다 다른 한글 문구에 흔들리지 않는다.
+      2) 한글 라벨 완전일치 — 표준계정코드를 쓰지 않는 회사(삼성전자 '단기차입금')용.
+
+    **sj_div='BS'로 한정하는 것이 이 함수의 안전장치다.** 같은 응답에 "장기차입금의 상환"
+    같은 현금흐름 항목이 있어, 걸러내지 않으면 잔액에 유출입을 더한 틀린 값이 나온다.
+    sj_div가 아예 없는 응답(구형·테스트 픽스처)은 필터를 적용하지 않는다 — 필터가 데이터를
+    통째로 날려 기존 동작을 깨뜨리는 쪽이 더 나쁘다.
     """
+    has_sj_div = any(row.get("sj_div") for row in rows)
     total = 0
     found = False
     for row in rows:
-        name = row.get("account_nm", "")
-        if name in _DEBT_LABELS:
-            v = _parse_amount(row.get("thstrm_amount"))
-            if v is not None:
-                total += v
-                found = True
+        if has_sj_div and row.get("sj_div") != "BS":
+            continue
+        matched = (
+            row.get("account_id") in _DEBT_ACCOUNT_IDS
+            or row.get("account_nm", "") in _DEBT_LABELS
+        )
+        if not matched:
+            continue
+        v = _parse_amount(row.get("thstrm_amount"))
+        if v is not None:
+            total += v
+            found = True
     return total if found else None
