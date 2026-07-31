@@ -161,7 +161,7 @@ def upsert_valueup_score(session: Session, rec: dict[str, Any]) -> ValueupScore:
         "target_roe", "actual_roe", "roe_gap",
         "achievement_rate", "progress_rate", "execution_score", "washing_flag",
         "buyback_executed", "buyback_retired", "buyback_status", "score_basis",
-        "source_plan_id",
+        "excluded_axes", "source_plan_id",
     ):
         setattr(obj, field, rec[field])
     return obj
@@ -269,6 +269,7 @@ def list_scores(
             "washing_flag": score.washing_flag,
             "buyback_status": score.buyback_status,
             "score_basis": score.score_basis,
+            "excluded_axes": score.excluded_axes,
             # 환원 축 투명화(2026-07-31) — 목표는 근거 공시에서, 실적은 **엔진과 같은
             # 선택 규칙**(latest_metrics: look-ahead 차단)으로 읽는다. 규칙이 갈리면
             # 화면 숫자와 점수가 어긋나 출처 표기의 목적이 무너진다.

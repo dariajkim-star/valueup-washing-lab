@@ -275,6 +275,10 @@ class ValueupScore(Base):
     # 기업이 공시한 항목만으로 채점하므로 가중치 기반이 종목마다 다르다 — 그 사실을
     # 숨기면 점수를 종목 간 비교에 잘못 쓰게 된다(mna의 population_basis와 같은 이유).
     score_basis: Mapped[str | None] = mapped_column(String(40))
+    # 채점에서 **제외된** 축과 사유(0021). score_basis(포함된 축)의 여집합.
+    # "roe:no_period" = 계획 기간 미상이라 진척 대비 달성을 말할 수 없어 ROE 축을 뺐다.
+    # 빼되 숨기지 않는다 — 못 잰 축이 조용히 사라지면 점수가 실제보다 완전해 보인다.
+    excluded_axes: Mapped[str | None] = mapped_column(String(100))
     # 이 점수가 실제로 근거로 삼은 valueup_plan(0016). 서빙이 "최신 공시" 규칙을 **재현하지
     # 않고** 이 id로 조인하게 하려는 것 — 규칙이 엔진과 서빙 두 곳에 있으면 어긋나는 순간
     # 화면이 실제 근거가 아닌 공시를 출처로 표시한다(출처 표기의 목적과 정반대).

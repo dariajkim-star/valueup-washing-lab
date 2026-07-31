@@ -183,6 +183,10 @@ class GapAnalysisOut(BaseModel):
     progress_rate: float | None = None
     execution_score: float | None = None
     score_basis: str | None = None  # 채점 근거(5-1) — ScreeningOut과 같은 계약
+    # 채점에서 제외된 축과 사유(0021). "roe:no_period" = 계획 기간 미상이라 진척 대비
+    # 달성을 말할 수 없어 ROE 축을 뺐다. score_basis에서 빠진 것만으로는 "애초에 약속
+    # 안 함"과 구분되지 않으므로 별도로 남긴다.
+    excluded_axes: str | None = None
     washing_flag: bool | None = None
     buyback_status: str | None = None
     # 출처(0015) — 이 점수가 **어느 공시**에서 나왔는가. 목표값만 보여주고 출처를 감추면

@@ -319,9 +319,20 @@ def test_run_rejects_malformed_as_of(engine) -> None:
         run(as_of="not-a-date", session_factory=Session_)
 
 
-def test_run_ac3_invalid_period_nulls_achievement_and_execution(engine) -> None:
-    """[High] AC3: period_start가 없으면 progress_rate뿐 아니라 achievement_rate·
-    execution_score도 null이어야 한다(이전 구현은 achievement_rate를 별도 계산해 AC3 위반)."""
+def test_run_ac3_invalid_period_excludes_roe_axis_only(engine) -> None:
+    """AC3 유지 + [2026-07-31 계약 변경] 기간 미상은 **ROE 축만** 제외한다.
+
+    AC3(기간을 모르면 진척 대비 달성을 말하지 않는다 → achievement_rate null)는 그대로다.
+    바뀐 것은 그 다음이다 — 예전엔 ROE 목표가 있으면 execution_score까지 통째로 null이
+    됐다. 그 결과 환원·자사주를 **실제로 잴 수 있는데도** 점수가 죽었다.
+
+    실측(표본 359): 채점 실패 264행 중 235행이 기간 없음이고, 그중 75행이 이 경우였다
+    (엘지이노텍: 목표 ROE 15.0·배당성향 20.0, 실적 8.39·11.01 — 둘 다 측정 가능).
+    2026-07-23 교차리뷰 ⑥("한 축의 미달이 다른 축을 상쇄")와 같은 계열의 교정이며,
+    이번엔 미달이 아니라 **측정 불가**가 다른 축을 지운 경우다.
+
+    제외는 숨기지 않는다 — excluded_axes에 사유와 함께 남는다.
+    """
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         s.add(Company(corp_code="00000005", corp_name="기간불명"))
@@ -330,6 +341,9 @@ def test_run_ac3_invalid_period_nulls_achievement_and_execution(engine) -> None:
             net_income=80, equity=1000, revenue=1000,
             operating_income=100, depreciation=10, total_assets=2000,
             total_liabilities=1000, cash=100, total_debt=200, dividend_total=24,
+            # 자사주 실적을 준다 — 없으면 "자사주 약속했는데 실적 미상"이라는 **다른 사유**로
+            # 점수가 null이 되어 이 테스트가 무엇을 검증하는지 흐려진다.
+            buyback_amount=100,
         ))
         s.add(ValueupPlan(
             corp_code="00000005", disclosure_date="2024-01-01",
@@ -341,8 +355,13 @@ def test_run_ac3_invalid_period_nulls_achievement_and_execution(engine) -> None:
         run(as_of="2025-12-31", corp_codes=["00000005"], session_factory=Session_)
         row = s.scalars(select(ValueupScore)).one()
         assert row.progress_rate is None
-        assert row.achievement_rate is None  # actual_roe=8.0, target_roe=10.0로 계산 가능했었지만 null
-        assert row.execution_score is None
+        assert row.achievement_rate is None  # AC3 유지: 진척을 모르면 달성률을 말하지 않는다
+        # ROE 축만 빠지고 나머지(배당성향 30.0·자사주 계획)로 채점된다
+        assert row.execution_score is not None
+        assert row.score_basis is not None and "roe" not in row.score_basis
+        assert "payout" in row.score_basis
+        # 뺐다는 사실이 남는다 — "애초에 ROE를 약속하지 않음"과 구분되어야 한다
+        assert row.excluded_axes == "roe:no_period"
 
 
 def test_run_deletes_stale_score_when_plan_removed(engine) -> None:

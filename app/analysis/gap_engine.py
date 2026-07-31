@@ -282,10 +282,28 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
     # 어떤 항목을 "약속했는가"의 판정(5-1): 목표를 공시했는지 여부다. ROE는 target_roe 존재,
     # 자사주는 buyback_planned가 확정 True일 때만(None=언급 불명은 약속으로 치지 않는다 —
     # _washing_flag가 buyback_planned를 3치로 다루는 것과 같은 기준).
+    # [2026-07-31] 계획 기간이 무효면 ROE 축을 **제외**하고 나머지 축으로 채점한다.
+    #
+    # 이전엔 target_roe만 보고 roe_committed=True로 뒀는데, 기간이 없으면 위에서
+    # achievement_rate가 null이 되므로 _execution_score가 "약속했는데 실적 미상"으로
+    # 판정해 **전체 점수를 null**로 만들었다. 실측(표본 359): 채점 실패 264행 중
+    # 235행이 기간 없음이고, 그중 75행은 환원·자사주 축을 실제로 잴 수 있었다
+    # (엘지이노텍: 목표 ROE 15.0·배당성향 20.0, 실적 8.39·11.01 — 둘 다 측정 가능).
+    #
+    # 2026-07-23 교차리뷰 ⑥와 같은 계열의 교정이다: 그때는 한 축의 **미달**이 다른 축을
+    # 상쇄했고, 지금은 한 축의 **측정 불가**가 다른 축의 측정 가능을 지웠다.
+    # AC3 게이팅 자체(기간을 모르면 진척 대비 달성을 말하지 않는다)는 그대로 유지한다 —
+    # ROE 축을 빼는 것이지, 못 재는 값을 지어내는 것이 아니다.
+    roe_measurable = plan["target_roe"] is not None and progress_rate is not None
+    excluded: list[str] = []
+    if plan["target_roe"] is not None and progress_rate is None:
+        # 빼되 숨기지 않는다 — score_basis에서 사라지는 것만으론 "애초에 약속 안 함"과
+        # 구분되지 않는다(Grumbal: "조용히 사라지면 그게 세탁이다").
+        excluded.append("roe:no_period")
     execution_score, score_basis = _execution_score(
         achievement_rate, executed, actual_payout, plan["target_payout_ratio"],
         settings.score_w_achievement, settings.score_w_buyback, settings.score_w_payout,
-        roe_committed=plan["target_roe"] is not None,
+        roe_committed=roe_measurable,
         buyback_committed=plan["buyback_planned"] is True,
         actual_total_return=actual_total_return,
         target_total_return=plan["target_total_return_ratio"],
@@ -318,6 +336,9 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
             "buyback_retired": retired,
             "buyback_status": status,
             "score_basis": score_basis,
+            # 제외된 축(0021) — 점수가 실제보다 완전해 보이지 않게. 채점 자체가 불가능해
+            # execution_score가 null인 경우엔 제외를 기록하지 않는다(뺄 대상이 없다).
+            "excluded_axes": ",".join(excluded) if (excluded and execution_score is not None) else None,
             # 근거 공시의 신원(0016) — 서빙이 선택 규칙을 재현하지 않고 이것으로 조인한다.
             "source_plan_id": plan.get("plan_id"),
         },

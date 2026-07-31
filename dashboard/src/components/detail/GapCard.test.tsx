@@ -24,6 +24,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     plan_disclosure_date: null, plan_rcept_no: null,
     plan_is_fallback: false, plan_newest_disclosure_date: null,
     plan_body_signal: "axis_targets",
+    excluded_axes: null,
     target_payout_ratio: null, target_total_return_ratio: null,
     actual_payout_ratio: null, actual_total_return_ratio: null,
     payout_achievement: null,
@@ -161,5 +162,23 @@ describe("[2026-07-31] 환원 축 — 만점의 근거를 화면이 말한다", 
     const { container } = render(<GapCard gap={gap({ target_roe: 10 })} />);
     expect(container.textContent).not.toContain("목표 대비");
     expect(container.textContent).not.toContain("배당성향");
+  });
+});
+
+describe("[2026-07-31] 제외된 축 — 못 잰 축이 조용히 사라지지 않는다", () => {
+  it("기간 미상으로 ROE가 빠졌으면 그 사실과 이유를 말한다", () => {
+    // 엘지이노텍 실측: 목표 ROE 15.0인데 계획 기간이 없어 ROE 축 제외, 배당성향으로만 채점.
+    // score_basis에서 사라진 것만으론 "애초에 ROE를 약속 안 함"과 구분되지 않는다.
+    render(<GapCard gap={gap({
+      execution_score: 55.05, score_basis: "payout", excluded_axes: "roe:no_period",
+      target_roe: 15.0, actual_roe: 8.39,
+    })} />);
+    expect(screen.getByText(/ROE는 채점에서 제외됨/)).toBeTruthy();
+    expect(screen.getByText(/계획 기간이 공시에 없어/)).toBeTruthy();
+  });
+
+  it("제외된 축이 없으면 안내를 띄우지 않는다", () => {
+    const { container } = render(<GapCard gap={gap({ excluded_axes: null })} />);
+    expect(container.textContent).not.toContain("채점에서 제외");
   });
 });

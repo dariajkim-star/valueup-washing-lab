@@ -28,6 +28,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     plan_disclosure_date: null, plan_rcept_no: null,
     plan_is_fallback: false, plan_newest_disclosure_date: null,
     plan_body_signal: null,
+    excluded_axes: null,
     target_payout_ratio: null, target_total_return_ratio: null,
     actual_payout_ratio: null, actual_total_return_ratio: null,
     payout_achievement: null,

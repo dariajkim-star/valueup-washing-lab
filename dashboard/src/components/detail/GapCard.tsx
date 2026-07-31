@@ -37,12 +37,36 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
         <MiniStat label="자사주" value={buybackLabel(gap.buyback_status)} />
       </div>
       <PayoutAxis gap={gap} />
+      <ExcludedAxes excluded={gap.excluded_axes} />
       {/* [2026-07-23 파티 결정 B] washing_flag 화면 임시 은닉 — 로직·API 무변경. ScreenerTable 참조.
       <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
         워싱 판정: <WashingBadge flag={gap.washing_flag} />
       </div> */}
 
       <PlanProvenance gap={gap} />
+    </div>
+  );
+}
+
+// [2026-07-31] 채점에서 **빠진** 축을 말한다.
+//
+// 계획 기간이 없으면 "진척 대비 달성"을 말할 수 없어 ROE 축을 채점에서 뺀다(AC3 유지).
+// 예전엔 그 경우 점수가 통째로 null이었는데, 환원·자사주를 실제로 잴 수 있는 종목까지
+// 죽였다(실측 75행). 이제는 나머지 축으로 채점하되 — **뺐다는 사실을 여기서 말한다.**
+// score_basis에서 조용히 사라지면 "애초에 ROE를 약속하지 않은 기업"과 구분되지 않는다.
+const EXCLUDED_LABEL: Record<string, string> = {
+  "roe:no_period": "ROE는 채점에서 제외됨 — 계획 기간이 공시에 없어 진척 대비 달성을 판단할 수 없습니다(목표·실적은 위에 그대로 표시).",
+};
+
+function ExcludedAxes({ excluded }: { excluded: string | null }) {
+  if (!excluded) return null;
+  const notes = excluded.split(",").map((k) => EXCLUDED_LABEL[k] ?? k).filter(Boolean);
+  if (!notes.length) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+      {notes.map((n) => (
+        <p key={n} className="text-[11px] leading-relaxed text-amber-800">{n}</p>
+      ))}
     </div>
   );
 }

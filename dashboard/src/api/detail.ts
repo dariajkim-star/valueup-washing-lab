@@ -27,6 +27,9 @@ export interface GapDetail {
   plan_newest_disclosure_date: string | null;
   // 본문이 왜 우리 축을 못 채웠는가: axis_targets / other_metric / refiling / no_targets
   plan_body_signal: string | null;
+  // 채점에서 제외된 축과 사유(0021). "roe:no_period" = 계획 기간 미상이라 ROE 축을 뺐다.
+  // score_basis에서 빠진 것만으론 "애초에 약속 안 함"과 구분되지 않아 별도로 받는다.
+  excluded_axes: string | null;
   // 환원 축(2026-07-31) — 목표·실적·달성배율. payout_achievement는 캡 없는 원값이라
   // 1.0 초과가 "목표 초과 달성"을 뜻한다(점수는 [0,1] clamp라 이 정보가 지워진다).
   target_payout_ratio: number | null;
