@@ -117,3 +117,88 @@ class TestRangeTargets:
         got = parse_targets("당사는 기업가치 제고에 힘쓰겠습니다")
         assert got["target_roe"] is None
         assert got["target_ranges"] is None
+
+
+class TestCeilingGuard:
+    """[P1-5, 2026-08-03] '이내·이하·미만'은 목표가 아니라 **상한**이다.
+
+    우리 채점은 목표를 "달성해야 할 하한"으로 다루므로, 상한 약속을 주우면
+    회사가 하지 않은 약속으로 채점하게 된다(NFR2).
+    """
+
+    def test_ceiling_is_not_a_target(self):
+        from app.ingest.dart_valueup import parse_targets
+
+        # 대한항공 실샘플 형태
+        got = parse_targets("별도 재무제표 기준 당기순이익의 30% 이내 주주환원")
+        assert got["target_total_return_ratio"] is None
+        assert got["target_payout_ratio"] is None
+
+    def test_ceiling_does_not_block_floor(self):
+        """'이상'은 그대로 목표다 — 가드가 정상 목표를 막으면 안 된다."""
+        from app.ingest.dart_valueup import parse_targets
+
+        assert parse_targets("배당성향 30% 이상 유지")["target_payout_ratio"] == 30.0
+
+
+class TestQualifiedGap:
+    """계열B — 라벨과 값 사이에 연도/평균 수식어가 낀 형태."""
+
+    def test_average_qualifier(self):
+        """JW중외제약·에프앤에프 실샘플: 'ROE 3년 평균 20%'."""
+        from app.ingest.dart_valueup import parse_targets
+
+        assert parse_targets("② ROE - 3년 평균 20% 이상")["target_roe"] == 20.0
+
+    def test_until_year_qualifier(self):
+        """금호석유화학 실샘플: "ROE : '26년까지 7%"."""
+        from app.ingest.dart_valueup import parse_targets
+
+        assert parse_targets("ROE : '26년까지 7%")["target_roe"] == 7.0
+
+    def test_future_bare_year_accepted(self):
+        """한미사이언스 실샘플: 'ROE : 2028년 30%' — 공시연도보다 뒤면 목표."""
+        from app.ingest.dart_valueup import parse_targets
+
+        got = parse_targets("ROE : 2028년 30% 목표", "2026-03-20")
+        assert got["target_roe"] == 30.0
+
+    def test_past_bare_year_rejected(self):
+        """'2024년 ROE 5%'는 실적이다 — 공시연도 이전 연도는 목표로 보지 않는다."""
+        from app.ingest.dart_valueup import parse_targets
+
+        assert parse_targets("ROE : 2024년 5%", "2026-03-20")["target_roe"] is None
+
+    def test_bare_year_needs_disclosure_year(self):
+        """공시연도를 모르면 목표/실적을 가를 수 없다 → 채택하지 않는다(NFR2)."""
+        from app.ingest.dart_valueup import parse_targets
+
+        assert parse_targets("ROE : 2028년 30%")["target_roe"] is None
+
+
+class TestReversePayout:
+    """계열A — 역순(값 → 라벨). 배당성향만 연다."""
+
+    def test_reverse_payout(self):
+        """동방아그로·에스엘 실샘플: '당기순이익의 40%이상의 배당성향'."""
+        from app.ingest.dart_valueup import parse_targets
+
+        got = parse_targets("연결 지배주주 당기순이익 기준 40% 이상의 배당성향을 목표로 함")
+        assert got["target_payout_ratio"] == 40.0
+
+    def test_reverse_does_not_steal_neighbor_metric(self):
+        """'부채비율 100% 이하 - 배당성향'에서 100을 훔치면 안 된다.
+
+        역방향 gap은 값 **뒤**만 막으므로, 값 **앞**의 남의 라벨은 파이썬 창 검사로 거른다
+        (2026-07-23 교차리뷰 ③과 같은 계열의 오탐).
+        """
+        from app.ingest.dart_valueup import parse_targets
+
+        assert parse_targets("부채비율 : 100% 이하 - 배당성향")["target_payout_ratio"] is None
+
+    def test_forward_value_wins_over_reverse(self):
+        """기존 규칙이 찾은 값을 역순 폴백이 덮지 않는다(회귀 방지)."""
+        from app.ingest.dart_valueup import parse_targets
+
+        got = parse_targets("배당성향 30% 이상 목표. 당기순이익의 50% 수준의 배당성향 참고")
+        assert got["target_payout_ratio"] == 30.0

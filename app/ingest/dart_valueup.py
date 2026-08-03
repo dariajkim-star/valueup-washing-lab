@@ -64,7 +64,13 @@ _PBR_MAX = 100.0  # 현실적 PBR 상한(연도·페이지번호 오탐 배제)
 
 # ── best-effort 파싱 패턴 ──
 # 값 뒤에 p/P/포(인트)가 오면 '퍼센트포인트'(증감)라 절대목표 아님 → 제외.
-_PCT = r"(\d+(?:\.\d+)?)\s*%(?![pP포])"
+#
+# **상한 약속 배제**(2026-08-03, P1-5): "이내·이하·미만"이 붙은 값은 목표가 아니라 **상한**이다.
+# 대한항공 "당기순이익의 30% **이내** 주주환원", 넷마블 "40% **이내**로 확대"가 실샘플이다.
+# 우리 채점은 목표를 "달성해야 할 하한"으로 다루므로, 이 값을 주우면 **회사가 하지 않은
+# 약속으로 채점**하게 된다(NFR2 위반). 전 패턴에 일괄 적용한다 — 방향과 무관하게 틀린다.
+_CEILING = r"(?!\s*(?:이내|이하|미만))"
+_PCT = r"(\d+(?:\.\d+)?)\s*%(?![pP포])" + _CEILING
 # ROE 별칭(1.10, 실샘플 6건: '자기자본이익률' 표기).
 _ROE_LABEL = r"(?:ROE|자기자본이익률)"
 # 경쟁 지표 라벨(일괄리뷰 2026-07-13 High): gap이 다른 지표를 가로질러 그 지표의 %를
@@ -120,7 +126,7 @@ _RETURN_RE = re.compile(
 # 하한이고, 중앙값은 공시에 없는 숫자를 우리가 만드는 것이다("억지 추정 금지", SM-C1).
 # 대신 **범위였다는 사실을 함께 남긴다**(target_ranges) — 하한만 보면 달성 판정이
 # 관대해지므로, 화면이 원문 범위를 말할 수 있어야 한다.
-_PCT_RANGE = r"(\d+(?:\.\d+)?)\s*[~∼\-–]\s*(\d+(?:\.\d+)?)\s*%(?![pP포])"
+_PCT_RANGE = r"(\d+(?:\.\d+)?)\s*[~∼\-–]\s*(\d+(?:\.\d+)?)\s*%(?![pP포])" + _CEILING
 _ROE_RANGE_RE = re.compile(
     _ROE_LABEL + _plain_gap(_OTHERS_FOR_ROE) + _PCT_RANGE, re.IGNORECASE
 )
@@ -128,6 +134,77 @@ _PAYOUT_RANGE_RE = re.compile(r"배당성향" + _plain_gap(_OTHERS_FOR_PAYOUT) +
 _RETURN_RANGE_RE = re.compile(
     _RETURN_LABEL + _plain_gap(_OTHERS_FOR_RETURN) + _PCT_RANGE + _TARGET_MARK
 )
+
+
+# ── [P1-5, 2026-08-03] 못 읽던 두 형태 ──
+#
+# P1-5는 "우리 4축 밖의 지표로 공시한 기업" 문제로 기록돼 있었으나, 유니버스 확대 후
+# other_metric 22건의 원문을 읽으니 **절반 가까이가 배당성향·주주환원율**이었다 — 축은
+# 이미 갖고 있고 파서가 못 읽었을 뿐이다. 두 계열로 갈린다.
+#
+# 계열A — **역순(값 → 라벨)**: "당기순이익의 40%이상의 배당성향"(동방아그로·에스엘·
+#   텔코웨어·한국앤컴퍼니). 기존 패턴은 전부 라벨→값 방향뿐이었다.
+# 계열B — **라벨과 값 사이에 연도/평균 수식어**: "ROE : '26년까지 7%"(금호석유화학),
+#   "ROE 3년 평균 20%"(JW중외제약), "주주환원율 3년 평균 60%"(에프앤에프홀딩스).
+#   `_plain_gap`이 숫자를 막아 끊긴다 — P1-2 범위 버그와 같은 뿌리다.
+
+# 계열B의 수식어. **수치가 텍스트에 있는 것만** 인정한다(SM-C1: 억지 추정 금지).
+_QUALIFIER = (
+    r"(?:\d{1,2}\s*개?년\s*(?:평균|연평균)|CAGR"
+    r"|[`'‘’]?\d{2,4}\s*년\s*까지"
+    r"|[`'‘’]?\d{2}\s*[~\-–∼]\s*[`'‘’]?\d{2}\s*년"
+    r"|[`'‘’]?\d{2,4}\s*년(?:도)?에?)"
+)
+
+
+def _qualified_gap(others: str) -> str:
+    """라벨 → (연도/평균 수식어) → 값. 수식어 **말고는** 숫자를 허용하지 않는다.
+
+    `_plain_gap`을 그대로 열면 경쟁 지표의 %를 훔치므로, 열어주는 것은 수식어 토큰
+    하나뿐이다. 수식어 자체가 목표인지 실적인지는 정규식이 판정하지 못하므로
+    `_forward_qualifier`가 공시연도와 대조해 뒤에서 거른다.
+    """
+    head = rf"(?:(?!{others})[^0-9%\n(]){{0,12}}"
+    tail = rf"(?:(?!{others})[^0-9%\n]){{0,8}}?"
+    return head + rf"({_QUALIFIER})" + tail
+
+
+_ROE_QUAL_RE = re.compile(
+    _ROE_LABEL + _qualified_gap(_OTHERS_FOR_ROE) + _PCT, re.IGNORECASE
+)
+_PAYOUT_QUAL_RE = re.compile(r"배당성향" + _qualified_gap(_OTHERS_FOR_PAYOUT) + _PCT)
+# 주주환원율은 목표만큼이나 자주 '이행 실적'으로 등장하므로 기존 목표 표지 가드를 유지한다.
+_RETURN_QUAL_RE = re.compile(
+    _RETURN_LABEL + _qualified_gap(_OTHERS_FOR_RETURN) + _PCT + _TARGET_MARK
+)
+
+# 계열A — 역순은 **배당성향만** 연다. 주주환원율은 역순 탐침에서 57건이 걸렸는데 대부분
+# 오탐이었다(포스코홀딩스 `ROIC 6~9%`, KB금융 `CET1 13.5%`를 환원율 목표로 훔쳤다).
+# 배당성향은 "순이익의 N%" 관용구가 굳어 있어 역순이 안전한 유일한 축이다.
+_PAYOUT_REVERSE_RE = re.compile(
+    _PCT + rf"(?:(?!{_OTHERS_FOR_PAYOUT})[^0-9%\n]){{0,25}}?(?:의\s*)?배당성향"
+)
+# 역방향 gap은 **값 뒤**만 막는다 — 값 **앞**에 붙은 남의 라벨은 정규식이 못 본다.
+# "부채비율 : 100% 이하 - 배당성향" 같은 배치에서 100을 훔치는 경로(2026-07-23 교차리뷰
+# ③과 같은 계열)라, 매칭 후 값 앞 창을 파이썬에서 다시 검사한다.
+_PAYOUT_OTHERS_RE = re.compile(_OTHERS_FOR_PAYOUT)
+_REVERSE_LOOKBACK = 20
+
+
+def _forward_qualifier(qualifier: str, disclosure_year: int | None) -> bool:
+    """이 수식어가 **미래를 가리키는가** — 실적을 목표로 오채택하지 않기 위한 판정.
+
+    "3년 평균"·"CAGR"·"2028년까지"는 그 자체로 전망이다. 그러나 맨 연도("2024년 ROE 5%")는
+    실적일 수 있다 — 이때는 **공시연도보다 뒤인 연도만** 목표로 본다. 없는 값을 짓는 게
+    아니라 문서가 이미 가진 두 날짜를 비교하는 것이다. 공시연도를 모르면 채택하지 않는다.
+    """
+    if re.search(r"평균|연평균|CAGR|까지", qualifier):
+        return True
+    years = re.findall(r"\d{2,4}", qualifier)
+    if not years or disclosure_year is None:
+        return False
+    # 범위('24~'26년)는 종료연도 기준 — 그 해까지 가겠다는 약속이다.
+    return _expand_year(years[-1], disclosure_year) > disclosure_year
 
 
 def _arrow_tail(others: str) -> str:
@@ -402,14 +479,40 @@ def parse_targets(
         ranges.append(f"{key}:{m.group(1)}~{m.group(2)}")
         return low
 
+    # [P1-5] 아래 두 폴백은 **기존 규칙이 못 찾았을 때만** 돈다(범위 폴백과 같은 정책).
+    # 기존 non-null을 절대 바꾸지 않으므로 회귀 위험이 구조적으로 0이다.
+    def _num_qualified(rx: re.Pattern[str]) -> float | None:
+        """계열B — 연도/평균 수식어가 낀 형태. 수식어가 미래를 가리킬 때만 채택."""
+        for m in rx.finditer(text):
+            if _forward_qualifier(m.group(1), disclosure_year):
+                return float(m.group(2))
+        return None
+
+    def _num_reverse(rx: re.Pattern[str], others_rx: re.Pattern[str]) -> float | None:
+        """계열A — 역순(값→라벨). 값 **앞**에 경쟁 지표 라벨이 있으면 그 값은 남의 것이다."""
+        for m in rx.finditer(text):
+            before = text[max(0, m.start() - _REVERSE_LOOKBACK) : m.start()]
+            if others_rx.search(before):
+                continue
+            return float(m.group(1))
+        return None
+
     roe = _with_range(_num_with_arrow(_ROE_ARROW_RE, _ROE_RE), _ROE_RANGE_RE, "roe")
+    if roe is None:
+        roe = _num_qualified(_ROE_QUAL_RE)
     payout = _with_range(
         _num_with_arrow(_PAYOUT_ARROW_RE, _PAYOUT_RE), _PAYOUT_RANGE_RE, "payout_ratio"
     )
+    if payout is None:
+        payout = _num_qualified(_PAYOUT_QUAL_RE)
+    if payout is None:
+        payout = _num_reverse(_PAYOUT_REVERSE_RE, _PAYOUT_OTHERS_RE)
     total_return = _with_range(
         _num_with_arrow(_RETURN_ARROW_RE, _RETURN_RE),
         _RETURN_RANGE_RE, "total_return_ratio",
     )
+    if total_return is None:
+        total_return = _num_qualified(_RETURN_QUAL_RE)
 
     return {
         "target_roe": roe,
