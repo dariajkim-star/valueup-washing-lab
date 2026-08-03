@@ -134,13 +134,64 @@ _PERIOD2_RE = re.compile(r"[`'‘’]\s*(\d{2})\s*[~\-–∼]\s*[`'‘’]?\s*(\
 # '기간'은 제외 — "비교기간"에도 들어가 과거 범위를 앵커시키는 역효과.
 _PERIOD_CTX_RE = re.compile(r"(계획|목표|향후|중장기)")
 
+# [P1-8, 2026-07-31] 기간 표현 확장. 실측(실패 212건에서 표현을 센 결과):
+#   중장기(수치없음) 71 · YYYY년까지 24 · 지속/매년 20 · 'YY년까지 15 · N개년 13 ·
+#   향후 N년 12 · 표현 자체가 없음 94
+# 넓히는 것은 **수치가 텍스트에 있는 것뿐**이다. "중장기"·"지속적으로"처럼 수치화할 수 없는
+# 표현은 억지 추정하지 않고 미상으로 남긴다(SM-C1) — 커버리지보다 정확도 우선(NFR2).
+#
+# "YYYY년부터 YYYY년까지" / "'23회계연도부터 '25회계연도까지" — 시작·종료가 둘 다 있다.
+_PERIOD_FROM_TO_RE = re.compile(
+    r"[`'‘’]?(\d{2}|20\d{2})\s*(?:회계연도|년|년도)?\s*부터\s*"
+    r"[`'‘’]?(\d{2}|20\d{2})\s*(?:회계연도|년|년도)?\s*까지"
+)
+# "2030년까지" / "'28년까지" — **종료연도만** 명시. 시작은 공시일로 본다(아래 주석 참조).
+_PERIOD_UNTIL_RE = re.compile(r"[`'‘’]?(\d{2}|20\d{2})\s*년\s*까지")
+# "향후 3개년" / "향후 3년" — 공시 시점 기준 상대 기간.
+_PERIOD_FORWARD_RE = re.compile(r"향후\s*(\d{1,2})\s*개?년")
+# "…까지" 전용 앵커. 범위 표기(_PERIOD_CTX_RE, 창 20)보다 넓다 — 실측상 이 형태는
+# "주주환원 지속 - 2030년까지 배당성향 30%"처럼 서술이 앞에 길게 붙어 창 20을 벗어난다.
+# 창을 넓히고 키워드를 늘려 14건을 더 회수했다(앵커를 아예 없애면 17건이지만, 시장 전망
+# 같은 무관한 미래 연도를 주울 위험이 커져 채택하지 않았다).
+_PERIOD_UNTIL_CTX_RE = re.compile(r"(계획|목표|향후|중장기|환원|달성|유지|개선|제고)")
+_PERIOD_UNTIL_CTX_WINDOW = 60
 
-def _select_period(text: str) -> tuple[str | None, str | None]:
+_PERIOD_MAX_SPAN = 20  # 계획 기간 상한(년). 넘으면 기간이 아니라 오탐으로 본다.
+
+
+def _expand_year(raw: str, disclosure_year: int | None) -> int | None:
+    """'28 → 2028, 2030 → 2030. 2자리는 세기를 공시연도 기준으로 정한다."""
+    n = int(raw)
+    if len(raw) == 4:
+        return n
+    base = (disclosure_year or 2000) // 100 * 100
+    return base + n
+
+
+def _select_period(
+    text: str, disclosure_year: int | None = None
+) -> tuple[str | None, str | None]:
     """문서 내 모든 연도범위 후보 중 계획 문맥에 앵커된 것을 선택(일괄리뷰 Med).
 
     규칙: (1) 후보 직전 20자에 계획·목표·향후·중장기가 있으면 그 첫 후보,
     (2) 앵커 없고 후보가 전부 같은 범위면 그 값(단일 후보 포함 — 기존 recall 유지),
     (3) 앵커 없이 상이한 범위 다수면 애매 → null(NFR2).
+
+    ■ [P1-8, 2026-07-31] 범위 표기가 없을 때의 확장
+        실측상 기간 파싱 실패의 큰 덩어리는 "범위"가 아니라 **종료 시점만** 쓰는 형태였다
+        ("2030년까지 배당성향 30%", "'28년까지 …"). 39건이 여기 해당한다.
+
+        이때 **시작을 공시일로 본다**(리드 결정 A, 2026-07-31). 없는 값을 지어내는 것이
+        아니라 공시 행위 자체가 약속의 시작점을 정의하기 때문이다 — 2026-03-20에
+        "2030년까지 하겠다"고 밝혔다면 그 약속의 구간은 공시일~2030이다.
+        `progress_rate`가 재려는 것("약속한 기간 중 얼마나 지났나")과도 정확히 맞는다.
+
+        "향후 3개년"도 같은 성질이다(공시 시점 기준 상대 표현) → 공시연도~공시연도+2.
+
+        **넓히지 않는 것**: "중장기"(71건)·"지속적으로/매년"(20건)처럼 수치가 없는 표현.
+        추정하지 않고 미상으로 남긴다.
+
+    범위 표기(기존 규칙)가 하나라도 잡히면 그쪽이 우선한다 — 명시된 범위가 더 강한 근거다.
     """
     cands: list[tuple[int, str, str]] = []
     for m in _PERIOD_RE.finditer(text):
@@ -150,17 +201,48 @@ def _select_period(text: str) -> tuple[str | None, str | None]:
         start, end = f"20{m.group(1)}", f"20{m.group(2)}"
         if int(start) <= int(end):
             cands.append((m.start(), start, end))
-    if not cands:
+    # "…부터 …까지" — 범위가 명시된 또 하나의 형태(회계연도 표기 포함)
+    for m in _PERIOD_FROM_TO_RE.finditer(text):
+        s = _expand_year(m.group(1), disclosure_year)
+        e = _expand_year(m.group(2), disclosure_year)
+        if s is not None and e is not None and s <= e <= s + _PERIOD_MAX_SPAN:
+            cands.append((m.start(), str(s), str(e)))
+    if cands:
+        cands.sort()
+        anchored = [
+            c for c in cands
+            if _PERIOD_CTX_RE.search(text[max(0, c[0] - 20): c[0]])
+        ]
+        if anchored:
+            return anchored[0][1], anchored[0][2]
+        if len({(s, e) for _, s, e in cands}) == 1:
+            return cands[0][1], cands[0][2]
         return None, None
-    cands.sort()
-    anchored = [
-        c for c in cands
-        if _PERIOD_CTX_RE.search(text[max(0, c[0] - 20): c[0]])
-    ]
-    if anchored:
-        return anchored[0][1], anchored[0][2]
-    if len({(s, e) for _, s, e in cands}) == 1:
-        return cands[0][1], cands[0][2]
+
+    # ── 범위 표기가 없을 때: 공시일을 시작으로 보는 확장 ──
+    if disclosure_year is None:
+        return None, None  # 기준점이 없으면 추정하지 않는다
+
+    # "향후 N개년" — N년간이므로 종료는 시작 + (N-1)
+    fm = _PERIOD_FORWARD_RE.search(text)
+    if fm:
+        n = int(fm.group(1))
+        if 1 <= n <= _PERIOD_MAX_SPAN:
+            return str(disclosure_year), str(disclosure_year + n - 1)
+
+    # "YYYY년까지" / "'YY년까지" — 종료연도만. 계획 문맥에 앵커된 것만 채택하고,
+    # 여러 종료연도가 상충하면 애매로 버린다(기존 규칙과 같은 보수성).
+    ends: list[int] = []
+    for m in _PERIOD_UNTIL_RE.finditer(text):
+        window = text[max(0, m.start() - _PERIOD_UNTIL_CTX_WINDOW): m.start()]
+        if not _PERIOD_UNTIL_CTX_RE.search(window):
+            continue
+        y = _expand_year(m.group(1), disclosure_year)
+        # 공시연도 이전이거나 지나치게 먼 미래는 계획 기간이 아니다(과거 실적·비교 문맥)
+        if y is not None and disclosure_year <= y <= disclosure_year + _PERIOD_MAX_SPAN:
+            ends.append(y)
+    if ends and len(set(ends)) == 1:
+        return str(disclosure_year), str(ends[0])
     return None, None
 _BUYBACK_RE = re.compile(r"(자기주식|자사주)[^\n]{0,15}?(취득|매입|소각)")
 # 부정·과거(계획 아님) 문맥 → False 판정.
@@ -242,10 +324,15 @@ def _zip_to_text(content: bytes) -> str:
     return text
 
 
-def parse_targets(raw_text: str | None) -> dict[str, Any]:
+def parse_targets(
+    raw_text: str | None, disclosure_date: str | None = None
+) -> dict[str, Any]:
     """유효 문서 원문에서 목표 필드 best-effort 추출. 못 찾으면 해당 필드 None.
 
     보수적: 애매하면 null(틀린 non-null 값 금지). 값 뒤 p(포인트)·단위없는 PBR·범위이상·부정 자사주 배제.
+
+    disclosure_date(ISO)는 기간 파싱에만 쓴다 — "2030년까지"처럼 종료만 밝힌 공시에서
+    시작점을 정하는 기준이다(P1-8). 없으면 그 확장 규칙은 적용하지 않는다.
     """
     text = raw_text or ""
 
@@ -268,7 +355,10 @@ def parse_targets(raw_text: str | None) -> dict[str, Any]:
         pbr = None  # 연도·비현실적 값 배제
 
     # 기간: 전체 후보 중 계획 문맥 앵커 우선(일괄리뷰 Med — 과거 비교기간 오인 방지)
-    period_start, period_end = _select_period(text)
+    disclosure_year: int | None = None
+    if disclosure_date and len(disclosure_date) >= 4 and disclosure_date[:4].isdigit():
+        disclosure_year = int(disclosure_date[:4])
+    period_start, period_end = _select_period(text, disclosure_year)
 
     buyback: bool | None = None
     bm = _BUYBACK_RE.search(text)
@@ -429,7 +519,8 @@ class DartValueupAdapter(SourceAdapter):
                 "raw_text": plan.get("raw_text"),
                 "rcept_no": plan.get("rcept_no"),  # 출처 추적(0015)
             }
-            rec.update(parse_targets(plan.get("raw_text")))
+            # 공시일을 함께 넘긴다 — "2030년까지"처럼 종료만 밝힌 공시의 시작점 기준(P1-8)
+            rec.update(parse_targets(plan.get("raw_text"), plan["disclosure_date"]))
             # 본문 신호(0018): 축을 못 채웠을 때 **왜**인지를 수집 시점에 함께 굳힌다.
             # 원문이 여기 있을 때 판정해야 서빙이 raw_text를 다시 읽지 않는다.
             signal = classify_body(plan.get("raw_text"), rec)
