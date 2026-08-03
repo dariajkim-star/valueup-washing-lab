@@ -419,6 +419,39 @@ _DIVIDEND_TOTAL_LABELS: dict[str, int] = {
 }
 
 
+# 배당 사실의 표 내부 반증 재료(2026-08-04). 총액 칸이 '-'일 때 "정말 안 준 것"인지
+# "총액 칸만 빈 것"인지를 가르는 같은 표의 다른 행들 — 하나라도 양수면 배당은 있었다.
+# 주식배당은 현금이 아니므로 넣지 않는다.
+_DIVIDEND_EVIDENCE_LABELS = (
+    "주당현금배당금(원)",
+    "현금배당수익률(%)",
+    "(연결)현금배당성향(%)",
+    "(별도)현금배당성향(%)",
+)
+
+
+def _parse_ratio(raw: Any) -> float | None:
+    """소수점 있는 표 값('3.10')을 float으로. _parse_amount는 정수 전용이라 별도.
+
+    반증 판정 전용이므로 부호·소수만 보면 된다. 실패는 None(반증 못 함).
+    """
+    if raw is None:
+        return None
+    s = str(raw).strip().replace(",", "").replace(" ", "")
+    if s in ("", "-", "△", "-"):
+        return None
+    neg = False
+    if s.startswith("(") and s.endswith(")"):
+        neg, s = True, s[1:-1]
+    if s and s[0] in "△-−":
+        neg, s = True, s[1:]
+    try:
+        v = float(s)
+    except ValueError:
+        return None
+    return -v if neg else v
+
+
 def _dividend_total(rows: Sequence[Any] | None) -> int | None:
     """alotMatter 행 → 현금배당금총액(KRW). 라벨 정확일치 + 명시 스케일만.
 
@@ -426,25 +459,55 @@ def _dividend_total(rows: Sequence[Any] | None) -> int | None:
     코드리뷰(2026-07-13) 반영:
     - 비-Mapping 행은 건너뜀(malformed 행이 AttributeError로 재무 적재 전체를 죽이지 않게).
     - 동일 라벨 다중 후보는 **전원 일치할 때만** 확정 — 상충값·음수 혼입은 오염 신호 → null.
+
+    [2026-08-04] 결측 19곳(흑자)의 원문을 열어 두 형태를 확인하고 각각 규칙을 세웠다.
+
+    ① **18곳: 총액 칸이 `-`** — 표도 행도 왔는데 당기 칸만 비었다. 자사주 잔고와 같은 계열로,
+       미공시가 아니라 **당기 무배당(0)**이다. 실측한 4곳 모두 주당배당금·배당수익률·배당성향까지
+       전 행이 `-`였다(전기엔 값이 있는 곳도 있다 — 배당 중단이지 미공시가 아니다).
+       다만 이번에는 **반증 재료가 표 안에 있다**: 주당현금배당금이나 배당수익률이 양수면
+       배당은 했는데 총액 칸만 빈 것이므로 0이 아니라 **null**(모른다)이다. 그래서 게이트를
+       DB가 아니라 이 순수 함수 안에서 닫는다(자사주는 재무 대조가 필요해 upsert로 갔었다).
+
+    ② **1곳: 값 상충** — 25,026 vs 32,365였는데 `rcept_no`를 보니 **서로 다른 공시 두 벌**
+       (2024-09-02 접수 · 2025-03-12 접수)이었다. 한 공시 안의 모순이 아니라 재공시다.
+       → **최신 접수번호의 공시만 읽는다.** 한 공시 안에서 상충하면 그때는 기존대로 null.
     """
     if not rows:
         return None
+    valid = [r for r in rows if isinstance(r, Mapping)]  # malformed 행 격리
+    if not valid:
+        return None
+    # 재공시 분리: 같은 사업연도에 공시가 두 벌 이상이면 나중 것이 앞선 것을 대체한다.
+    latest = max((str(r.get("rcept_no") or "") for r in valid), default="")
+    scoped = [r for r in valid if str(r.get("rcept_no") or "") == latest]
+
     candidates: list[int | None] = []
-    for row in rows:
-        if not isinstance(row, Mapping):
-            continue  # malformed 행 격리(보조 원천이 재무를 못 죽임)
+    saw_total_row = False
+    for row in scoped:
         scale = _DIVIDEND_TOTAL_LABELS.get(_norm_label(row.get("se")))
         if scale is None:
             continue
+        saw_total_row = True
         v = _parse_amount(row.get("thstrm"))
         if v is None:
             continue
         candidates.append(v * scale if v >= 0 else None)  # 음수=오염 표식
-    if not candidates or any(c is None for c in candidates):
-        return None
-    if len(set(candidates)) > 1:  # 상충 후보 → 확정 금지(null > 틀린 값)
-        return None
-    return candidates[0]
+    if candidates:
+        if any(c is None for c in candidates):
+            return None
+        if len(set(candidates)) > 1:  # 한 공시 안의 상충 → 확정 금지(null > 틀린 값)
+            return None
+        return candidates[0]
+    if not saw_total_row:
+        return None  # 총액 행 자체가 없음 = 표가 그 말을 한 적이 없다
+    # 총액 행은 있는데 값이 비었다 → 반증이 없을 때만 '배당 없음(0)'으로 확정
+    for row in scoped:
+        if _norm_label(row.get("se")) in _DIVIDEND_EVIDENCE_LABELS:
+            ev = _parse_ratio(row.get("thstrm"))
+            if ev is not None and ev > 0:
+                return None  # 배당은 했다 — 총액만 모른다
+    return 0
 
 
 def _norm_label(v: Any) -> str:

@@ -342,13 +342,76 @@ def test_dividend_total_label_exact_match_only() -> None:
 
 
 def test_dividend_total_none_and_negative_guard() -> None:
-    """AC2/AC3: 미공시([])·미상(None)·파싱불가('-')·음수(도메인 밖) 전부 null."""
+    """AC2/AC3: 미공시([])·미상(None)·음수(도메인 밖)는 null.
+
+    ('-'는 2026-08-04부터 null이 아니라 0이다 — 아래 전용 테스트 참조.)
+    """
     from app.ingest.dart import _dividend_total
 
     assert _dividend_total([]) is None
     assert _dividend_total(None) is None
-    assert _dividend_total([{"se": "현금배당금총액(백만원)", "thstrm": "-"}]) is None
     assert _dividend_total([{"se": "현금배당금총액(백만원)", "thstrm": "(500)"}]) is None
+    # 총액 행 자체가 없으면 표가 그 말을 한 적이 없다 → null(0 아님)
+    assert _dividend_total([{"se": "주당액면가액(원)", "thstrm": "5,000"}]) is None
+
+
+def test_dividend_total_dash_is_zero_without_counter_evidence() -> None:
+    """[2026-08-04] 총액 칸 '-'는 미공시가 아니라 **당기 무배당(0)**이다.
+
+    실측: 결측 19곳 중 18곳이 이 형태였고, 그중 확인한 4곳은 주당배당금·배당수익률·
+    배당성향까지 전 행이 '-'였다(전기엔 값이 있는 곳도 있다 — 배당 중단이지 미공시가 아니다).
+    자사주 잔고와 같은 계열의 판단이되, 반증 재료가 **표 안에** 있어 순수 함수로 닫힌다.
+    """
+    from app.ingest.dart import _dividend_total
+
+    rows = [
+        {"se": "주당액면가액(원)", "thstrm": "5,000"},
+        {"se": "현금배당금총액(백만원)", "thstrm": "-", "frmtrm": "9,274"},
+        {"se": "주당 현금배당금(원)", "thstrm": "-", "frmtrm": "500"},
+        {"se": "현금배당수익률(%)", "thstrm": "-", "frmtrm": "1.80"},
+    ]
+    assert _dividend_total(rows) == 0
+
+
+def test_dividend_total_dash_stays_null_when_dividend_evidenced() -> None:
+    """총액만 '-'이고 주당배당금·수익률이 양수면 **배당은 했다** → 0이 아니라 null.
+
+    '안 줬다'와 '총액 칸만 비었다'를 섞으면 payout_ratio 0%가 사실이 아닌 채로 채점에 들어간다.
+    수익률은 소수('3.10')라 정수 파서로는 못 읽어 _parse_ratio를 따로 둔다.
+    """
+    from app.ingest.dart import _dividend_total
+
+    per_share = [
+        {"se": "현금배당금총액(백만원)", "thstrm": "-"},
+        {"se": "주당 현금배당금(원)", "stock_knd": "보통주식", "thstrm": "112"},
+    ]
+    assert _dividend_total(per_share) is None
+    yield_only = [
+        {"se": "현금배당금총액(백만원)", "thstrm": "-"},
+        {"se": "현금배당수익률(%)", "stock_knd": "보통주식", "thstrm": "3.51"},
+    ]
+    assert _dividend_total(yield_only) is None
+
+
+def test_dividend_total_refiling_latest_receipt_wins() -> None:
+    """값 상충 1곳의 정체는 모순이 아니라 **재공시 두 벌**이었다 → 최신 접수번호 채택.
+
+    실측(01363818): 25,026(2024-09-02 접수) vs 32,365(2025-03-12 접수). rcept_no를 보지
+    않던 기존 로직은 '상충 → null'로 버렸다. 한 공시 안의 상충은 여전히 null이다.
+    """
+    from app.ingest.dart import _dividend_total
+
+    rows = [
+        {"rcept_no": "20240902000317", "se": "현금배당금총액(백만원)", "thstrm": "25,026"},
+        {"rcept_no": "20250312000767", "se": "현금배당금총액(백만원)", "thstrm": "32,365"},
+    ]
+    assert _dividend_total(rows) == 32_365_000_000
+    # 같은 공시 안에서 값이 갈리면 그건 재공시가 아니라 모순 → 확정 금지
+    conflict = [
+        {"rcept_no": "20250312000767", "se": "현금배당금총액(백만원)", "thstrm": "25,026"},
+        {"rcept_no": "20250312000767", "se": "현금배당금총액(백만원)", "thstrm": "32,365"},
+    ]
+    assert _dividend_total(conflict) is None
 
 
 def test_dividend_total_zero_is_zero() -> None:
