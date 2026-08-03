@@ -23,6 +23,8 @@ _TARGET_FIELDS = (
     # 파서를 고쳐 축이 잡히면 신호도 other_metric → axis_targets로 따라 바뀌어야 한다.
     "body_signal",
     "body_reference_date",
+    # 범위 공시의 원문(0023) — 목표와 같은 파싱에서 나오므로 함께 전체 교체한다.
+    "target_ranges",
 )
 
 

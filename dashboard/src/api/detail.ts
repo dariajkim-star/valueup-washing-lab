@@ -40,6 +40,9 @@ export interface GapDetail {
   payout_achievement: number | null;
   // 목표의 야심도(P1-7) — 공시한 축마다 한 항목. **점수가 아니라 격차 사실**이다.
   ambition: TargetAmbition[];
+  // 범위로 공시한 목표의 원문(0023, P1-2). "roe:11~13" 형식.
+  // target_*에는 **하한**이 들어 있다 — 원문을 보여줘야 관대해진 판정이 감춰지지 않는다.
+  target_ranges: string | null;
 }
 
 // 기준선 두 개를 나란히 둔다: 자기 과거 실적("이미 하던 것")과 업종 중앙값.

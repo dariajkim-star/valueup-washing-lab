@@ -109,6 +109,26 @@ _RETURN_RE = re.compile(
     _RETURN_LABEL + _plain_gap(_OTHERS_FOR_RETURN) + _PCT + _TARGET_MARK
 )
 
+# ── [P1-2, 2026-07-31] 범위 표현: "ROE 11~13%" ──
+#
+# `_plain_gap`은 라벨-값 사이에 숫자를 허용하지 않으므로(경쟁 지표의 %를 훔치는 오탐 차단)
+# 범위의 **앞 숫자에서 매칭이 끊겨** 통째로 버려졌다. 실측: ROE 24건 중 22건, 주주환원율
+# 8건 전부, 배당성향 6건 중 5건 — 합계 35건이 그냥 사라지고 있었다.
+# 삼성화재 "ROE 11~13%", "2030년까지 연결 ROE 13~15%"처럼 **명확한 공시**들이다.
+#
+# **하한을 채택한다**(리드 결정, 2026-07-31). 범위로 약속했다면 회사가 확실히 약속한 것은
+# 하한이고, 중앙값은 공시에 없는 숫자를 우리가 만드는 것이다("억지 추정 금지", SM-C1).
+# 대신 **범위였다는 사실을 함께 남긴다**(target_ranges) — 하한만 보면 달성 판정이
+# 관대해지므로, 화면이 원문 범위를 말할 수 있어야 한다.
+_PCT_RANGE = r"(\d+(?:\.\d+)?)\s*[~∼\-–]\s*(\d+(?:\.\d+)?)\s*%(?![pP포])"
+_ROE_RANGE_RE = re.compile(
+    _ROE_LABEL + _plain_gap(_OTHERS_FOR_ROE) + _PCT_RANGE, re.IGNORECASE
+)
+_PAYOUT_RANGE_RE = re.compile(r"배당성향" + _plain_gap(_OTHERS_FOR_PAYOUT) + _PCT_RANGE)
+_RETURN_RANGE_RE = re.compile(
+    _RETURN_LABEL + _plain_gap(_OTHERS_FOR_RETURN) + _PCT_RANGE + _TARGET_MARK
+)
+
 
 def _arrow_tail(others: str) -> str:
     """"현재 X% → 목표 Y%" 화살표 체인(우변 채택). 좌변 gap은 숫자 허용(연도 서술 통과)
@@ -366,14 +386,42 @@ def parse_targets(
         window = text[max(0, bm.start() - 10) : bm.end() + 15]
         buyback = False if _BUYBACK_NEG_RE.search(window) else True
 
+    # 범위 표현(P1-2): 기존 규칙이 값을 못 찾았을 때만 하한을 채택한다.
+    # 단일 값이 잡혔으면 그쪽이 더 강한 근거이므로 건드리지 않는다.
+    ranges: list[str] = []
+
+    def _with_range(plain: float | None, range_rx: re.Pattern[str], key: str) -> float | None:
+        if plain is not None:
+            return plain
+        m = range_rx.search(text)
+        if m is None:
+            return None
+        low, high = float(m.group(1)), float(m.group(2))
+        if low > high:  # "13~11%" 같은 역순은 파싱 오류로 보고 채택하지 않는다
+            return None
+        ranges.append(f"{key}:{m.group(1)}~{m.group(2)}")
+        return low
+
+    roe = _with_range(_num_with_arrow(_ROE_ARROW_RE, _ROE_RE), _ROE_RANGE_RE, "roe")
+    payout = _with_range(
+        _num_with_arrow(_PAYOUT_ARROW_RE, _PAYOUT_RE), _PAYOUT_RANGE_RE, "payout_ratio"
+    )
+    total_return = _with_range(
+        _num_with_arrow(_RETURN_ARROW_RE, _RETURN_RE),
+        _RETURN_RANGE_RE, "total_return_ratio",
+    )
+
     return {
-        "target_roe": _num_with_arrow(_ROE_ARROW_RE, _ROE_RE),
-        "target_payout_ratio": _num_with_arrow(_PAYOUT_ARROW_RE, _PAYOUT_RE),
-        "target_total_return_ratio": _num_with_arrow(_RETURN_ARROW_RE, _RETURN_RE),
+        "target_roe": roe,
+        "target_payout_ratio": payout,
+        "target_total_return_ratio": total_return,
         "target_pbr": pbr,
         "period_start": period_start,
         "period_end": period_end,
         "buyback_planned": buyback,
+        # 하한을 채택한 축과 그 원문 범위 — 하한만 보면 달성 판정이 관대해지므로
+        # 화면이 "공시 원문 11~13%"를 말할 수 있어야 한다(값에는 출처가 따라붙는다).
+        "target_ranges": ",".join(ranges) if ranges else None,
     }
 
 

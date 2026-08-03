@@ -257,3 +257,6 @@ class GapAnalysisOut(BaseModel):
     payout_achievement: float | None = None  # 실적/목표(무제한). 1.0 초과 = 목표 초과 달성
     # 목표의 야심도(P1-7) — 공시한 축마다 한 항목. 점수가 아니라 격차 사실이다.
     ambition: list[TargetAmbition] = []
+    # 범위로 공시한 목표의 원문(0023, P1-2). "roe:11~13" 형식. target_*에는 **하한**이
+    # 들어 있으므로, 화면이 "공시 원문 11~13%"를 말해야 관대해진 판정이 감춰지지 않는다.
+    target_ranges: str | None = None

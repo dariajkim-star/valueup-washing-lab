@@ -27,7 +27,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     excluded_axes: null, buyback_timing: null,
     target_payout_ratio: null, target_total_return_ratio: null,
     actual_payout_ratio: null, actual_total_return_ratio: null,
-    payout_achievement: null, ambition: [],
+    payout_achievement: null, ambition: [], target_ranges: null,
     ...partial,
   };
 }
@@ -215,5 +215,33 @@ describe("[2026-07-31 P1-7] 목표의 야심도 — 점수가 아니라 격차 �
   it("공시한 목표가 없으면 블록 자체를 그리지 않는다", () => {
     const { container } = render(<GapCard gap={gap({ ambition: [] })} />);
     expect(container.textContent).not.toContain("목표의 야심도");
+  });
+});
+
+describe("[2026-07-31 P1-2] 범위 공시 — 하한을 채택했음을 말한다", () => {
+  it("목표값 옆에 공시 원문 범위를 표시한다", () => {
+    // 삼성화재 실측 형태: "ROE 11~13%" → 하한 11.0 채택.
+    // 원문을 감추면 "11%로 약속한 회사"와 구분되지 않는다(달성 판정이 관대해진 상태).
+    render(<GapCard gap={gap({
+      target_ranges: "roe:11~13",
+      ambition: [{
+        metric: "roe", target: 11.0, baseline_year: 2024,
+        own_past: 9.0, own_gap: 2.0,
+        peer_median: null, peer_gap: null, peer_bucket: null, peer_n: null,
+      }],
+    })} />);
+    expect(screen.getByText(/공시 원문 11~13% · 하한 채택/)).toBeTruthy();
+  });
+
+  it("범위가 아니면 그 표기를 붙이지 않는다", () => {
+    const { container } = render(<GapCard gap={gap({
+      target_ranges: null,
+      ambition: [{
+        metric: "roe", target: 12.0, baseline_year: 2024,
+        own_past: 9.0, own_gap: 3.0,
+        peer_median: null, peer_gap: null, peer_bucket: null, peer_n: null,
+      }],
+    })} />);
+    expect(container.textContent).not.toContain("하한 채택");
   });
 });

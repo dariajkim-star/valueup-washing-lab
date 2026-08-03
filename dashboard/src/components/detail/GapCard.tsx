@@ -37,7 +37,7 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
         <MiniStat label="자사주" value={buybackLabel(gap.buyback_status, gap.buyback_timing)} />
       </div>
       <PayoutAxis gap={gap} />
-      <AmbitionBlock items={gap.ambition} />
+      <AmbitionBlock items={gap.ambition} ranges={gap.target_ranges} />
       <ExcludedAxes excluded={gap.excluded_axes} />
       {/* [2026-07-23 파티 결정 B] washing_flag 화면 임시 은닉 — 로직·API 무변경. ScreenerTable 참조.
       <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
@@ -78,7 +78,22 @@ function Gap({ value }: { value: number | null }) {
   );
 }
 
-function AmbitionBlock({ items }: { items: TargetAmbition[] }) {
+// [P1-2] 범위로 공시한 목표는 **하한**을 채택했다 — 그 사실을 목표값 옆에서 말한다.
+// "11~13%로 약속한 회사"와 "11%로 약속한 회사"는 다르다(전자는 달성 판정이 관대해진다).
+function parseRanges(raw: string | null): Record<string, string> {
+  if (!raw) return {};
+  const out: Record<string, string> = {};
+  for (const part of raw.split(",")) {
+    const [k, v] = part.split(":");
+    if (k && v) out[k.trim()] = v.trim();
+  }
+  return out;
+}
+
+function AmbitionBlock(
+  { items, ranges }: { items: TargetAmbition[]; ranges: string | null },
+) {
+  const rangeMap = parseRanges(ranges);
   if (!items?.length) return null;
   return (
     <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
@@ -94,7 +109,17 @@ function AmbitionBlock({ items }: { items: TargetAmbition[] }) {
             <span className="w-[72px] shrink-0 font-semibold text-gray-600">
               {METRIC_LABEL[a.metric] ?? a.metric}
             </span>
-            <span className="text-gray-500">목표 {a.target.toFixed(1)}%</span>
+            <span className="text-gray-500">
+              목표 {a.target.toFixed(1)}%
+              {rangeMap[a.metric] && (
+                <span
+                  className="ml-1 text-[10px] text-amber-700"
+                  title="공시는 범위로 약속했다. 회사가 확실히 약속한 것은 하한이므로 하한을 채택했다 — 달성 판정이 그만큼 관대해진 상태다."
+                >
+                  (공시 원문 {rangeMap[a.metric]}% · 하한 채택)
+                </span>
+              )}
+            </span>
             <span className="text-gray-400">
               vs 자기 과거
               {a.baseline_year ? `(${a.baseline_year})` : ""}{" "}

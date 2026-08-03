@@ -31,7 +31,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     excluded_axes: null, buyback_timing: null,
     target_payout_ratio: null, target_total_return_ratio: null,
     actual_payout_ratio: null, actual_total_return_ratio: null,
-    payout_achievement: null, ambition: [],
+    payout_achievement: null, ambition: [], target_ranges: null,
     ...partial,
   };
 }

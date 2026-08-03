@@ -137,6 +137,11 @@ class ValueupPlan(Base):
     period_start: Mapped[str | None] = mapped_column(String(10))  # 목표기간 시작(연도/ISO)
     period_end: Mapped[str | None] = mapped_column(String(10))  # 목표기간 종료
     buyback_planned: Mapped[bool | None] = mapped_column(Boolean)  # 자사주 계획 언급 여부
+    # 범위로 공시한 목표의 원문(0023, P1-2). "roe:11~13,payout_ratio:30~40" 형식.
+    # 값 자체는 **하한**을 target_*에 넣는다(회사가 확실히 약속한 것은 하한이므로).
+    # 하한만 보면 "11~13%로 약속한 회사"와 "11%로 약속한 회사"가 같아 보이고, 전자는
+    # 달성 판정이 관대해진 상태다 — 그 사실을 감추지 않으려고 원문 범위를 남긴다.
+    target_ranges: Mapped[str | None] = mapped_column(String(200))
     raw_text: Mapped[str | None] = mapped_column(Text)  # 공시 원문(항상 보존)
     # 본문이 **왜** 우리 축을 못 채웠는가(0018). axis_targets / other_metric / refiling /
     # no_targets. "미공시"와 "다른 지표로 공시"와 "다른 공시를 가리킴"은 서로 다른 사실이고,
