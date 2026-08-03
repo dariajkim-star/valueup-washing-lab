@@ -35,7 +35,7 @@ export function MnaBreakdown({ mna }: { mna: MnaDetail | null }) {
         <p className="mb-3 text-xs text-gray-400">
           {/* 구조적 미지원(금융·보험)과 개별 데이터 결측을 구분(3.4 리뷰 Med — 리스트와 동일 판정) */}
           {isUnsupportedSector(mna.sector)
-            ? "미지원 업종 — 현재 M&A 스코어 산식 적용 대상이 아닙니다(은행·보험 등)"
+            ? "산식 미적용 — M&A 스코어는 EV/EBITDA·EBITDA마진 기반이라 은행·보험 재무제표에는 적용되지 않습니다(지주회사·증권사는 정상 산출 대상)"
             : "총점 산출 불가 — 요소 지표 결측(0점/최하위 아님)"}
         </p>
       )}

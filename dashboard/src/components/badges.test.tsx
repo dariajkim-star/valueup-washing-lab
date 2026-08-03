@@ -107,15 +107,35 @@ describe("ValueUpCell — 미집계 vs 산출불가 vs 값", () => {
   });
 });
 
-describe("MnaCell — 상태 우선순위: 미집계 > 미지원업종 > 산출불가 > 값", () => {
+describe("MnaCell — 상태 우선순위: 미집계 > 산식미적용 > 산출불가 > 값", () => {
   it("has_mna_score=false가 최우선(금융주라도 미집계)", () => {
     render(<MnaCell row={row({ has_mna_score: false, sector: "64110" })} />);
     expect(screen.getByText("미집계")).toBeTruthy();
-    expect(screen.queryByText("미지원 업종")).toBeNull();
+    expect(screen.queryByText("산식 미적용")).toBeNull();
   });
-  it("KSIC 64~66 + null → 미지원 업종(개별 산출불가가 아니라 업종 안내)", () => {
+  it("보험(65xxx) + null → 산식 미적용(EBITDA 개념이 성립하지 않는 업종)", () => {
     render(<MnaCell row={row({ sector: "65121", mna_target_score: null })} />);
-    expect(screen.getByText("미지원 업종")).toBeTruthy();
+    expect(screen.getByText("산식 미적용")).toBeTruthy();
+  });
+  it("은행(641xx) + null → 산식 미적용", () => {
+    render(<MnaCell row={row({ sector: "64121", mna_target_score: null })} />);
+    expect(screen.getByText("산식 미적용")).toBeTruthy();
+  });
+  // [정정 2026-08-03] 64 대분류는 은행과 **지주회사**를 한 칸에 넣는다. 그 탓에 화면이
+  // LG·롯데지주에게 "은행·보험"이라 말하고 있었다. 실측: 지주 64992는 19/38이 점수를 받는다.
+  it("지주회사(64992) + null → 산출 불가. 은행·보험이라 말하지 않는다", () => {
+    render(<MnaCell row={row({ sector: "64992", mna_target_score: null })} />);
+    expect(screen.getByText("산출 불가")).toBeTruthy();
+    expect(screen.queryByText("산식 미적용")).toBeNull();
+    expect(screen.queryByText("은행·보험")).toBeNull();
+  });
+  it("증권(66121) + null → 산출 불가(실제로 점수를 받는 종목이 있다)", () => {
+    render(<MnaCell row={row({ sector: "66121", mna_target_score: null })} />);
+    expect(screen.getByText("산출 불가")).toBeTruthy();
+  });
+  it("표본이 1~2개뿐인 소분류는 0건이어도 미적용으로 선언하지 않는다(small-N)", () => {
+    render(<MnaCell row={row({ sector: "64913", mna_target_score: null })} />);
+    expect(screen.getByText("산출 불가")).toBeTruthy();
   });
   it("비금융 + null → 산출 불가(0점/최하위 금지)", () => {
     render(<MnaCell row={row({ sector: "26100", mna_target_score: null })} />);

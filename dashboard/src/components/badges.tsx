@@ -90,10 +90,23 @@ export function ValueUpCell({ row }: { row: ScreeningRow }) {
 
 // 은행·보험 등 M&A 스코어가 구조적으로 산출 불가한 업종(KSIC 64~66 금융·보험).
 // 리스트(MnaCell)와 상세(MnaBreakdown)가 같은 판정을 공유(3.4 리뷰 Med — 표현 불일치 방지).
+// [정정 2026-08-03] KSIC **2자리**(64~66)로 판정하던 것을 은행·보험으로 좁힌다.
+//
+// 64 대분류는 은행과 **지주회사**를 한 칸에 넣는다(64992 = 지주회사). 그 탓에 화면이
+// LG·LS·롯데지주·효성에게 "미지원 업종 · 은행·보험"이라 말하고 있었다. 66(증권·자산운용)도
+// 마찬가지로 뭉뚱그려져 있었다.
+//
+// 실측(2026-08-03)이 그 라벨을 반증한다 — 같은 64 안에서 **지주회사는 절반이 점수를 받는다**:
+//   은행 641xx 0/3 · 보험 65xxx 0/5 · **지주 64992 19/38** · 증권 66121 3/13
+// 기전도 확인했다. M&A 산식은 EV/EBITDA·EBITDA마진 기반인데 은행·보험 재무제표에는 그
+// 개념이 성립하지 않는다(ebitda_margin 보유: 은행 0/3 · 보험 0/5 vs 지주 26/38 · 비금융 265/292).
+// 즉 **은행·보험에서만 "산식 미적용"이 사실**이고, 지주·증권의 null은 평범한 산출 불가다.
+//
+// 소분류 표본이 1~2개뿐인 코드(64913·661·66202 등)는 0건이어도 미지원으로 선언하지 않는다 —
+// small-N은 근거가 아니다(peer_min·is_unrankable에서 지켜온 것과 같은 기준).
 export function isUnsupportedSector(sector: string | null): boolean {
   if (!sector) return false;
-  const p = sector.slice(0, 2);
-  return p === "64" || p === "65" || p === "66";
+  return sector.startsWith("641") || sector.startsWith("65");
 }
 
 export function MnaCell({ row }: { row: ScreeningRow }) {
@@ -102,8 +115,13 @@ export function MnaCell({ row }: { row: ScreeningRow }) {
     if (isUnsupportedSector(row.sector)) {
       return (
         <div className="flex flex-col items-end gap-0.5">
-          <Pill text="미지원 업종" bg="#f3f4f6" fg="#6b7280" />
-          <span className="text-[9px] text-gray-400">은행·보험</span>
+          <Pill text="산식 미적용" bg="#f3f4f6" fg="#6b7280" />
+          <span
+            className="text-[9px] text-gray-400"
+            title="M&A 스코어는 EV/EBITDA·EBITDA마진 기반인데 은행·보험 재무제표에는 그 개념이 성립하지 않는다. 지주회사·증권사는 여기 해당하지 않는다(정상 산출 대상)."
+          >
+            은행·보험
+          </span>
         </div>
       );
     }
