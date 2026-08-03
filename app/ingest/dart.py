@@ -43,8 +43,8 @@ _ACCOUNT_MAP: dict[str, tuple[str, ...]] = {
     "operating_income": ("영업이익", "영업이익(손실)"),
     "depreciation": ("감가상각비", "유형자산감가상각비"),
     "equity": ("자본총계", "ifrs-full_Equity"),
-    "total_assets": ("자산총계",),
-    "total_liabilities": ("부채총계",),
+    "total_assets": ("자산총계", "ifrs-full_Assets"),
+    "total_liabilities": ("부채총계", "ifrs-full_Liabilities"),
     "cash": ("현금및현금성자산",),
 }
 # 총차입금(이자성 부채) = 아래 라벨에 매칭되는 '모든 행'의 합.
@@ -87,6 +87,12 @@ _TAGGED_SINGLE_ACCOUNTS: dict[str, tuple[str, ...]] = {
     "ifrs-full_Revenue": ("IS", "CIS"),
     # 한섬: 계정명이 '자본 총계'(공백) — 완전일치 실패, 태그로 구제. BS 한정.
     "ifrs-full_Equity": ("BS",),
+    # [2026-08-03] total_liabilities 결측 16행(12개사)의 정체도 같았다: 총계 행은 있는데
+    # 라벨이 '자산 총계'(공백)·'총자산'·'자산'으로 갈린다(LG화학·LG생활건강·한화솔루션·
+    # 코오롱인더 등). 부채도 같은 방식으로 갈린다('부채 총계'·'총부채'·'부채').
+    # 표준 태그는 BS 총계 행에만 붙으므로 BS 한정이면 하위 항목 오염이 없다.
+    "ifrs-full_Assets": ("BS",),
+    "ifrs-full_Liabilities": ("BS",),
 }
 
 

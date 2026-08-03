@@ -180,6 +180,41 @@ def test_collect_accounts_equity_tag_fallback() -> None:
     assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["equity"]) == 1_406_099_400_780
 
 
+def test_collect_accounts_assets_liabilities_tag_fallback() -> None:
+    """[2026-08-03] 총계 라벨이 '자산 총계'(공백)·'총자산'·'자산'으로 갈린다 — 태그로 구제.
+
+    실측(라이브 DART): LG화학·LG생활건강·한화솔루션 등 12개사 16행에서 부채총계가
+    결측이었는데, 원문에는 ifrs-full_Assets·ifrs-full_Liabilities 총계 행이 있었다.
+    라벨 완전일치('자산총계'·'부채총계')만 비껴간 것. debt_ratio 사망의 원인.
+    """
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        # LG화학 형태: 공백 있는 '자산 총계' / '부채 총계'
+        {"sj_div": "BS", "account_id": "ifrs-full_Assets",
+         "account_nm": "자산 총계", "thstrm_amount": "93,857,762,000,000"},
+        {"sj_div": "BS", "account_id": "ifrs-full_Liabilities",
+         "account_nm": "부채 총계", "thstrm_amount": "45,862,299,000,000"},
+        # 자본과 부채의 합계(= 자산)는 별개 태그 — 화이트리스트 밖이라 섞이지 않는다
+        {"sj_div": "BS", "account_id": "ifrs-full_EquityAndLiabilities",
+         "account_nm": "부채와 자본 총계", "thstrm_amount": "93,857,762,000,000"},
+    ]
+    accounts = _collect_accounts(rows)
+    assert _pick(accounts, _ACCOUNT_MAP["total_assets"]) == 93_857_762_000_000
+    assert _pick(accounts, _ACCOUNT_MAP["total_liabilities"]) == 45_862_299_000_000
+
+
+def test_collect_accounts_assets_tag_gated_by_statement() -> None:
+    """자산·부채 태그는 BS 한정 — 다른 재무제표의 동일 태그는 주입하지 않는다."""
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        {"sj_div": "CF", "account_id": "ifrs-full_Liabilities",
+         "account_nm": "부채", "thstrm_amount": "999"},
+    ]
+    assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["total_liabilities"]) is None
+
+
 def test_collect_accounts_label_wins_over_tag() -> None:
     """한글 라벨 완전일치가 태그보다 우선(_ACCOUNT_MAP 순서) — 기존 동작 불변."""
     from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
