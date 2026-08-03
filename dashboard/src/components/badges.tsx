@@ -194,8 +194,51 @@ export function OpacityCell({ row }: { row: ScreeningRow }) {
 // 그렇다고 계획 기간으로 게이팅하지는 않는다: 미상 7종목을 "안 했다"로 미는 셈이라
 // is_unrankable에서 지킨 원칙("못 읽은 걸 벌하지 않는다")을 정면으로 어긴다.
 // 사실은 남기고, **사실에 붙인 문장만 정정한다.**
-export function BuybackRetiredBadge({ status }: { status: string | null }) {
+// ✅ [2026-07-31 P1-4] 이제 **시점을 판정한다** — 위 주석의 "연결이 데이터에 없다"가 해소됐다.
+// 계획 기간을 아는 건은 기간으로, 모르는 건은 **공시일**로 잰다(disclosure_date는 전건 보유).
+// 실측(retired 53건): 기간 내 5 · 기간 밖 11 · 공시 이전 30 · 같은 해 7(판정 불가).
+// **약속 후 이행이 확인되는 것은 5건뿐**이고, 30건은 약속하기 전에 한 소각이다.
+// 그래서 배지도 하나가 아니라 시점별로 다른 문장을 쓴다 — 초록(이행)을 아무에게나 주지 않는다.
+const TIMING_BADGE: Record<string, { label: string; bg: string; fg: string; title: string }> = {
+  in_period: {
+    label: "계획 기간 내 소각", bg: "#dcfce7", fg: "#15803d",
+    title: "밸류업 계획 기간 안에서 자사주를 소각했다 — 약속과 시점이 연결되는 유일한 경우다.",
+  },
+  outside_period: {
+    label: "계획 기간 밖 소각", bg: "#fef3c7", fg: "#92400e",
+    title: "소각은 있었으나 밸류업 계획 기간 밖이다(시작 전이거나 종료 후). 이행으로 볼 수 없다.",
+  },
+  after_disclosure: {
+    label: "공시 후 소각", bg: "#dcfce7", fg: "#15803d",
+    title: "계획 기간이 공시에 없어 공시일을 기준으로 판정했다 — 공시 연도보다 뒤 회계연도의 소각이다.",
+  },
+  before_disclosure: {
+    label: "공시 전 소각", bg: "#fef3c7", fg: "#92400e",
+    title: "계획을 공시하기 **전** 회계연도의 소각이다. 최근 소각이지만 이 약속의 이행은 아니다.",
+  },
+  same_year_unknown: {
+    label: "소각(시점 미상)", bg: "#f3f4f6", fg: "#6b7280",
+    title: "공시와 같은 해의 소각이라 재무 연 단위로는 전후를 가릴 수 없다 — 판정하지 않는다.",
+  },
+};
+
+export function BuybackRetiredBadge(
+  { status, timing }: { status: string | null; timing?: string | null },
+) {
   if (status !== "retired") return null;
+  const t = timing ? TIMING_BADGE[timing] : undefined;
+  if (t) {
+    return (
+      <span
+        className="inline-flex w-fit items-center rounded px-1.5 py-px text-[9px] font-semibold"
+        style={{ background: t.bg, color: t.fg }}
+        title={t.title}
+      >
+        {t.label}
+      </span>
+    );
+  }
+  // timing이 아직 없는 데이터(0022 이전 채점분) — 종전 라벨로 정직하게 남는다.
   return (
     <span
       className="inline-flex w-fit items-center rounded px-1.5 py-px text-[9px] font-semibold"

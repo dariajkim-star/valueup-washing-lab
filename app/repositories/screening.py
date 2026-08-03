@@ -251,6 +251,8 @@ def list_screening(
             "score_basis": vs.score_basis if vs else None,
             "washing_flag": vs.washing_flag if vs else None,
             "buyback_status": vs.buyback_status if vs else None,
+            # 소각 시점(0022) — 목록의 "최근 소각" 배지가 약속과의 관계를 말할 수 있게.
+            "buyback_timing": vs.buyback_timing if vs else None,
             "buyback_executed": vs.buyback_executed if vs else None,
             "mna_target_score": ms.mna_target_score if ms else None,
             "population_basis": ms.population_basis if ms else None,

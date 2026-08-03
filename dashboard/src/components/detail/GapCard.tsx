@@ -34,7 +34,7 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
       <div className="mt-4 flex gap-3">
         <MiniStat label="달성률" value={fmt(percentage(gap.achievement_rate))} />
         <MiniStat label="진척률" value={fmt(percentage(gap.progress_rate))} />
-        <MiniStat label="자사주" value={buybackLabel(gap.buyback_status)} />
+        <MiniStat label="자사주" value={buybackLabel(gap.buyback_status, gap.buyback_timing)} />
       </div>
       <PayoutAxis gap={gap} />
       <ExcludedAxes excluded={gap.excluded_axes} />
@@ -207,10 +207,19 @@ function PlanProvenance({ gap }: { gap: GapDetail }) {
 // buyback_status는 계획 기간과 무관한 **직전 재무 기간**의 소각 수량이라, 약속 이행을
 // 뜻하지 않는다(실측: retired 16종목 중 계획 기간 내는 5). 두 화면이 다른 단어를 쓰면
 // 같은 값이 다른 뜻으로 읽힌다.
-function buybackLabel(status: string | null): string {
+// [2026-07-31 P1-4] retired는 이제 **시점까지** 말한다 — 목록 배지와 같은 어휘를 쓴다.
+const TIMING_LABEL: Record<string, string> = {
+  in_period: "계획 기간 내 소각",
+  outside_period: "계획 기간 밖 소각",
+  after_disclosure: "공시 후 소각",
+  before_disclosure: "공시 전 소각",
+  same_year_unknown: "소각(시점 미상)",
+};
+
+function buybackLabel(status: string | null, timing?: string | null): string {
   switch (status) {
     case "retired":
-      return "최근 소각";
+      return (timing && TIMING_LABEL[timing]) || "최근 소각";
     case "purchased_only":
       return "매입만·미소각";
     case "none":

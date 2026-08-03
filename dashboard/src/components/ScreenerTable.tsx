@@ -57,7 +57,10 @@ export function ScreenerTable({
             {/* AC3: 소각은 execution_score와 **독립인 사실**이라 이름 옆에 둔다.
                 Value-up 셀 안에 넣으면 점수가 '판단 불가'인 행에서 함께 사라진다 —
                 점수를 못 매겨도 소각은 확정될 수 있으므로 그 종속은 틀렸다. */}
-            <BuybackRetiredBadge status={c.row.original.buyback_status} />
+            <BuybackRetiredBadge
+              status={c.row.original.buyback_status}
+              timing={c.row.original.buyback_timing}
+            />
           </div>
         ),
       }),

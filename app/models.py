@@ -271,6 +271,12 @@ class ValueupScore(Base):
     buyback_executed: Mapped[bool | None] = mapped_column(Boolean)
     buyback_retired: Mapped[bool | None] = mapped_column(Boolean)
     buyback_status: Mapped[str | None] = mapped_column(String(20))  # retired/purchased_only/none/unknown
+    # 소각이 **약속 전인가 후인가**(0022, P1-4). buyback_status는 "무엇을 했나"만 답하고
+    # 계획과 무관하다 — 이 컬럼이 "언제 했나"를 잰다.
+    # in_period/outside_period(기간 기준) · after_disclosure/before_disclosure(공시일 기준)
+    # · same_year_unknown(같은 해, 분기 미상이라 판정 불가) · null(소각 없음·근거 부족).
+    # 어느 자로 쟀는지를 값 자체가 말한다(basis 별도 컬럼 없음).
+    buyback_timing: Mapped[str | None] = mapped_column(String(20))
     # execution_score가 **어떤 약속을 기준으로** 채점됐는지(5-1). 예: 'return+buyback'.
     # 기업이 공시한 항목만으로 채점하므로 가중치 기반이 종목마다 다르다 — 그 사실을
     # 숨기면 점수를 종목 간 비교에 잘못 쓰게 된다(mna의 population_basis와 같은 이유).

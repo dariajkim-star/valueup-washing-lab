@@ -69,6 +69,10 @@ class ScreeningOut(BaseModel):
     score_basis: str | None = None
     washing_flag: bool | None = None
     buyback_status: str | None = None
+    # 소각 **시점** 판정(0022, P1-4): in_period/outside_period(계획 기간 기준) ·
+    # after_disclosure/before_disclosure(공시일 기준) · same_year_unknown(같은 해라 판정
+    # 불가) · null(소각 없음). buyback_status가 "무엇을"이라면 이건 "언제"다.
+    buyback_timing: str | None = None
     buyback_executed: bool | None = None
     mna_target_score: float | None = None
     population_basis: str | None = None
@@ -189,6 +193,10 @@ class GapAnalysisOut(BaseModel):
     excluded_axes: str | None = None
     washing_flag: bool | None = None
     buyback_status: str | None = None
+    # 소각 **시점** 판정(0022, P1-4): in_period/outside_period(계획 기간 기준) ·
+    # after_disclosure/before_disclosure(공시일 기준) · same_year_unknown(같은 해라 판정
+    # 불가) · null(소각 없음). buyback_status가 "무엇을"이라면 이건 "언제"다.
+    buyback_timing: str | None = None
     # 출처(0015) — 이 점수가 **어느 공시**에서 나왔는가. 목표값만 보여주고 출처를 감추면
     # 사용자가 신선도를 판단할 수 없다(실측: 7종목이 최신 공시보다 과거 공시에 목표가 더
     # 많다). rcept_no가 null이면 0015 이전 적재분 = DART 원문 링크 조립 불가.

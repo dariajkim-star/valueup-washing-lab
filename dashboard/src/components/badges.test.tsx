@@ -35,6 +35,7 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     opacity_count: null,
     opacity_basis: null,
     plan_body_signal: null,
+    buyback_timing: null,
     has_valueup_score: true,
     has_mna_score: true,
     has_opacity_score: true,
@@ -221,5 +222,41 @@ describe("OpacityCell — 불투명도(washing_flag 대체)", () => {
     render(<OpacityCell row={row({ opacity_rank: 0.03, opacity_count: 0 })} />);
     expect(screen.getByText("3")).toBeTruthy(); // 0.03 → 3
     expect(screen.queryByText("순위 불가")).toBeNull();
+  });
+});
+
+describe("[2026-07-31 P1-4] 소각 배지 — 약속과의 시점 관계를 말한다", () => {
+  it("계획 기간 내 소각만 초록(이행)으로 표시한다", () => {
+    render(<BuybackRetiredBadge status="retired" timing="in_period" />);
+    expect(screen.getByText("계획 기간 내 소각")).toBeTruthy();
+  });
+
+  it("공시 전 소각은 이행이 아니라고 말한다", () => {
+    // 실측: retired 53건 중 30건이 공시 전 소각이다. "최근 소각" 하나로 뭉치면
+    // 약속과 무관한 소각이 이행처럼 읽힌다.
+    render(<BuybackRetiredBadge status="retired" timing="before_disclosure" />);
+    const el = screen.getByText("공시 전 소각");
+    expect(el).toBeTruthy();
+    expect(el.getAttribute("title")).toContain("이 약속의 이행은 아니다");
+  });
+
+  it("계획 기간 밖 소각도 구분한다(기아 실측 형태)", () => {
+    render(<BuybackRetiredBadge status="retired" timing="outside_period" />);
+    expect(screen.getByText("계획 기간 밖 소각")).toBeTruthy();
+  });
+
+  it("같은 해는 판정하지 않는다 — 회색으로 '시점 미상'", () => {
+    render(<BuybackRetiredBadge status="retired" timing="same_year_unknown" />);
+    expect(screen.getByText("소각(시점 미상)")).toBeTruthy();
+  });
+
+  it("timing이 없는 구데이터는 종전 라벨로 남는다(회귀 방지)", () => {
+    render(<BuybackRetiredBadge status="retired" timing={null} />);
+    expect(screen.getByText("최근 소각")).toBeTruthy();
+  });
+
+  it("retired가 아니면 timing이 있어도 배지 없음", () => {
+    const { container } = render(<BuybackRetiredBadge status="none" timing="in_period" />);
+    expect(container.textContent).toBe("");
   });
 });

@@ -13,7 +13,7 @@ function header(partial: Partial<ScreeningRow>): ScreeningRow {
     washing_flag: null, buyback_status: null, buyback_executed: null,
     mna_target_score: null, population_basis: null,
     opacity_rank: null, opacity_count: null, opacity_basis: null,
-    plan_body_signal: null,
+    plan_body_signal: null, buyback_timing: null,
     has_valueup_score: true, has_mna_score: true, has_opacity_score: true,
     ...partial,
   };
@@ -28,7 +28,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     plan_disclosure_date: null, plan_rcept_no: null,
     plan_is_fallback: false, plan_newest_disclosure_date: null,
     plan_body_signal: null,
-    excluded_axes: null,
+    excluded_axes: null, buyback_timing: null,
     target_payout_ratio: null, target_total_return_ratio: null,
     actual_payout_ratio: null, actual_total_return_ratio: null,
     payout_achievement: null,

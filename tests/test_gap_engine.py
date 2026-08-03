@@ -615,3 +615,56 @@ def test_run_failed_corp_leaves_no_partial_row(engine, monkeypatch) -> None:
     assert [c for c, _ in result.failed] == ["00000001"]
     with Session_() as s:
         assert s.scalar(select(ValueupScore)) is None  # 롤백됨
+
+
+class TestBuybackTiming:
+    """[P1-4 재설계, 2026-07-31] 소각이 약속 **전인가 후인가**.
+
+    buyback_status는 "무엇을 했나"만 답하고 계획과 무관하다("최근 소각"으로 라벨을 정정한
+    이유). 이 판정이 "언제 했나"를 잰다.
+
+    두 자를 쓴다: 기간을 아는 건은 계획 기간(더 엄밀), 모르는 건은 공시일. 어느 자로 쟀는지는
+    반환값 자체가 말한다 — 실측상 retired 53건 중 기간을 아는 건 16건(30%)뿐이라
+    기간만 고집하면 70%가 미상으로 남는다.
+    """
+
+    def _t(self, **kw):
+        from app.analysis.gap_engine import _buyback_timing
+
+        base = dict(
+            retired=True, fin_year=2025, disclosure_date="2024-05-01",
+            period_start=None, period_end=None,
+        )
+        base.update(kw)
+        return _buyback_timing(**base)
+
+    def test_in_period(self):
+        assert self._t(period_start="2024", period_end="2026") == "in_period"
+
+    def test_outside_period(self):
+        """기아 실측 형태 — 소각은 2024, 계획은 2025~2027(약속 전 해)."""
+        assert self._t(fin_year=2024, period_start="2025", period_end="2027") == "outside_period"
+
+    def test_falls_back_to_disclosure_when_period_unknown(self):
+        assert self._t(fin_year=2025, disclosure_date="2024-05-01") == "after_disclosure"
+        assert self._t(fin_year=2023, disclosure_date="2024-05-01") == "before_disclosure"
+
+    def test_same_year_is_not_judged(self):
+        """연 단위 재무로는 '2024-05 공시 / FY2024 소각'의 전후를 가릴 수 없다.
+
+        느슨하게 '이후'로 처리하면 실측 12건이 이행으로 잘못 표시된다(null > 틀린 값).
+        """
+        assert self._t(fin_year=2024, disclosure_date="2024-05-01") == "same_year_unknown"
+
+    def test_no_retirement_is_null(self):
+        assert self._t(retired=False) is None
+        assert self._t(retired=None) is None
+
+    def test_unknown_buyback_year_is_null(self):
+        """소각은 있으나 그 시점을 모르면 판정하지 않는다."""
+        assert self._t(fin_year=None) is None
+
+    def test_invalid_period_falls_back_not_crashes(self):
+        """기간이 뒤집혔거나 파싱 불가면 기간 기준을 버리고 공시일 기준으로."""
+        assert self._t(period_start="2027", period_end="2024") == "after_disclosure"
+        assert self._t(period_start="중장기", period_end="미상") == "after_disclosure"

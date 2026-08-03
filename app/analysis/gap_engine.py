@@ -112,6 +112,44 @@ def _buyback_signals(
     return executed, retired, status
 
 
+def _buyback_timing(
+    retired: bool | None,
+    fin_year: int | None,
+    disclosure_date: str | None,
+    period_start: str | None,
+    period_end: str | None,
+) -> str | None:
+    """소각이 **약속 전인가 후인가**(P1-4 재설계, 0022). 판정 불가는 null.
+
+    기간을 아는 건은 계획 기간으로(더 엄밀), 모르는 건은 공시일로 잰다. 어느 자로 쟀는지는
+    반환값 자체가 말한다 — basis 컬럼을 따로 두지 않는다.
+
+    **같은 해는 판정하지 않는다.** 재무는 연 단위라 "2026-03 공시 / FY2026 소각"의 전후를
+    가릴 수 없다. 느슨하게 '이후'로 처리하면 실측상 12건이 이행으로 잘못 표시된다 —
+    null > 틀린 값(NFR2).
+    """
+    if not retired or fin_year is None:
+        return None  # 소각이 없거나 소각 시점을 모른다 — 잴 대상이 없다
+    if period_start and period_end:
+        try:
+            start, end = int(period_start[:4]), int(period_end[:4])
+        except ValueError:
+            start = end = None  # type: ignore[assignment]
+        if start is not None and end is not None and start <= end:
+            return "in_period" if start <= fin_year <= end else "outside_period"
+    if not disclosure_date or len(disclosure_date) < 4:
+        return None
+    try:
+        disclosure_year = int(disclosure_date[:4])
+    except ValueError:
+        return None
+    if fin_year > disclosure_year:
+        return "after_disclosure"
+    if fin_year < disclosure_year:
+        return "before_disclosure"
+    return "same_year_unknown"
+
+
 def _axis_score(v: float) -> float:
     """축 달성도를 [0,1]로 clamp. 상한(1.0)은 과달성이 다른 축의 신용을 사지 못하게,
     **하한(0.0)은 한 축의 미달이 다른 축의 이행을 상쇄하지 못하게** 한다(교차리뷰
@@ -279,6 +317,11 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
         else _achievement_rate(actual_roe, plan["target_roe"])
     )
     executed, retired, status = _buyback_signals(amount, retired_amount)
+    # 소각 시점 판정(P1-4, 0022) — buyback_status가 가리키는 **바로 그 재무기간**을 쓴다.
+    timing = _buyback_timing(
+        retired, buyback.get("year") if buyback else None,
+        plan.get("disclosure_date"), plan["period_start"], plan["period_end"],
+    )
     # 어떤 항목을 "약속했는가"의 판정(5-1): 목표를 공시했는지 여부다. ROE는 target_roe 존재,
     # 자사주는 buyback_planned가 확정 True일 때만(None=언급 불명은 약속으로 치지 않는다 —
     # _washing_flag가 buyback_planned를 3치로 다루는 것과 같은 기준).
@@ -335,6 +378,7 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
             "buyback_executed": executed,
             "buyback_retired": retired,
             "buyback_status": status,
+            "buyback_timing": timing,
             "score_basis": score_basis,
             # 제외된 축(0021) — 점수가 실제보다 완전해 보이지 않게. 채점 자체가 불가능해
             # execution_score가 null인 경우엔 제외를 기록하지 않는다(뺄 대상이 없다).

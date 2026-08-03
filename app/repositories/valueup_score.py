@@ -138,6 +138,10 @@ def latest_financial_buyback(
     return {
         "buyback_amount": obj.buyback_amount,
         "buyback_retired_amount": obj.buyback_retired_amount,
+        # 그 수량이 **어느 회계기간**의 것인가(P1-4, 0022). buyback_status가 가리키는
+        # 바로 그 행의 기간이어야 시점 판정이 같은 사건을 말한다.
+        "year": obj.year,
+        "quarter": obj.quarter,
     }
 
 
@@ -160,8 +164,8 @@ def upsert_valueup_score(session: Session, rec: dict[str, Any]) -> ValueupScore:
     for field in (
         "target_roe", "actual_roe", "roe_gap",
         "achievement_rate", "progress_rate", "execution_score", "washing_flag",
-        "buyback_executed", "buyback_retired", "buyback_status", "score_basis",
-        "excluded_axes", "source_plan_id",
+        "buyback_executed", "buyback_retired", "buyback_status", "buyback_timing",
+        "score_basis", "excluded_axes", "source_plan_id",
     ):
         setattr(obj, field, rec[field])
     return obj
@@ -268,6 +272,7 @@ def list_scores(
             "execution_score": score.execution_score,
             "washing_flag": score.washing_flag,
             "buyback_status": score.buyback_status,
+            "buyback_timing": score.buyback_timing,
             "score_basis": score.score_basis,
             "excluded_axes": score.excluded_axes,
             # 환원 축 투명화(2026-07-31) — 목표는 근거 공시에서, 실적은 **엔진과 같은

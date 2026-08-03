@@ -15,6 +15,9 @@ export interface ScreeningRow {
   washing_flag: boolean | null; // true=워싱의심 / false=근거없음 / null=판단불가
   buyback_status: string | null;
   buyback_executed: boolean | null;
+  // 소각 **시점**(0022, P1-4): in_period/outside_period(계획 기간 기준) ·
+  // after_disclosure/before_disclosure(공시일 기준) · same_year_unknown(판정 불가) · null.
+  buyback_timing: string | null;
   mna_target_score: number | null; // null=산출불가(엄격 게이팅)
   population_basis: string | null; // sector:{KSIC} / market_fallback / market
   // 공시 불투명도(washing_flag 대체) — 미공시 목표 축 수의 peer 백분위.
