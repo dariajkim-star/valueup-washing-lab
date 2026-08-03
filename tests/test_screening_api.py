@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.models import Base, Company, MnaScore, OpacityScore, ValueupScore
-from app.sql_views import CREATE_VALUATION_METRICS
+from app.sql_views import CREATE_PLAN_OWN_GAP, CREATE_VALUATION_METRICS
 
 AS_OF = "2026-07-13"
 
@@ -22,6 +22,7 @@ def engine():
     Base.metadata.create_all(eng)
     with eng.connect() as conn:  # roe/pbr·지표 필터가 뷰를 읽음(3.3 리뷰 반영)
         conn.execute(text(CREATE_VALUATION_METRICS))
+        conn.execute(text(CREATE_PLAN_OWN_GAP))  # 야심도 목록 서빙(0024)
         conn.commit()
     return eng
 

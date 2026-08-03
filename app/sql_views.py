@@ -54,3 +54,66 @@ WINDOW w AS (PARTITION BY f.corp_code, f.quarter ORDER BY f.year)
 """.strip()
 
 DROP_VALUATION_METRICS = f"DROP VIEW IF EXISTS {VALUATION_METRICS_VIEW}"
+
+
+# ── plan_own_gap: 목표의 야심도 중 '자기 과거' 기준선 (P1-7 화면 반영, 2026-08-03) ──
+#
+# **왜 뷰인가**: 이 값은 상세(단건)와 목록(필터·정렬) 양쪽이 쓴다. 파이썬과 SQL에 각각
+# 계산을 두면 두 정의가 언젠가 갈라지고, 그때 상세는 "-3.9%p"라 하고 목록 배지는 다른 말을
+# 한다. 그래서 **뷰를 단일 정의처로 두고 `_ambition`이 이것을 읽는다**(선택 규칙을 서빙이
+# 재현하지 않는다는 이 프로젝트의 기존 원칙과 같은 형태).
+#
+# **long 포맷인 이유**: (plan, 지표) 한 행씩이라 지표가 늘어도 컬럼이 안 늘고, 목록이 쓰는
+# "가장 낮은 격차"를 `MIN(own_gap) GROUP BY plan_id`로 얻는다 — 집계 MIN은 NULL을 자연히
+# 무시하므로 SQLite/PostgreSQL에서 동작이 같다(스칼라 min/LEAST는 NULL 처리가 갈린다).
+#
+# **기준연도**: 공시 **직전 연도**("이미 하던 것"). 그 해 실적이 없으면 한 해 더 뒤로 간다.
+# 지표마다 따로 정한다 — ROE는 있는데 배당성향은 없는 해가 실제로 있다.
+#
+# ⚠ **peer(업종) 기준선은 여기 올리지 않는다.** 표본 5개 미만이면 값을 내지 않는 계약이라
+# (그 이유를 화면이 말한다), SQL 필터에 넣으면 그 null이 조용히 배제돼 **"업종 표본이 부족한
+# 기업"이 "야심찬 기업"으로 세탁된다.** 신호도 자기 과거 쪽에 몰려 있다(배당성향 45% vs 24%).
+PLAN_OWN_GAP_VIEW = "plan_own_gap"
+
+# (지표명, 목표 컬럼, 실적 컬럼) — valueup_score._AMBITION_METRICS와 같은 축.
+_OWN_GAP_METRICS = (
+    ("roe", "target_roe", "roe"),
+    ("payout_ratio", "target_payout_ratio", "payout_ratio"),
+    ("total_return_ratio", "target_total_return_ratio", "total_return_ratio"),
+)
+
+
+def _own_gap_block(metric: str, target_col: str, actual_col: str) -> str:
+    """지표 한 축의 SELECT 블록. 공시연도-1 → 없으면 -2 순으로 기준선을 잡는다."""
+    dy = "CAST(substr(p.disclosure_date, 1, 4) AS INTEGER)"
+
+    def past(offset: int) -> str:
+        return (
+            f"(SELECT vm.{actual_col} FROM valuation_metrics vm "
+            f"WHERE vm.corp_code = p.corp_code AND vm.year = {dy} - {offset} "
+            f"AND vm.{actual_col} IS NOT NULL)"
+        )
+
+    own_past = f"COALESCE({past(1)}, {past(2)})"
+    return f"""
+SELECT
+    p.plan_id,
+    p.corp_code,
+    '{metric}' AS metric,
+    p.{target_col} AS target,
+    CASE WHEN {past(1)} IS NOT NULL THEN {dy} - 1
+         WHEN {past(2)} IS NOT NULL THEN {dy} - 2 END      AS baseline_year,
+    {own_past}                                             AS own_past,
+    ROUND(p.{target_col} - {own_past}, 2)                  AS own_gap
+FROM valueup_plan p
+WHERE p.{target_col} IS NOT NULL
+  AND p.disclosure_date IS NOT NULL
+""".strip()
+
+
+CREATE_PLAN_OWN_GAP = (
+    f"CREATE VIEW {PLAN_OWN_GAP_VIEW} AS\n"
+    + "\nUNION ALL\n".join(_own_gap_block(*m) for m in _OWN_GAP_METRICS)
+)
+
+DROP_PLAN_OWN_GAP = f"DROP VIEW IF EXISTS {PLAN_OWN_GAP_VIEW}"

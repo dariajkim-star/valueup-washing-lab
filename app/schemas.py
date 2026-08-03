@@ -86,6 +86,11 @@ class ScreeningOut(BaseModel):
     # "타 지표로 공시(other_metric — 우리 자에 눈금이 없음)"인지 목록에서 구분한다.
     # 상세의 plan_body_signal과 같은 값(source_plan_id 조인만, 선택규칙 재현 없음).
     plan_body_signal: str | None = None
+    # 목표의 야심도(P1-7) — 공시한 축 중 **자기 과거 대비 가장 낮은 격차**(%p).
+    # 음수 = 하던 것보다 낮게 약속했다. 점수도 등급도 아니고 격차라는 사실이다.
+    # null = 비교할 과거 실적이 없다(격차 0이 아니다 — "잴 수 없음"과 "같은 수준"은 다르다).
+    # 상세(ambition)의 own_gap과 같은 정의(plan_own_gap 뷰가 단일 정의처, 0024).
+    lowest_own_gap: float | None = None
 
 
 class MnaRankingOut(BaseModel):

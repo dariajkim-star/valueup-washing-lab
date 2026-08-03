@@ -10,6 +10,7 @@ import {
   ValueUpCell,
   WashingBadge,
   ScoreBasisChip,
+  AmbitionBadge,
 } from "./badges";
 import type { ScreeningRow } from "../api/screening";
 
@@ -35,6 +36,7 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     opacity_count: null,
     opacity_basis: null,
     plan_body_signal: null,
+    lowest_own_gap: null,
     buyback_timing: null,
     has_valueup_score: true,
     has_mna_score: true,
@@ -257,6 +259,39 @@ describe("[2026-07-31 P1-4] 소각 배지 — 약속과의 시점 관계를 말�
 
   it("retired가 아니면 timing이 있어도 배지 없음", () => {
     const { container } = render(<BuybackRetiredBadge status="none" timing="in_period" />);
+    expect(container.textContent).toBe("");
+  });
+});
+
+
+// [P1-7 2026-08-03] 목표 야심도 배지.
+// 실측 근거: 만점 70건 중 40건이 자기 과거보다 낮은 목표인데 목록에서 구분되지 않았다.
+describe("AmbitionBadge", () => {
+  it("자기 과거보다 낮은 목표면 격차를 그대로 보여준다", () => {
+    render(<AmbitionBadge gap={-10.5} />);
+    expect(screen.getByText(/과거보다 낮은 목표/)).toBeTruthy();
+    expect(screen.getByText(/-10\.5%p/)).toBeTruthy();
+  });
+
+  it("등급으로 압축하지 않는다 — 격차 숫자가 화면에 남는다", () => {
+    const { container } = render(<AmbitionBadge gap={-41.0} />);
+    expect(container.textContent).toContain("-41.0%p");
+    expect(container.textContent).not.toMatch(/낮음|하위|등급/);
+  });
+
+  it("과거보다 높게 약속했으면 배지가 없다", () => {
+    const { container } = render(<AmbitionBadge gap={20.0} />);
+    expect(container.textContent).toBe("");
+  });
+
+  it("격차 0은 '같은 목표'로 구분해 말한다 — 필터(≤0)에 걸린 이유가 보여야 한다", () => {
+    const { container } = render(<AmbitionBadge gap={0} />);
+    expect(container.textContent).toContain("과거와 같은 목표");
+    expect(container.textContent).not.toContain("낮은");
+  });
+
+  it("null(비교할 과거 없음)은 배지를 띄우지 않는다 — 측정 불가는 판정이 아니다", () => {
+    const { container } = render(<AmbitionBadge gap={null} />);
     expect(container.textContent).toBe("");
   });
 });

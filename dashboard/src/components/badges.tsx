@@ -271,3 +271,35 @@ export function MarketPill({ market }: { market: string | null }) {
   const kospi = market === "KOSPI";
   return <Pill text={market} bg={kospi ? "#eff6ff" : "#f5f3ff"} fg={kospi ? "#1d4ed8" : "#6d28d9"} />;
 }
+
+// [P1-7 화면 반영 2026-08-03] 목표의 야심도 — "약속이 의미 있었나".
+//
+// 착수 근거(실측): 만점 70건 중 **40건이 자기 과거보다 낮은 목표**인데 목록에서 구분되지
+// 않았다. 사실은 상세에 있었지만 찾으려면 70번 열어야 했다 — 만들어놓고 못 찾는 곳에 뒀다.
+//
+// **등급이 아니라 격차 그대로**(P1-7 리드 결정 B). "야심도 낮음"으로 압축하면 기준선 선택이
+// 화면 뒤로 숨는다. 소각 배지와 같은 자리 규칙 — execution_score와 **독립인 사실**이라
+// 점수 셀에 종속시키지 않는다(점수가 '판단 불가'인 행에서도 이 사실은 살아 있다).
+//
+// null은 배지를 띄우지 않는다. "비교할 과거가 없음"과 "야심찼음"은 다른 범주이고,
+// 여기서 회색 배지를 띄우면 측정 불가를 판정처럼 보이게 한다.
+export function AmbitionBadge({ gap }: { gap: number | null }) {
+  if (gap === null || gap > 0) return null;
+  // 0은 "과거와 같은 목표"다 — 낮지는 않지만 진전도 없다. 필터(≤0)와 배지 조건을 맞추되
+  // 두 사실을 같은 문장으로 뭉개지 않는다: 걸러 놓고 왜 걸렸는지 안 보이면 화면이 거짓말한다.
+  const same = gap === 0;
+  return (
+    <span
+      className="inline-flex w-fit items-center rounded px-1.5 py-px text-[9px] font-semibold"
+      style={{ background: "#fef3c7", color: "#92400e" }}
+      title={
+        (same
+          ? "공시한 목표가 자기 과거 실적과 같다(진전 없음). "
+          : `공시한 목표가 자기 과거 실적보다 ${Math.abs(gap).toFixed(1)}%p 낮다. `) +
+        "달성 여부(Value-up 점수)와는 별개의 사실이며, 업종 기준선은 다를 수 있다(상세 참조)."
+      }
+    >
+      {same ? "과거와 같은 목표 0.0%p" : `과거보다 낮은 목표 ${gap.toFixed(1)}%p`}
+    </span>
+  );
+}

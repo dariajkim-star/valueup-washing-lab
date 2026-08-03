@@ -60,6 +60,13 @@ def screening_list(
     # 그 토글이 항상 빈 결과를 냈다(죽은 필터). 고의 판정 대신 격차로 거른다.
     min_opacity_rank: float | None = Query(None, ge=0.0, le=1.0, allow_inf_nan=False),
     max_opacity_rank: float | None = Query(None, ge=0.0, le=1.0, allow_inf_nan=False),
+    # 목표 야심도 필터(P1-7): 자기 과거 대비 격차가 이 값 이하인 기업만.
+    # 0을 주면 "하던 것만큼도 약속하지 않은" 기업이 남는다. 기준선이 없는 기업은
+    # 산출 불가라 매칭되지 않는다(범위 필터 전반의 null 계약과 같다).
+    max_own_gap: float | None = Query(
+        None, allow_inf_nan=False,
+        description="자기 과거 대비 목표 격차(%p) 상한 — 0이면 '하던 것보다 낮은 목표'",
+    ),
     buyback_executed: bool | None = Query(
         None, description="true=매입 실행 / false=미실행 — null(판단 불가)은 양쪽 다 제외"
     ),
@@ -81,6 +88,7 @@ def screening_list(
         "max_ev_ebitda": max_ev_ebitda, "max_debt_ratio": max_debt_ratio,
         "min_market_cap": min_market_cap, "max_market_cap": max_market_cap,
         "min_opacity_rank": min_opacity_rank, "max_opacity_rank": max_opacity_rank,
+        "max_own_gap": max_own_gap,
         "buyback_executed": buyback_executed,
         "as_of": as_of.isoformat() if as_of else None,
     }

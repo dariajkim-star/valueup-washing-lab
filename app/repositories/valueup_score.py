@@ -331,20 +331,20 @@ def _ambition(
         if target is None:
             continue
         item: dict[str, Any] = {"metric": acol, "target": target}
-        # ① 자기 과거 실적 — 공시 직전 연도부터 뒤로
-        for year in (disclosure_year - 1, disclosure_year - 2):
-            row = session.execute(
-                text(
-                    f"SELECT {acol} FROM valuation_metrics "  # noqa: S608 — 화이트리스트 컬럼
-                    "WHERE corp_code = :cc AND year = :yr"
-                ),
-                {"cc": corp_code, "yr": year},
-            ).first()
-            if row is not None and row[0] is not None:
-                item["baseline_year"] = year
-                item["own_past"] = row[0]
-                item["own_gap"] = round(target - row[0], 2)
-                break
+        # ① 자기 과거 실적 — **plan_own_gap 뷰가 단일 정의처**(0024). 목록의 배지·필터가
+        # 같은 값을 써야 하므로 여기서 다시 계산하지 않는다. 파이썬과 SQL에 계산을 각각
+        # 두면 언젠가 갈라지고, 그때 상세와 목록이 서로 다른 말을 한다.
+        row = session.execute(
+            text(
+                "SELECT baseline_year, own_past, own_gap FROM plan_own_gap "
+                "WHERE plan_id = :pid AND metric = :m"
+            ),
+            {"pid": plan.plan_id, "m": acol},
+        ).first()
+        if row is not None and row[1] is not None:
+            item["baseline_year"] = row[0]
+            item["own_past"] = row[1]
+            item["own_gap"] = row[2]
         # ② 업종 중앙값 — 같은 기준연도, 버킷 전 종목
         base_year = item.get("baseline_year") or disclosure_year - 1
         if bucket:

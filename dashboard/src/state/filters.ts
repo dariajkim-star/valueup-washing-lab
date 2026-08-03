@@ -44,6 +44,10 @@ export interface FilterState {
   // boolean+상수가 아니라 값 하나로 둔다: 임계가 화면 소유가 된 이상 "켜짐 여부"는
   // "값이 있는가"와 같은 말이고, 둘로 나누면 토글이 켜졌는데 임계가 다른 상태가 생긴다.
   opaqueMinRank?: number; // 0~1
+  // "자기 과거보다 낮은 목표"만 보기(P1-7) — 격차 상한(%p). undefined = 필터 꺼짐.
+  // 0이면 "하던 것만큼도 약속하지 않은" 기업만 남는다. 불투명 다이얼과 같은 형식:
+  // 켜짐 여부를 값의 유무로 표현한다(둘로 나누면 어긋난 상태가 생긴다).
+  lowAmbitionMaxGap?: number;
   buybackExecuted?: boolean;
   sort: string;
   page: number;
@@ -53,6 +57,7 @@ export interface FilterState {
   setSector: (s?: string) => void;
   setMcapBucket: (b: McapBucket) => void;
   setOpaqueMinRank: (v?: number) => void;
+  setLowAmbitionMaxGap: (v?: number) => void;
   setSort: (s: string) => void;
   setPage: (p: number) => void;
   patch: (p: Partial<FilterState>) => void; // 필터류 일괄 갱신(page 1 리셋)
@@ -62,6 +67,7 @@ export const useFilters = create<FilterState>((set) => ({
   scoreMode: "valueup",
   mcapBucket: "all",
   opaqueMinRank: undefined,
+  lowAmbitionMaxGap: undefined,
   sort: DEFAULT_SORT.valueup,
   page: 1,
   size: 20,
@@ -71,6 +77,7 @@ export const useFilters = create<FilterState>((set) => ({
   setSector: (sector) => set({ sector, page: 1 }),
   setMcapBucket: (mcapBucket) => set({ mcapBucket, page: 1 }),
   setOpaqueMinRank: (opaqueMinRank) => set({ opaqueMinRank, page: 1 }),
+  setLowAmbitionMaxGap: (lowAmbitionMaxGap) => set({ lowAmbitionMaxGap, page: 1 }),
   setSort: (sort) => set({ sort, page: 1 }),
   setPage: (page) => set({ page }),
   patch: (p) => set({ ...p, page: 1 }),
@@ -89,6 +96,7 @@ export function toParams(s: FilterState): ScreeningParams {
     min_market_cap: mcap.min,
     max_market_cap: mcap.max,
     min_opacity_rank: s.opaqueMinRank,
+    max_own_gap: s.lowAmbitionMaxGap,
     buyback_executed: s.buybackExecuted,
     sort: s.sort,
     page: s.page,

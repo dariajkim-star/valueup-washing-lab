@@ -28,6 +28,10 @@ export interface ScreeningRow {
   // 근거 공시의 본문 신호(0018): axis_targets/other_metric/refiling/no_targets.
   // '순위 불가'가 부실 공시인지 "타 지표로 공시"(우리 자에 눈금 없음)인지 구분용.
   plan_body_signal: string | null;
+  // 목표의 야심도(P1-7) — 공시한 축 중 **자기 과거 대비 가장 낮은 격차**(%p).
+  // 음수 = 하던 것보다 낮게 약속. null = 비교할 과거 실적 없음(격차 0이 **아니다**).
+  // 상세 ambition의 own_gap과 같은 정의(plan_own_gap 뷰가 단일 정의처).
+  lowest_own_gap: number | null;
   has_valueup_score: boolean; // false=엔진 미집계(산출불가와 구분)
   has_mna_score: boolean;
   has_opacity_score: boolean;
@@ -61,6 +65,8 @@ export interface ScreeningParams {
   // 불투명도 범위(AC2) — 구 washing_only 대체
   min_opacity_rank?: number;
   max_opacity_rank?: number;
+  // 자기 과거 대비 목표 격차 상한(%p) — 0이면 "하던 것보다 낮은 목표"만.
+  max_own_gap?: number;
   buyback_executed?: boolean;
   sort?: string; // field / -field
   page?: number;

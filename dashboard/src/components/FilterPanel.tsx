@@ -119,6 +119,7 @@ export function RangeFilter({
 export function FilterPanel() {
   const f = useFilters();
   const opaqueOn = f.opaqueMinRank !== undefined;
+  const lowAmbitionOn = f.lowAmbitionMaxGap !== undefined;
 
   return (
     <aside className="flex w-[300px] shrink-0 flex-col gap-5 bg-white p-5">
@@ -244,6 +245,32 @@ export function FilterPanel() {
             onCommit={(v) => f.setOpaqueMinRank(v === undefined ? undefined : v / 100)}
           />
         )}
+
+        {/* [P1-7 2026-08-03] 목표 야심도 필터. 실측: 만점 70건 중 40건이 자기 과거보다
+            낮은 목표였는데 목록에서 구분되지 않았다 — 점수만 보면 셋 다 100점이다.
+            불투명 다이얼과 같은 계열: 고의를 판정하지 않고 격차로 거른다. */}
+        <button
+          onClick={() => f.setLowAmbitionMaxGap(lowAmbitionOn ? undefined : 0)}
+          className="mt-1 flex items-center justify-between border-t border-amber-200/60 pt-2 text-left"
+          aria-pressed={lowAmbitionOn}
+          title="공시한 목표가 자기 과거 실적보다 낮거나 같은 종목만 — 달성 여부(점수)와는 별개의 사실이다. 비교할 과거 실적이 없는 종목은 산출 불가라 매칭되지 않는다."
+        >
+          <span className="flex flex-col">
+            <span className="text-xs font-semibold text-amber-800">↓ 과거 수준 이하 목표만</span>
+            <span className="text-[10px] text-amber-700/70">
+              {lowAmbitionOn ? "하던 것보다 낮거나 같게 약속한 종목" : "꺼짐 — 전체 표시"}
+            </span>
+          </span>
+          <span
+            className="relative h-5 w-9 shrink-0 rounded-full transition"
+            style={{ background: lowAmbitionOn ? "#b45309" : "#d1d5db" }}
+          >
+            <span
+              className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
+              style={{ left: lowAmbitionOn ? 18 : 2 }}
+            />
+          </span>
+        </button>
       </div>
     </aside>
   );

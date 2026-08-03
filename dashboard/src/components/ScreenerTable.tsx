@@ -8,7 +8,9 @@ import {
 } from "@tanstack/react-table";
 import type { ScreeningRow } from "../api/screening";
 import { useFilters } from "../state/filters";
-import { BuybackRetiredBadge, MarketPill, MnaCell, OpacityCell, ValueUpCell } from "./badges"; // WashingBadge: 은퇴(불투명도로 대체)
+import {
+  AmbitionBadge, BuybackRetiredBadge, MarketPill, MnaCell, OpacityCell, ValueUpCell,
+} from "./badges"; // WashingBadge: 은퇴(불투명도로 대체)
 import { ApiRequestError } from "../api/client";
 
 const col = createColumnHelper<ScreeningRow>();
@@ -61,6 +63,8 @@ export function ScreenerTable({
               status={c.row.original.buyback_status}
               timing={c.row.original.buyback_timing}
             />
+            {/* P1-7: 야심도도 점수와 독립인 사실이라 같은 자리에 둔다. */}
+            <AmbitionBadge gap={c.row.original.lowest_own_gap} />
           </div>
         ),
       }),

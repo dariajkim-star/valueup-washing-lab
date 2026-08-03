@@ -56,6 +56,34 @@ def latest_as_of(session: Session) -> str | None:
     return max(candidates) if candidates else None
 
 
+def _lowest_own_gap_map(session: Session, as_of: str) -> dict[str, float]:
+    """corp별 **가장 낮은 자기과거 격차**(%p) — 야심도의 목록판(P1-7, 뷰 0024).
+
+    "만점 70건 중 40건이 자기 과거보다 낮은 목표"인데 목록에서 구분되지 않아, 그 사실을
+    찾으려면 상세를 70번 열어야 했다. 그래서 목록으로 올린다.
+
+    **점수가 아니라 사실이다.** 공시한 축들 중 가장 낮은 격차 하나를 그대로 준다 —
+    "야심도 낮음" 같은 등급으로 압축하지 않는다(P1-7 리드 결정 B).
+
+    `plan_own_gap`은 뷰라 ORM 매핑이 없으므로 valuation_metrics 필터와 같은 2단계를 쓴다.
+    **선택 규칙은 재현하지 않고 `source_plan_id`로 조인만 한다**(0016 이래의 계약) —
+    어떤 공시가 근거인지는 plan_selection 한 곳만 정한다.
+
+    비교할 과거가 없는 기업은 **맵에 없다**(0이 아니다). 없는 것을 "격차 0"으로 채우면
+    잴 수 없는 기업이 "자기 과거만큼은 약속한 기업"으로 보인다.
+    """
+    rows = session.execute(
+        text(
+            "SELECT vs.corp_code, MIN(g.own_gap) FROM valueup_score vs "
+            "JOIN plan_own_gap g ON g.plan_id = vs.source_plan_id "
+            "WHERE vs.as_of = :a AND g.own_gap IS NOT NULL "
+            "GROUP BY vs.corp_code"
+        ),
+        {"a": as_of},
+    ).all()
+    return {code: gap for code, gap in rows}
+
+
 def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     """corp별 look-ahead **부분 차단** 최신 지표(roe·pbr·ev_ebitda·debt_ratio) — 3.3 리뷰 반영.
 
@@ -168,6 +196,17 @@ def list_screening(
             if _passes_metric_filters(metrics_map.get(code), filters)
         ]
         conds.append(Company.corp_code.in_(passing))
+    # 야심도 필터(P1-7): "자기 과거보다 낮은 목표"로 거른다. max_own_gap=0이면
+    # 격차가 0 이하인 기업 — 즉 하던 것만큼도 약속하지 않은 기업만 남는다.
+    # 기준선이 없는 기업은 맵에 없어 자연히 빠진다("산출 불가는 조건 매칭 불가",
+    # 범위 필터 전반의 기존 계약과 같다 — null을 '통과'로도 '탈락'으로도 세탁하지 않는다).
+    own_gap_map = _lowest_own_gap_map(session, as_of)
+    if filters.get("max_own_gap") is not None:
+        thr = filters["max_own_gap"]
+        conds.append(
+            Company.corp_code.in_([c for c, g in own_gap_map.items() if g <= thr])
+        )
+
     # 시총구간 필터: prices 최신 시총(AD-9 단일 원천). null 시총은 불통과.
     if filters.get("min_market_cap") is not None or filters.get("max_market_cap") is not None:
         mcap = _latest_market_cap_map(session)
@@ -263,6 +302,9 @@ def list_screening(
             "opacity_basis": os.opacity_basis if os else None,
             # '순위 불가'의 이유 구분용(0018 신호). 상세(plan_body_signal)와 같은 값.
             "plan_body_signal": body_signal,
+            # 목표의 야심도 — 공시한 축 중 자기 과거 대비 가장 낮은 격차(%p, P1-7).
+            # 음수 = 하던 것보다 낮게 약속. null = 비교할 과거 실적 없음(0이 아니다).
+            "lowest_own_gap": own_gap_map.get(company.corp_code),
         })
     return items, total
 
