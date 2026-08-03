@@ -12,12 +12,14 @@ document.xml ZIP 경로 불필요). HTTP 하드닝·키 미노출·수량 파싱
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 import requests
 from requests.adapters import HTTPAdapter
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 from urllib3.util.retry import Retry
 
@@ -36,6 +38,8 @@ from app.ingest.dart import (
 from app.repositories.ownership import upsert_ownership
 
 # reprt_code → 기간말(as_of). 분기/사업보고서가 같은 연말로 뭉쳐 자연키 충돌하는 것 방지.
+logger = logging.getLogger(__name__)
+
 _REPRT_ASOF = {"11013": "03-31", "11012": "06-30", "11014": "09-30", "11011": "12-31"}
 _SUMMARY_NM = ("계", "소계", "합계")  # 요약행(개별합 폴백에서 제외해 이중집계 방지)
 
@@ -96,6 +100,22 @@ def _treasury_stock_pct(rows: Sequence[Mapping[str, Any]]) -> float | None:
     """자사주 비중 = 자기주식수 / 발행주식총수 * 100. **정확한 '합계' 행**만 사용.
 
     합계행이 없으면(부분/종류별만) None — 단일 종류로 종목 전체 비중을 오산하지 않는다.
+
+    ■ [2026-08-03] 자기주식수 칸의 '-'는 **미공시가 아니라 보유 없음(0주)**이다.
+        실측: 대덕·콜마홀딩스·현대지에프·동원산업 모두 **합계행이 있고 발행주식총수도
+        정상 보고**(35,102,507 등)인데 자기주식 칸만 '-'다. 표 자체는 제출됐고 다른 칸은
+        채워져 있으므로, 이 '-'는 "안 알려줬다"가 아니라 "없다"로 읽는 것이 사실에 맞다.
+        (같은 판단을 2026-07-31 자사주 취득/처분 표에서 이미 했다 — DART 표의 '-'를
+        미공시로 읽어 239개사의 "안 했다"가 "판단 불가"로 세탁되고 있었다.)
+
+        null로 두면 ownership_score가 죽고 **M&A 점수 전체가 null이 된다** — 실측 54종목
+        (삼성바이오로직스·LG에너지솔루션·현대글로비스·롯데칠성 등)이 오직 이 한 칸 때문에
+        점수를 못 받고 있었다.
+
+        ⚠ 단, 이 판정은 **반증 가능**하다. 재무제표에 자사주 **순매입(매입−소각) > 0**이
+        있으면 연말 보유가 0일 수 없다 — 그런 종목은 여기서 0으로 확정하지 않는다.
+        그 대조는 DB가 필요하므로 순수 함수인 여기가 아니라 `upsert`가 수행한다
+        (`_contradicts_zero_treasury`). 이 함수는 "표가 '-'라고 말했다"는 사실만 남긴다.
     """
     total = [r for r in rows if str(r.get("se", "")).strip() == "합계"]
     if not total:
@@ -103,8 +123,11 @@ def _treasury_stock_pct(rows: Sequence[Mapping[str, Any]]) -> float | None:
     target = total[0]
     istc = _parse_amount(target.get("istc_totqy"))
     tesstk = _parse_amount(target.get("tesstk_co"))
-    if not istc or tesstk is None:  # 발행총수 0/None → 0 나눗셈 방어
+    if not istc:  # 발행총수 0/None → 0 나눗셈 방어(이건 진짜 미상)
         return None
+    if tesstk is None:
+        # 발행총수는 정상인데 자기주식만 '-' → 보유 없음(0). 위 주석의 반증은 upsert에서.
+        return 0.0
     pct = round(tesstk * 100.0 / istc, 2)
     if not (0.0 <= pct <= 100.0):  # 데이터오류(음수·>100%) 방어 → null
         return None
@@ -206,6 +229,47 @@ class DartOwnershipAdapter(SourceAdapter):
     # ── upsert (멱등) ──
     def upsert(self, session: Session, records: Sequence[dict[str, Any]]) -> int:
         for rec in records:
+            _apply_zero_treasury_gate(session, rec)
             upsert_ownership(session, rec)
         session.flush()
         return len(records)
+
+
+def _net_buyback(session: Session, corp_code: str, year: int) -> int | None:
+    """해당 연도 자사주 **순매입**(매입 − 소각, 주). 재무 행이 없으면 None."""
+    row = session.execute(
+        text(
+            "SELECT COALESCE(buyback_amount, 0) - COALESCE(buyback_retired_amount, 0) "
+            "FROM financials WHERE corp_code = :c AND year = :y"
+        ),
+        {"c": corp_code, "y": year},
+    ).first()
+    return None if row is None else int(row[0])
+
+
+def _apply_zero_treasury_gate(session: Session, rec: dict[str, Any]) -> None:
+    """자사주 0 판정의 **반증 검사** — 순매입 > 0이면 0을 취소하고 null로 되돌린다.
+
+    `_treasury_stock_pct`는 "표의 자기주식 칸이 '-'였다"는 사실만 0으로 남긴다. 그런데
+    그 해에 자사주를 **소각한 것보다 많이 사들였다면** 연말 보유가 0일 수 없다 —
+    실측에서 콜마홀딩스가 그랬다(매입 4,621,897 − 소각 2,473,261 = +2,148,636주).
+
+    **소각만 했거나 매입=소각인 종목은 반증이 아니다** — 소각은 자사주를 없애는 행위라
+    오히려 0을 지지한다(부광약품·롯데렌탈·롯데이노베이트). 처음에 "자사주 활동 있음"으로
+    잡았을 땐 반증이 4건이었는데, 순매입 기준으로 좁히니 **1건**이 됐다.
+
+    되돌린 값은 null이다 — "재보니 0이 아니다"까지만 알고 실제 보유량은 모르기 때문이다
+    (틀린 non-null 대신 null, NFR2).
+    """
+    if rec.get("treasury_stock_pct") != 0.0:
+        return  # 0 판정이 아닌 값(실수치·None)은 건드리지 않는다
+    as_of = str(rec.get("as_of") or "")
+    if len(as_of) < 4 or not as_of[:4].isdigit():
+        return
+    net = _net_buyback(session, rec["corp_code"], int(as_of[:4]))
+    if net is not None and net > 0:
+        logger.info(
+            "자사주 0 판정 취소(순매입 %s주 > 0) corp_code=%s %s",
+            net, rec["corp_code"], as_of,
+        )
+        rec["treasury_stock_pct"] = None

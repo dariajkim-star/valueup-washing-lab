@@ -13,7 +13,7 @@ from app.ingest.dart_ownership import (
     _parse_ratio,
     _treasury_stock_pct,
 )
-from app.models import Base, Company, Ownership
+from app.models import Base, Company, Financial, Ownership
 
 # 가짜 hyslrSttus: 보통주 계 40% + 우선주 계 5%(무의결권, 선택되면 안 됨)
 HYSLR = [
@@ -64,6 +64,92 @@ def test_treasury_uses_total_row() -> None:
     # 발행총수 0 → 0 나눗셈 방어 → null
     assert _treasury_stock_pct([{"se": "합계", "istc_totqy": "0", "tesstk_co": "10"}]) is None
     assert _treasury_stock_pct([]) is None
+
+
+# ── [2026-08-03] 자기주식 칸의 '-' = 보유 없음(0), 단 순매입이 반증하면 취소 ──
+
+DASH_STOCK = [
+    {"se": "보통주", "istc_totqy": "33,890,150", "tesstk_co": "-"},
+    {"se": "합계", "istc_totqy": "35,102,507", "tesstk_co": "-"},
+]
+
+
+def test_dash_treasury_is_zero_not_null() -> None:
+    """대덕·콜마홀딩스 실샘플: 합계행·발행총수는 정상인데 자기주식 칸만 '-'.
+
+    표가 제출됐고 다른 칸이 채워져 있으므로 이 '-'는 "안 알려줬다"가 아니라 "없다"다.
+    null로 두면 ownership_score가 죽어 M&A 점수 전체가 null이 된다(실측 54종목).
+    """
+    assert _treasury_stock_pct(DASH_STOCK) == 0.0
+
+
+def test_dash_with_missing_total_is_still_null() -> None:
+    """발행총수까지 '-'면 그건 진짜 미상이다 — 0으로 만들지 않는다."""
+    assert _treasury_stock_pct(
+        [{"se": "합계", "istc_totqy": "-", "tesstk_co": "-"}]
+    ) is None
+
+
+def test_zero_treasury_cancelled_by_net_purchase(session: Session) -> None:
+    """콜마홀딩스 실샘플: 매입 4,621,897 − 소각 2,473,261 = +2,148,636주.
+
+    그 해에 소각보다 많이 사들였으면 연말 보유가 0일 수 없다 → 0 판정을 취소하고
+    **null로 되돌린다**(0이 아님까지만 알고 실제 보유량은 모른다, NFR2).
+    """
+    session.add(Financial(corp_code="00000001", year=2024, quarter=4,
+                          buyback_amount=4_621_897, buyback_retired_amount=2_473_261))
+    session.commit()
+
+    adapter = DartOwnershipAdapter()
+    raw = {"corp_code": "00000001", "as_of": "2024-12-31",
+           "rows_hyslr": HYSLR, "rows_stock": DASH_STOCK}
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+
+    obj = session.scalars(select(Ownership)).one()
+    assert obj.treasury_stock_pct is None
+
+
+def test_retirement_only_does_not_cancel_zero(session: Session) -> None:
+    """소각만 했거나 매입=소각이면 반증이 아니다 — 소각은 자사주를 없애는 행위다.
+
+    부광약품(소각만)·롯데렌탈(매입=소각)이 실샘플. "자사주 활동 있음"으로 잡으면 반증이
+    4건이지만, **순매입** 기준으로 좁히면 1건(콜마홀딩스)뿐이다.
+    """
+    session.add(Company(corp_code="00000002", corp_name="부광약품"))
+    session.add(Financial(corp_code="00000002", year=2024, quarter=4,
+                          buyback_amount=0, buyback_retired_amount=2_608_378))
+    session.commit()
+
+    adapter = DartOwnershipAdapter()
+    raw = {"corp_code": "00000002", "as_of": "2024-12-31",
+           "rows_hyslr": HYSLR, "rows_stock": DASH_STOCK}
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+
+    obj = session.scalars(
+        select(Ownership).where(Ownership.corp_code == "00000002")
+    ).one()
+    assert obj.treasury_stock_pct == 0.0
+
+
+def test_gate_does_not_touch_real_values(session: Session) -> None:
+    """실수치(10%)는 순매입이 있어도 건드리지 않는다 — 게이트는 0 판정 전용이다."""
+    session.add(Company(corp_code="00000003", corp_name="실수치"))
+    session.add(Financial(corp_code="00000003", year=2024, quarter=4,
+                          buyback_amount=9_999_999, buyback_retired_amount=0))
+    session.commit()
+
+    adapter = DartOwnershipAdapter()
+    raw = {"corp_code": "00000003", "as_of": "2024-12-31",
+           "rows_hyslr": HYSLR, "rows_stock": STOCK}
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+
+    obj = session.scalars(
+        select(Ownership).where(Ownership.corp_code == "00000003")
+    ).one()
+    assert obj.treasury_stock_pct == 10.0
 
 
 def test_normalize_computes_both() -> None:
