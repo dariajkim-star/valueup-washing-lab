@@ -7,6 +7,7 @@ gap_engine(app/analysis/gap_engine.py)의 유일한 DB 접근 지점. 세 가지
 
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
 from sqlalchemy import and_, or_, select, text
@@ -279,8 +280,91 @@ def list_scores(
             # 선택 규칙**(latest_metrics: look-ahead 차단)으로 읽는다. 규칙이 갈리면
             # 화면 숫자와 점수가 어긋나 출처 표기의 목적이 무너진다.
             **_payout_axis(session, score.corp_code, score.as_of, plan),
+            # 목표의 야심도(P1-7) — 점수가 아니라 격차 사실. 상세는 단건이라 서빙 시점
+            # 계산으로 충분하다(버킷 하나만 훑는다).
+            "ambition": _ambition(session, score.corp_code, plan),
         })
     return items, total
+
+
+# 야심도 기준선(P1-7). peer 중앙값은 버킷에 이 수 이상 있어야 낸다 — opacity·mna의
+# small-N 방어와 같은 기준(3종목 중앙값은 업종 대표값이 아니다).
+_AMBITION_PEER_MIN = 5
+# (목표 컬럼, 실적 컬럼) — 공시한 축만 계산한다.
+_AMBITION_METRICS = (
+    ("target_roe", "roe"),
+    ("target_payout_ratio", "payout_ratio"),
+    ("target_total_return_ratio", "total_return_ratio"),
+)
+
+
+def _ambition(
+    session: Session, corp_code: str, plan: ValueupPlan | None
+) -> list[dict[str, Any]]:
+    """목표 야심도 — 목표를 **자기 과거 실적**·**업종 중앙값**과 나란히 놓는다(P1-7).
+
+    점수를 만들지 않는다. 두 기준선과 격차(%p)라는 사실만 준다 — "야심도 낮음"을 한
+    숫자로 압축하면 기준선 선택이 숨는다(리드 결정 B, 2026-07-31).
+
+    기준선 연도는 **공시 이전 연도**다("이미 하던 것"). 그 해가 없으면 한 해 더 뒤로 간다.
+    업종 중앙값은 공시 여부와 무관하게 **버킷 전 종목**의 실적에서 낸다 — 목표를 공시한
+    기업만으로 내면 "업종이 실제로 하는 수준"이 아니라 "공시한 기업들의 수준"이 된다
+    (첫 측정에서 저지른 오류. 그 탓에 커버리지가 24~47%로 낮게 나왔고, 고치니 72~86%가 됐다).
+
+    계산은 서빙 시점에 한다 — 상세는 단건 조회라 버킷 하나만 훑으면 되고(≤50행),
+    저장하면 as_of마다 다시 채워야 하는 파생값이 하나 더 는다.
+    """
+    if plan is None:
+        return []
+    company = session.get(Company, corp_code)
+    bucket = (company.sector or "")[:2] if company and company.sector else None
+    try:
+        disclosure_year = int((plan.disclosure_date or "")[:4])
+    except ValueError:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for tcol, acol in _AMBITION_METRICS:
+        target = getattr(plan, tcol, None)
+        if target is None:
+            continue
+        item: dict[str, Any] = {"metric": acol, "target": target}
+        # ① 자기 과거 실적 — 공시 직전 연도부터 뒤로
+        for year in (disclosure_year - 1, disclosure_year - 2):
+            row = session.execute(
+                text(
+                    f"SELECT {acol} FROM valuation_metrics "  # noqa: S608 — 화이트리스트 컬럼
+                    "WHERE corp_code = :cc AND year = :yr"
+                ),
+                {"cc": corp_code, "yr": year},
+            ).first()
+            if row is not None and row[0] is not None:
+                item["baseline_year"] = year
+                item["own_past"] = row[0]
+                item["own_gap"] = round(target - row[0], 2)
+                break
+        # ② 업종 중앙값 — 같은 기준연도, 버킷 전 종목
+        base_year = item.get("baseline_year") or disclosure_year - 1
+        if bucket:
+            vals = [
+                v for (v,) in session.execute(
+                    text(
+                        f"SELECT vm.{acol} FROM valuation_metrics vm "  # noqa: S608
+                        "JOIN company cm ON cm.corp_code = vm.corp_code "
+                        "WHERE substr(cm.sector, 1, 2) = :b AND vm.year = :yr "
+                        f"AND vm.{acol} IS NOT NULL"
+                    ),
+                    {"b": bucket, "yr": base_year},
+                ).all()
+            ]
+            item["peer_bucket"] = bucket
+            item["peer_n"] = len(vals)
+            if len(vals) >= _AMBITION_PEER_MIN:
+                med = statistics.median(vals)
+                item["peer_median"] = round(med, 2)
+                item["peer_gap"] = round(target - med, 2)
+        out.append(item)
+    return out
 
 
 def _payout_axis(

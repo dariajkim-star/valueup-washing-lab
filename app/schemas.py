@@ -169,6 +169,35 @@ class RefreshOut(BaseModel):
     complete: bool = False
 
 
+class TargetAmbition(BaseModel):
+    """목표의 **야심도** — "약속을 지켰나"가 아니라 "약속이 의미 있었나"(P1-7).
+
+    `execution_score`는 목표를 낮게 잡을수록 만점을 받기 쉽다(`_axis_score`가 [0,1]로
+    clamp해 과달성을 지우므로). 실측(표본 359): `payout` 단독 100점 21개사 중 16개가
+    자기 과거 실적보다 낮은 목표였다.
+
+    **점수를 만들지 않는다.** 기준선 두 개를 나란히 놓고 격차라는 사실만 준다 —
+    "야심도 낮음"을 한 숫자로 압축하면 기준선 선택이 화면 뒤로 숨는다(리드 결정 B).
+    두 기준이 엇갈릴 때는 그 사실 자체가 정보다.
+
+    격차는 배율이 아니라 **%p**로 준다: 자기 과거 실적에 이상치가 있어(배당성향 최대
+    784.6%) 배율은 왜곡되지만 격차는 읽을 수 있다.
+    """
+
+    metric: str  # roe / payout_ratio / total_return_ratio
+    target: float
+    # 기준선 연도 — 공시 **이전** 연도의 실적("이미 하던 것")
+    baseline_year: int | None = None
+    own_past: float | None = None
+    own_gap: float | None = None  # target - own_past (음수 = 하던 것보다 낮게 약속)
+    # 업종(KSIC 2자리) 중앙값. 공시 여부와 무관하게 **버킷 전 종목**의 실적에서 낸다.
+    # peer_n < 5면 중앙값을 내지 않는다(opacity·mna와 같은 small-N 방어).
+    peer_median: float | None = None
+    peer_gap: float | None = None
+    peer_bucket: str | None = None
+    peer_n: int | None = None
+
+
 class GapAnalysisOut(BaseModel):
     """valueup_score + company 조인 결과 (2.4 갭분석/워싱랭킹).
 
@@ -226,3 +255,5 @@ class GapAnalysisOut(BaseModel):
     actual_payout_ratio: float | None = None
     actual_total_return_ratio: float | None = None
     payout_achievement: float | None = None  # 실적/목표(무제한). 1.0 초과 = 목표 초과 달성
+    # 목표의 야심도(P1-7) — 공시한 축마다 한 항목. 점수가 아니라 격차 사실이다.
+    ambition: list[TargetAmbition] = []

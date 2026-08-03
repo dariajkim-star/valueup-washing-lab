@@ -38,6 +38,23 @@ export interface GapDetail {
   actual_payout_ratio: number | null;
   actual_total_return_ratio: number | null;
   payout_achievement: number | null;
+  // 목표의 야심도(P1-7) — 공시한 축마다 한 항목. **점수가 아니라 격차 사실**이다.
+  ambition: TargetAmbition[];
+}
+
+// 기준선 두 개를 나란히 둔다: 자기 과거 실적("이미 하던 것")과 업종 중앙값.
+// 하나로 합치지 않는 이유 — 둘이 엇갈릴 때 그 사실 자체가 정보다.
+// 실측(기아): ROE 목표 15%는 자기 과거(18.85)보단 낮지만 업종 중앙(7.75)보단 훨씬 높다.
+export interface TargetAmbition {
+  metric: string; // roe / payout_ratio / total_return_ratio
+  target: number;
+  baseline_year: number | null;
+  own_past: number | null;
+  own_gap: number | null; // 음수 = 하던 것보다 낮게 약속
+  peer_median: number | null;
+  peer_gap: number | null;
+  peer_bucket: string | null;
+  peer_n: number | null;
 }
 
 // POST /valueup/refresh/{corp_code} 응답 — 단계별 보고(성공/실패 한 값으로 뭉치지 않는다).

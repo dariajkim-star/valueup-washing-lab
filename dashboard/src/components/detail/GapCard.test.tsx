@@ -27,7 +27,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     excluded_axes: null, buyback_timing: null,
     target_payout_ratio: null, target_total_return_ratio: null,
     actual_payout_ratio: null, actual_total_return_ratio: null,
-    payout_achievement: null,
+    payout_achievement: null, ambition: [],
     ...partial,
   };
 }
@@ -180,5 +180,40 @@ describe("[2026-07-31] 제외된 축 — 못 잰 축이 조용히 사라지지 �
   it("제외된 축이 없으면 안내를 띄우지 않는다", () => {
     const { container } = render(<GapCard gap={gap({ excluded_axes: null })} />);
     expect(container.textContent).not.toContain("채점에서 제외");
+  });
+});
+
+describe("[2026-07-31 P1-7] 목표의 야심도 — 점수가 아니라 격차 사실", () => {
+  it("두 기준선을 나란히 보여준다(기아 실측: 자기 과거보단 낮고 업종보단 높다)", () => {
+    // 하나의 점수로 압축했다면 사라졌을 사실 — 리드 결정 B의 근거 그 자체다.
+    render(<GapCard gap={gap({
+      ambition: [{
+        metric: "roe", target: 15.0, baseline_year: 2023,
+        own_past: 18.85, own_gap: -3.85,
+        peer_median: 7.75, peer_gap: 7.25, peer_bucket: "30", peer_n: 10,
+      }],
+    })} />);
+    expect(screen.getByText("목표의 야심도")).toBeTruthy();
+    expect(screen.getByText("ROE")).toBeTruthy();
+    expect(screen.getByText("-3.9%p")).toBeTruthy();   // 자기 과거 대비
+    expect(screen.getByText("+7.3%p")).toBeTruthy();   // 업종 대비
+  });
+
+  it("업종 표본이 모자라면 빈칸이 아니라 이유를 말한다", () => {
+    // 빈칸으로 두면 "업종과 같다"로 오독된다(한세실업 실측: KSIC 14, n=3).
+    render(<GapCard gap={gap({
+      ambition: [{
+        metric: "payout_ratio", target: 10.0, baseline_year: 2024,
+        own_past: 33.73, own_gap: -23.73,
+        peer_median: null, peer_gap: null, peer_bucket: "14", peer_n: 3,
+      }],
+    })} />);
+    expect(screen.getByText(/업종 표본 3개로 부족/)).toBeTruthy();
+    expect(screen.getByText("-23.7%p")).toBeTruthy();
+  });
+
+  it("공시한 목표가 없으면 블록 자체를 그리지 않는다", () => {
+    const { container } = render(<GapCard gap={gap({ ambition: [] })} />);
+    expect(container.textContent).not.toContain("목표의 야심도");
   });
 });

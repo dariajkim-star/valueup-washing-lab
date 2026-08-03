@@ -1,4 +1,4 @@
-import { useRefreshCompany, type GapDetail } from "../../api/detail";
+import { useRefreshCompany, type GapDetail, type TargetAmbition } from "../../api/detail";
 // WashingBadge: 파티 결정 B로 렌더 임시 은닉(로직·API 무변경). 은퇴/재정의는 opacity_rank 스토리에서.
 
 // UX-DR3 "계획 vs 실제" 갭 카드(3.2 시안 재현). null 계약은 리스트와 동일 —
@@ -37,6 +37,7 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
         <MiniStat label="자사주" value={buybackLabel(gap.buyback_status, gap.buyback_timing)} />
       </div>
       <PayoutAxis gap={gap} />
+      <AmbitionBlock items={gap.ambition} />
       <ExcludedAxes excluded={gap.excluded_axes} />
       {/* [2026-07-23 파티 결정 B] washing_flag 화면 임시 은닉 — 로직·API 무변경. ScreenerTable 참조.
       <div className="mt-3 flex items-center gap-2 text-xs text-gray-500">
@@ -44,6 +45,76 @@ export function GapCard({ gap }: { gap: GapDetail | null }) {
       </div> */}
 
       <PlanProvenance gap={gap} />
+    </div>
+  );
+}
+
+// [2026-07-31 P1-7] 목표의 **야심도** — "약속을 지켰나"가 아니라 "약속이 의미 있었나".
+//
+// execution_score는 목표를 낮게 잡을수록 만점을 받기 쉽다(_axis_score가 [0,1] clamp라
+// 과달성이 지워진다). 실측: payout 단독 100점 21개사 중 16개가 자기 과거보다 낮은 목표였다.
+//
+// **점수를 만들지 않는다**(리드 결정 B). 기준선 두 개를 나란히 놓고 격차(%p)라는 사실만
+// 보여준다 — "야심도 낮음"을 한 숫자로 압축하면 기준선 선택이 화면 뒤로 숨는다.
+// 실측이 그 판단을 바로 뒷받침했다: 기아 ROE 목표 15%는 **자기 과거(18.85)보단 낮지만
+// 업종 중앙(7.75)보단 훨씬 높다.** 하나로 합쳤다면 사라졌을 사실이다.
+//
+// 배율이 아니라 %p를 쓰는 이유: 자기 과거 실적에 이상치가 있어(배당성향 최대 784.6%)
+// 배율은 왜곡되지만 격차는 읽을 수 있다.
+const METRIC_LABEL: Record<string, string> = {
+  roe: "ROE",
+  payout_ratio: "배당성향",
+  total_return_ratio: "총주주환원율",
+};
+
+function Gap({ value }: { value: number | null }) {
+  if (value === null) return <span className="text-gray-400">—</span>;
+  // 음수(하던 것/업종보다 낮게 약속)만 눈에 띄게. 양수는 중립 — 야심을 칭찬하지도 않는다.
+  const tone = value < 0 ? "#b45309" : "#6b7280";
+  return (
+    <span className="font-bold tabular-nums" style={{ color: tone }}>
+      {value >= 0 ? "+" : ""}{value.toFixed(1)}%p
+    </span>
+  );
+}
+
+function AmbitionBlock({ items }: { items: TargetAmbition[] }) {
+  if (!items?.length) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-gray-100 bg-gray-50/60 px-3 py-2">
+      <div className="mb-1.5 flex items-baseline gap-2">
+        <span className="text-[11px] font-bold text-gray-700">목표의 야심도</span>
+        <span className="text-[10px] text-gray-400">
+          목표를 자기 과거 실적·업종 중앙값과 비교한 격차입니다(판정이 아니라 사실).
+        </span>
+      </div>
+      <div className="flex flex-col gap-1">
+        {items.map((a) => (
+          <div key={a.metric} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px]">
+            <span className="w-[72px] shrink-0 font-semibold text-gray-600">
+              {METRIC_LABEL[a.metric] ?? a.metric}
+            </span>
+            <span className="text-gray-500">목표 {a.target.toFixed(1)}%</span>
+            <span className="text-gray-400">
+              vs 자기 과거
+              {a.baseline_year ? `(${a.baseline_year})` : ""}{" "}
+              {a.own_past === null ? "—" : `${a.own_past.toFixed(1)}%`}
+            </span>
+            <Gap value={a.own_gap} />
+            <span className="text-gray-400">
+              vs 업종 중앙{" "}
+              {a.peer_median === null ? "—" : `${a.peer_median.toFixed(1)}%`}
+            </span>
+            <Gap value={a.peer_gap} />
+            {a.peer_median === null && a.peer_n !== null && (
+              // 못 낸 이유를 말한다 — 빈칸으로 두면 "업종과 같다"로 오독된다.
+              <span className="text-[10px] text-gray-400">
+                (업종 표본 {a.peer_n}개로 부족 — 5개 이상 필요)
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
