@@ -46,8 +46,8 @@ def _sector_bucket(sector: str | None) -> str | None:
     return prefix if len(prefix) == 2 and prefix.isdigit() else None
 
 # (지표명, 방향) — 요소별 서브지표 정의. low=낮을수록 좋음, high=높을수록 좋음.
-_VALUATION_INDICATORS = (("ev_ebitda", "low"), ("pbr", "low"))
-_CAPACITY_INDICATORS = (("debt_ratio", "low"), ("net_cash", "high"), ("ebitda_margin", "high"))
+_VALUATION_INDICATORS = (("ev_ebit", "low"), ("pbr", "low"))
+_CAPACITY_INDICATORS = (("debt_ratio", "low"), ("net_cash", "high"), ("ebit_margin", "high"))
 _OWNERSHIP_INDICATORS = (("largest_shareholder_pct", "low"), ("treasury_stock_pct", "high"))
 
 
@@ -70,13 +70,13 @@ def _percentile_rank(value: float | None, population: Sequence[float | None]) ->
 
 
 def _pct_rank_low(value: float | None, population: Sequence[float | None]) -> float | None:
-    """낮을수록 좋은 지표(EV/EBITDA·PBR·부채비율·최대주주지분율·기준금리) → 역백분위."""
+    """낮을수록 좋은 지표(EV/EBIT·PBR·부채비율·최대주주지분율·기준금리) → 역백분위."""
     rank = _percentile_rank(value, population)
     return None if rank is None else 1.0 - rank
 
 
 def _pct_rank_high(value: float | None, population: Sequence[float | None]) -> float | None:
-    """높을수록 좋은 지표(순현금·EBITDA마진·자사주비중) → 백분위 그대로."""
+    """높을수록 좋은 지표(순현금·EBIT마진·자사주비중) → 백분위 그대로."""
     return _percentile_rank(value, population)
 
 
@@ -317,7 +317,7 @@ def _run_in_session(
         metrics, group_of=lambda c: _sector_bucket(sectors.get(c)) or _WHOLE_MARKET
     )
     # 버킷 sector 승격 판정(일괄리뷰 High: '행 개수'가 아니라 **지표별 유효값 개수** 기준 —
-    # 행은 6개인데 ev_ebitda 유효값이 2개면 mna_peer_min의 small-N 방어가 우회되던 문제).
+    # 행은 6개인데 ev_ebit 유효값이 2개면 mna_peer_min의 small-N 방어가 우회되던 문제).
     # valuation·capacity의 5개 서브지표 전부가 peer_min 이상일 때만 sector 사용(단일
     # basis의 의미 보존), 하나라도 미달이면 그 버킷 전체를 시장 폴백.
     _factor_indicators = tuple(

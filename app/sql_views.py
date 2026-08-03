@@ -24,10 +24,19 @@ SELECT
     ROUND(CASE WHEN f.total_assets > 0 THEN f.net_income * 100.0 / f.total_assets END, 2) AS roa,
     ROUND(CASE WHEN f.equity > 0 THEN lp.market_cap * 1.0 / f.equity END, 2)       AS pbr,
     ROUND(CASE WHEN f.net_income > 0 THEN lp.market_cap * 1.0 / f.net_income END, 2) AS per,
-    -- EBITDA = 영업이익 + 감가상각비(없으면 COALESCE로 EBIT 근사). EBITDA > 0일 때만.
-    ROUND(CASE WHEN (f.operating_income + COALESCE(f.depreciation, 0)) > 0
+    -- EV/EBIT (EBITDA 아님). EBIT > 0일 때만.
+    -- [2026-08-04] 감가상각비를 쓰지 않는다 — 실측 결정. 요약 API(fnlttSinglAcntAll)에
+    -- 감가상각 행이 없어 357곳 중 299곳(84%)이 결측이었고, 이전 정의는 COALESCE(dep, 0)로
+    -- 메워 **아는 58곳만 EBITDA, 모르는 299곳은 EBIT**로 재고 있었다. 백분위는 그 둘을 같은
+    -- 자로 세우므로, 순위가 '감가상각을 공시했다는 사실'에 가점을 주고 있었다(실측: 58곳의
+    -- 백분위가 전원 EBIT 대비 중앙값 6.4%p 이동, 14곳은 10%p 초과, 최대 37%p — 전부 한 방향).
+    -- 편향은 무작위도 아니었다: SKT·LGU+·한전·포스코처럼 감가상각이 실제로 중요한 곳에 얹혔다.
+    -- 개별 정확도(58곳의 진짜 EBITDA)보다 **비교 가능성**을 택한다 — 이 열의 쓰임이 절대값이
+    -- 아니라 cross-sectional 백분위이기 때문이다. 진짜 EBITDA가 필요하면 XBRL 원본 수집이
+    -- 선행되어야 한다(백로그). financials.depreciation은 수집한 사실이므로 그대로 보존한다.
+    ROUND(CASE WHEN f.operating_income > 0
                THEN (lp.market_cap + f.total_debt - f.cash) * 1.0
-                    / (f.operating_income + COALESCE(f.depreciation, 0)) END, 2)   AS ev_ebitda,
+                    / f.operating_income END, 2)                                   AS ev_ebit,
     ROUND(CASE WHEN f.equity > 0 THEN f.total_liabilities * 100.0 / f.equity END, 2) AS debt_ratio,
     ROUND(CASE WHEN f.net_income > 0 THEN f.dividend_total * 100.0 / f.net_income END, 2) AS payout_ratio,
     -- 총주주환원율 = (배당총액 + 자사주매입액)/순이익 (5-1). 배당성향과 **다른 지표**다 —
@@ -37,9 +46,10 @@ SELECT
                THEN (f.dividend_total + f.buyback_amount) * 100.0 / f.net_income END, 2)
                                                                                AS total_return_ratio,
     (f.cash - f.total_debt)                                                        AS net_cash,
-    -- 매출 > 0에서만. EBITDA 자체는 음수 가능(음수 마진은 유의미)이라 분자 부호는 유지.
+    -- 매출 > 0에서만. EBIT 자체는 음수 가능(음수 마진은 유의미)이라 분자 부호는 유지.
+    -- 감가상각을 쓰지 않는 이유는 ev_ebit 주석 참조(같은 결정, 같은 실측).
     ROUND(CASE WHEN f.revenue > 0
-               THEN (f.operating_income + COALESCE(f.depreciation, 0)) * 100.0 / f.revenue END, 2) AS ebitda_margin,
+               THEN f.operating_income * 100.0 / f.revenue END, 2)                 AS ebit_margin,
     ROUND((f.revenue - LAG(f.revenue) OVER w) * 100.0
           / NULLIF(LAG(f.revenue) OVER w, 0), 2)                                   AS yoy_revenue_growth,
     ROUND((f.net_income - LAG(f.net_income) OVER w) * 100.0

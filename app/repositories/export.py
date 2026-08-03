@@ -63,7 +63,7 @@ def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any
     as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
-            "SELECT corp_code, year, quarter, roe, pbr, per, ev_ebitda, debt_ratio, "
+            "SELECT corp_code, year, quarter, roe, pbr, per, ev_ebit, debt_ratio, "
             "payout_ratio FROM valuation_metrics "
             "WHERE year < :yr OR (year = :yr AND quarter < 4) "
             "ORDER BY corp_code, year DESC, quarter DESC"
@@ -141,7 +141,7 @@ def sector_valuation_rows(
             "corp_code": c["corp_code"], "corp_name": c["corp_name"],
             "market": c["market"], "sector": c["sector"], "as_of": as_of,
             "metrics_year": m["year"], "metrics_quarter": m["quarter"],
-            "pbr": m["pbr"], "per": m["per"], "ev_ebitda": m["ev_ebitda"],
+            "pbr": m["pbr"], "per": m["per"], "ev_ebit": m["ev_ebit"],
             "mna_target_score": s.get("mna_target_score"),
             "valuation_score": s.get("valuation_score"),
             "population_basis": s.get("population_basis"),

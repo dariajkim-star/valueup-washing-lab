@@ -38,7 +38,7 @@ export interface FilterState {
   mcapBucket: McapBucket;
   minRoe?: number; // %
   maxPbr?: number; // x
-  maxEvEbitda?: number; // x
+  maxEvEbit?: number; // x
   maxDebtRatio?: number; // %
   // 불투명 상위만 보기(구 washingOnly)의 임계값 — undefined = 필터 꺼짐.
   // boolean+상수가 아니라 값 하나로 둔다: 임계가 화면 소유가 된 이상 "켜짐 여부"는
@@ -91,7 +91,7 @@ export function toParams(s: FilterState): ScreeningParams {
     sector: s.sector,
     min_roe: s.minRoe,
     max_pbr: s.maxPbr,
-    max_ev_ebitda: s.maxEvEbitda,
+    max_ev_ebit: s.maxEvEbit,
     max_debt_ratio: s.maxDebtRatio,
     min_market_cap: mcap.min,
     max_market_cap: mcap.max,

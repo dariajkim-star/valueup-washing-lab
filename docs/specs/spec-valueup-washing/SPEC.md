@@ -29,8 +29,8 @@ sources:
   - **success:** 대상 종목의 분기 재무·일별 시세가 DB에 존재하고, 소스별 코드 체계(6자리 종목 ↔ 8자리 corp_code)가 매핑돼 조인된다. 시가총액 단일원천은 `prices`(company에 market_cap 미보유).
 
 - **CAP-3** 밸류에이션 지표 SQL VIEW 계산
-  - **intent:** ROE·ROA·PBR·PER·**EV/EBITDA**·부채비율·배당성향·YoY 성장률을 `valuation_metrics` **SQL VIEW**로 계산한다.
-  - **success:** 뷰를 조회하면 최신 주가 기준으로 지표가 즉석 계산되어 반환되고, EV/EBITDA=(시총+순부채)/EBITDA, YoY는 전년동기(LAG 4분기) 대비로 산출된다.
+  - **intent:** ROE·ROA·PBR·PER·**EV/EBIT**·부채비율·배당성향·YoY 성장률을 `valuation_metrics` **SQL VIEW**로 계산한다.
+  - **success:** 뷰를 조회하면 최신 주가 기준으로 지표가 즉석 계산되어 반환되고, EV/EBIT=(시총+순부채)/EBIT, YoY는 전년동기(LAG 4분기) 대비로 산출된다.
 
 - **CAP-4** 계획 vs 실적 갭 스코어링
   - **intent:** 목표 대비 실제 달성률·목표기간 진척률·실행점수(0~100)를 산출해 `valueup_score`에 적재한다.

@@ -83,7 +83,7 @@ VIEW_COLUMNS: dict[str, list[str]] = {
     ],
     "sector_valuation_map": [
         "corp_code", "corp_name", "market", "sector", "as_of",
-        "metrics_year", "metrics_quarter", "pbr", "per", "ev_ebitda",
+        "metrics_year", "metrics_quarter", "pbr", "per", "ev_ebit",
         "mna_target_score", "valuation_score", "population_basis",
     ],
     "roe_pbr_scatter": [

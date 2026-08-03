@@ -197,7 +197,7 @@ export function FilterPanel() {
 
       <RangeFilter label="ROE ≥" unit="%" min={0} max={30} step={1} value={f.minRoe} onCommit={(v) => f.patch({ minRoe: v })} />
       <RangeFilter label="PBR ≤" unit="x" min={0} max={5} step={0.1} value={f.maxPbr} onCommit={(v) => f.patch({ maxPbr: v })} />
-      <RangeFilter label="EV/EBITDA ≤" unit="x" min={0} max={50} step={1} value={f.maxEvEbitda} onCommit={(v) => f.patch({ maxEvEbitda: v })} />
+      <RangeFilter label="EV/EBIT ≤" unit="x" min={0} max={50} step={1} value={f.maxEvEbit} onCommit={(v) => f.patch({ maxEvEbit: v })} />
       <RangeFilter label="부채비율 ≤" unit="%" min={0} max={300} step={10} value={f.maxDebtRatio} onCommit={(v) => f.patch({ maxDebtRatio: v })} />
 
       {/* 불투명 상위 필터(실동작) — 구 "워싱 의심만 보기" 대체.

@@ -138,11 +138,11 @@ export interface MetricPoint {
   roa: number | null;
   pbr: number | null;
   per: number | null;
-  ev_ebitda: number | null;
+  ev_ebit: number | null;
   debt_ratio: number | null;
   payout_ratio: number | null;
   net_cash: number | null;
-  ebitda_margin: number | null;
+  ebit_margin: number | null;
   yoy_revenue_growth: number | null;
   yoy_income_growth: number | null;
 }

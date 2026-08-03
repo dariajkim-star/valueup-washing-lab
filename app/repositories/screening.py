@@ -85,7 +85,7 @@ def _lowest_own_gap_map(session: Session, as_of: str) -> dict[str, float]:
 
 
 def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
-    """corp별 look-ahead **부분 차단** 최신 지표(roe·pbr·ev_ebitda·debt_ratio) — 3.3 리뷰 반영.
+    """corp별 look-ahead **부분 차단** 최신 지표(roe·pbr·ev_ebit·debt_ratio) — 3.3 리뷰 반영.
 
     2.1/2.3/3.1과 동일한 사업보고서 배제 규칙 + Python dedupe(DISTINCT ON 회피, 이식성).
     **"안전"이 아니라 "부분 차단"인 이유(재리뷰 정정)**: 같은 해 사업보고서(quarter=4)만
@@ -98,7 +98,7 @@ def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any
     as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
-            "SELECT corp_code, roe, pbr, ev_ebitda, debt_ratio FROM valuation_metrics "
+            "SELECT corp_code, roe, pbr, ev_ebit, debt_ratio FROM valuation_metrics "
             "WHERE year < :yr OR (year = :yr AND quarter < 4) "
             "ORDER BY corp_code, year DESC, quarter DESC"
         ),
@@ -132,7 +132,7 @@ def _latest_market_cap_map(session: Session) -> dict[str, int | None]:
 _METRIC_FILTERS = (
     ("min_roe", "roe", "ge"),
     ("max_pbr", "pbr", "le"),
-    ("max_ev_ebitda", "ev_ebitda", "le"),
+    ("max_ev_ebit", "ev_ebit", "le"),
     ("max_debt_ratio", "debt_ratio", "le"),
 )
 

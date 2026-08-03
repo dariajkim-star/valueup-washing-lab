@@ -78,7 +78,7 @@ def test_percentile_rank_ignores_none_in_population() -> None:
 
 def test_pct_rank_directions() -> None:
     pop = [1.0, 2.0, 3.0]
-    # low: 낮을수록 좋은 지표(EV/EBITDA 등) → 최솟값이 1.0
+    # low: 낮을수록 좋은 지표(EV/EBIT 등) → 최솟값이 1.0
     assert _pct_rank_low(1.0, pop) == 1.0
     assert _pct_rank_low(3.0, pop) == 0.0
     # high: 높을수록 좋은 지표(net_cash 등) → 최댓값이 1.0
@@ -199,7 +199,7 @@ def test_run_cross_sectional_relative_ranking(engine) -> None:
         assert result.complete is True  # 실패 0 → 스냅숏이 커밋됐다
 
         rows = {r.corp_code: r for r in s.scalars(select(MnaScore)).all()}
-        # 시총 최소 → pbr·ev_ebitda 최소 → 역백분위 1.0
+        # 시총 최소 → pbr·ev_ebit 최소 → 역백분위 1.0
         assert rows["00000001"].valuation_score == pytest.approx(1.0)
         assert rows["00000003"].valuation_score == pytest.approx(0.0)
         # 지배구조: 최대주주 최저+자사주 최고 → 1.0

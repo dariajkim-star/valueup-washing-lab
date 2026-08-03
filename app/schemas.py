@@ -31,11 +31,11 @@ class MetricOut(BaseModel):
     roa: float | None = None
     pbr: float | None = None
     per: float | None = None
-    ev_ebitda: float | None = None
+    ev_ebit: float | None = None
     debt_ratio: float | None = None
     payout_ratio: float | None = None
     net_cash: int | None = None
-    ebitda_margin: float | None = None
+    ebit_margin: float | None = None
     yoy_revenue_growth: float | None = None
     yoy_income_growth: float | None = None
 
@@ -124,7 +124,7 @@ class MarketComparisonOut(BaseModel):
     n: int
     avg_roe: float | None = None
     avg_pbr: float | None = None
-    avg_ev_ebitda: float | None = None
+    avg_ev_ebit: float | None = None
     n_judged: int
     n_washing: int
     washing_ratio: float | None = None
@@ -138,7 +138,7 @@ class StatsSummaryOut(BaseModel):
     n_metrics: int
     avg_roe: float | None = None
     avg_pbr: float | None = None
-    avg_ev_ebitda: float | None = None
+    avg_ev_ebit: float | None = None
     n_judged: int
     n_washing: int
     washing_ratio: float | None = None

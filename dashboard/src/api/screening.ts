@@ -57,7 +57,7 @@ export interface ScreeningParams {
   // 지표 범위 필터(AC2, 3.3 리뷰 반영)
   min_roe?: number;
   max_pbr?: number;
-  max_ev_ebitda?: number;
+  max_ev_ebit?: number;
   max_debt_ratio?: number;
   // 시총구간(KRW 원)
   min_market_cap?: number;

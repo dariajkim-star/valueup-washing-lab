@@ -45,7 +45,7 @@ def _seed(session: Session) -> None:
 
 
 def test_view_computes_metrics(engine) -> None:
-    """AC2/AC3/AC4: 뷰가 ROE·PBR·EV/EBITDA·YoY를 정확히 계산."""
+    """AC2/AC3/AC4: 뷰가 ROE·PBR·EV/EBIT·YoY를 정확히 계산."""
     Session_ = sessionmaker(bind=engine)
     with Session_() as s:
         _seed(s)
@@ -57,13 +57,44 @@ def test_view_computes_metrics(engine) -> None:
     assert rows["pbr"] == 2.5
     # PER = 3000/150 = 20
     assert rows["per"] == 20.0
-    # EV/EBITDA = (3000 + 400 - 250)/(180+30) = 3150/210 = 15
-    assert rows["ev_ebitda"] == 15.0
+    # EV/EBIT = (3000 + 400 - 250)/180 = 3150/180 = 17.5
+    # 감가상각 30이 있어도 분모에 더하지 않는다(2026-08-04 결정, 아래 전용 테스트 참조)
+    assert rows["ev_ebit"] == 17.5
+    # EBIT마진 = 180/600*100 = 30
+    assert rows["ebit_margin"] == 30.0
     # net_cash = 250-400 = -150
     assert rows["net_cash"] == -150
     # YoY 매출 = (600-500)/500*100 = 20, 순이익 = (150-100)/100*100 = 50
     assert rows["yoy_revenue_growth"] == 20.0
     assert rows["yoy_income_growth"] == 50.0
+
+
+def test_view_ignores_depreciation_even_when_present(engine) -> None:
+    """[2026-08-04] 감가상각은 알아도 쓰지 않는다 — 두 회사의 분모가 같아야 한다.
+
+    이전 정의는 COALESCE(depreciation, 0)이라 **공시한 회사만 EBITDA, 나머지는 EBIT**로
+    재고 있었다. 백분위는 그 둘을 같은 모집단에서 세우므로 순위가 '감가상각을 공시했다'는
+    사실에 가점을 줬다(실측: 58곳 백분위 중앙값 6.4%p 이동, 14곳 10%p 초과, 전부 한 방향).
+    수집으로는 못 고친다(결측 표본 30곳 원문에 감가상각 행 0/30) → 분자를 EBIT로 통일.
+
+    이 테스트가 지키는 것은 값이 아니라 **공시 여부가 지표를 움직이지 않는다**는 계약이다.
+    """
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        for code, dep in (("00000011", 500), ("00000012", None)):
+            s.add(Company(corp_code=code, corp_name=f"감가{code}"))
+            s.add(Financial(corp_code=code, year=2024, quarter=4,
+                            revenue=600, net_income=150, operating_income=180,
+                            depreciation=dep, equity=1200, total_assets=2200,
+                            total_liabilities=1000, cash=250, total_debt=400))
+            s.add(Price(corp_code=code, date="2024-12-30", close=100,
+                        market_cap=3000, volume=10, trading_value=1000))
+        s.commit()
+        rows = {r["corp_code"]: r for r in s.execute(text(
+            "SELECT corp_code, ev_ebit, ebit_margin FROM valuation_metrics "
+            "WHERE corp_code IN ('00000011','00000012')")).mappings().all()}
+    assert rows["00000011"]["ev_ebit"] == rows["00000012"]["ev_ebit"] == 17.5
+    assert rows["00000011"]["ebit_margin"] == rows["00000012"]["ebit_margin"] == 30.0
 
 
 def test_view_yoy_same_quarter(engine) -> None:
@@ -190,7 +221,7 @@ def test_view_negative_denominators_null(engine) -> None:
         _seed_capital_impaired(s)
         s.commit()
         row = s.execute(text(
-            "SELECT roe, pbr, per, debt_ratio, payout_ratio, ev_ebitda "
+            "SELECT roe, pbr, per, debt_ratio, payout_ratio, ev_ebit "
             "FROM valuation_metrics WHERE corp_code='00000004'")).mappings().one()
     # 구버전(NULLIF만)이면 roe=+10·pbr=-10 등 유효값처럼 나옴 → 전부 NULL이어야 함
     assert row["roe"] is None       # equity<0
@@ -198,7 +229,7 @@ def test_view_negative_denominators_null(engine) -> None:
     assert row["per"] is None        # net_income<0
     assert row["debt_ratio"] is None
     assert row["payout_ratio"] is None
-    assert row["ev_ebitda"] is None  # EBITDA<0
+    assert row["ev_ebit"] is None  # EBIT<0
 
 
 def test_min_roe_filter_excludes_capital_impaired(engine, monkeypatch) -> None:

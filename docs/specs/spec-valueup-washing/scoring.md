@@ -77,15 +77,15 @@ execution_score = 100 * clamp(
 
 ```
 mna_target_score = 100 * (
-      0.35 * valuation_score    -- 저평가: EV/EBITDA·PBR 낮을수록 ↑ (역백분위)
-    + 0.25 * capacity_score     -- 인수여력: 부채비율 낮음·순현금 많음·EBITDA마진 ↑
+      0.35 * valuation_score    -- 저평가: EV/EBIT·PBR 낮을수록 ↑ (역백분위)
+    + 0.25 * capacity_score     -- 인수여력: 부채비율 낮음·순현금 많음·EBIT마진 ↑
     + 0.25 * ownership_score    -- 지배구조: 최대주주 지분율 낮음·자사주 비중 ↑ (뺏기 쉬움)
     + 0.15 * macro_score        -- 매크로: 기준금리 낮을수록 ↑ (차입인수 유리)
 )
 ```
 
-- `valuation_score` = avg(pct_rank_low(ev_ebitda), pct_rank_low(pbr))
-- `capacity_score` = avg(pct_rank_low(debt_ratio), pct_rank_high(net_cash), pct_rank_high(ebitda_margin))
+- `valuation_score` = avg(pct_rank_low(ev_ebit), pct_rank_low(pbr))
+- `capacity_score` = avg(pct_rank_low(debt_ratio), pct_rank_high(net_cash), pct_rank_high(ebit_margin))
 - `ownership_score` = avg(pct_rank_low(largest_shareholder_pct), pct_rank_high(treasury_stock_pct))
 - `macro_score` = pct_rank_low(기준금리) — 종목 무관, as_of 시점 값
 

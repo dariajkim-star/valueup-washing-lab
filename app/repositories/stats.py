@@ -34,7 +34,7 @@ def _finite_or_none(value: float | None) -> float | None:
 
 
 def _latest_metrics_by_market(session: Session, as_of: str) -> dict[str, list[dict[str, Any]]]:
-    """as_of 시점 look-ahead 안전 최신 1건/종목의 roe·pbr·ev_ebitda를 market별로 묶는다.
+    """as_of 시점 look-ahead 안전 최신 1건/종목의 roe·pbr·ev_ebit를 market별로 묶는다.
 
     2.1/2.3과 동일한 사업보고서 배제 규칙(`year<yr OR (year=yr AND quarter<4)`).
     corp별 최신행 선택은 DISTINCT ON(PostgreSQL 전용) 대신 정렬 후 Python dedupe —
@@ -43,7 +43,7 @@ def _latest_metrics_by_market(session: Session, as_of: str) -> dict[str, list[di
     as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
-            "SELECT vm.corp_code, c.market, vm.roe, vm.pbr, vm.ev_ebitda, vm.year, vm.quarter "
+            "SELECT vm.corp_code, c.market, vm.roe, vm.pbr, vm.ev_ebit, vm.year, vm.quarter "
             "FROM valuation_metrics vm JOIN company c ON c.corp_code = vm.corp_code "
             "WHERE (vm.year < :yr OR (vm.year = :yr AND vm.quarter < 4)) "
             "AND c.market IN :markets "
@@ -98,7 +98,7 @@ def _washing_counts_by_market(
 
 
 def market_comparison(session: Session, as_of: str) -> list[dict[str, Any]]:
-    """시장별(KOSPI/KOSDAQ) n·avg_roe·avg_pbr·avg_ev_ebitda·washing_ratio(2.4~2.6과 동일
+    """시장별(KOSPI/KOSDAQ) n·avg_roe·avg_pbr·avg_ev_ebit·washing_ratio(2.4~2.6과 동일
     look-ahead·null 계약). 데이터 없는 시장은 행 자체를 만들지 않는다(all-null 행 금지)."""
     by_market = _latest_metrics_by_market(session, as_of)
     washing = _washing_counts_by_market(session, as_of)
@@ -113,7 +113,7 @@ def market_comparison(session: Session, as_of: str) -> list[dict[str, Any]]:
             "n": len(recs),
             "avg_roe": _avg([r["roe"] for r in recs]),
             "avg_pbr": _avg([r["pbr"] for r in recs]),
-            "avg_ev_ebitda": _avg([r["ev_ebitda"] for r in recs]),
+            "avg_ev_ebit": _avg([r["ev_ebit"] for r in recs]),
             "n_judged": n_judged,
             "n_washing": n_washing,
             "washing_ratio": (n_washing / n_judged) if n_judged > 0 else None,
@@ -136,7 +136,7 @@ def summary(session: Session, as_of: str) -> dict[str, Any]:
         "n_metrics": len(all_recs),
         "avg_roe": _avg([r["roe"] for r in all_recs]),
         "avg_pbr": _avg([r["pbr"] for r in all_recs]),
-        "avg_ev_ebitda": _avg([r["ev_ebitda"] for r in all_recs]),
+        "avg_ev_ebit": _avg([r["ev_ebit"] for r in all_recs]),
         "n_judged": n_judged,
         "n_washing": n_washing,
         "washing_ratio": (n_washing / n_judged) if n_judged > 0 else None,

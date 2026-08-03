@@ -33,14 +33,14 @@ def all_company_sectors(session: Session) -> dict[str, str | None]:
 def all_latest_metrics(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
     """전 종목의 as_of 시점 최신 (year,quarter) valuation_metrics 행(배치).
 
-    corp_code → {ev_ebitda, pbr, debt_ratio, net_cash, ebitda_margin}.
+    corp_code → {ev_ebit, pbr, debt_ratio, net_cash, ebit_margin}.
     look-ahead 배제 후 corp별 최신 1행을 Python에서 선택(정렬된 결과 첫 등장 유지 —
     SQLite/PostgreSQL 양쪽에서 동일 동작, 데이터 규모상 충분).
     """
     as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
-            "SELECT corp_code, ev_ebitda, pbr, debt_ratio, net_cash, ebitda_margin "
+            "SELECT corp_code, ev_ebit, pbr, debt_ratio, net_cash, ebit_margin "
             "FROM valuation_metrics "
             "WHERE year < :yr OR (year = :yr AND quarter < 4) "
             "ORDER BY corp_code, year DESC, quarter DESC"
@@ -52,11 +52,11 @@ def all_latest_metrics(session: Session, as_of: str) -> dict[str, dict[str, Any]
         code = row["corp_code"]
         if code not in latest:  # 정렬상 corp별 첫 행 = 최신
             latest[code] = {
-                "ev_ebitda": row["ev_ebitda"],
+                "ev_ebit": row["ev_ebit"],
                 "pbr": row["pbr"],
                 "debt_ratio": row["debt_ratio"],
                 "net_cash": row["net_cash"],
-                "ebitda_margin": row["ebitda_margin"],
+                "ebit_margin": row["ebit_margin"],
             }
     return latest
 

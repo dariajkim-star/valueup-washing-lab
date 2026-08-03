@@ -12,8 +12,8 @@ from sqlalchemy.orm import Session
 
 _BASE_SELECT = """
 SELECT vm.corp_code, c.corp_name, c.market, c.sector,
-       vm.year, vm.quarter, vm.roe, vm.roa, vm.pbr, vm.per, vm.ev_ebitda,
-       vm.debt_ratio, vm.payout_ratio, vm.net_cash, vm.ebitda_margin,
+       vm.year, vm.quarter, vm.roe, vm.roa, vm.pbr, vm.per, vm.ev_ebit,
+       vm.debt_ratio, vm.payout_ratio, vm.net_cash, vm.ebit_margin,
        vm.yoy_revenue_growth, vm.yoy_income_growth
 FROM valuation_metrics vm
 JOIN company c ON c.corp_code = vm.corp_code
@@ -32,11 +32,11 @@ SORT_COLUMNS = {
     "roa": "vm.roa",
     "pbr": "vm.pbr",
     "per": "vm.per",
-    "ev_ebitda": "vm.ev_ebitda",
+    "ev_ebit": "vm.ev_ebit",
     "debt_ratio": "vm.debt_ratio",
     "payout_ratio": "vm.payout_ratio",
     "net_cash": "vm.net_cash",
-    "ebitda_margin": "vm.ebitda_margin",
+    "ebit_margin": "vm.ebit_margin",
     "yoy_revenue_growth": "vm.yoy_revenue_growth",
     "yoy_income_growth": "vm.yoy_income_growth",
 }

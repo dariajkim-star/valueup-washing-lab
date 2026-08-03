@@ -77,7 +77,7 @@ def _seed(s: Session) -> None:
     s.commit()
     # 지표·시총(3.3 리뷰 반영): 00000001=고ROE(20%)·저PBR·저부채(50%), 00000002=저ROE(5%)·
     # 고PBR·고부채(200%). 00000003/4는 지표 없음(roe/pbr null — 범위 필터 불통과 검증용).
-    # ev_ebitda = (market_cap + total_debt - cash) / operating_income:
+    # ev_ebit = (market_cap + total_debt - cash) / operating_income:
     #   corp1 = (1000+500-100)/220 = 6.36 / corp2 = (5000+2000-100)/60 = 115.0
     s.execute(text(
         "INSERT INTO financials (corp_code, year, quarter, revenue, net_income, equity, "
@@ -327,10 +327,10 @@ def test_metric_range_filters(client) -> None:
     assert [i["corp_code"] for i in r4.json()["items"]] == ["00000001"]
 
 
-def test_ev_ebitda_and_debt_ratio_filters(client) -> None:
-    """[재리뷰 #7] 남은 지표 필터 2종 — max_ev_ebitda·max_debt_ratio."""
-    # corp1 ev_ebitda=6.36 / corp2=115.0
-    r = client.get("/screening", params={"max_ev_ebitda": 10})
+def test_ev_ebit_and_debt_ratio_filters(client) -> None:
+    """[재리뷰 #7] 남은 지표 필터 2종 — max_ev_ebit·max_debt_ratio."""
+    # corp1 ev_ebit=6.36 / corp2=115.0
+    r = client.get("/screening", params={"max_ev_ebit": 10})
     assert [i["corp_code"] for i in r.json()["items"]] == ["00000001"]
     # corp1 debt_ratio=50% / corp2=200%
     r2 = client.get("/screening", params={"max_debt_ratio": 100})

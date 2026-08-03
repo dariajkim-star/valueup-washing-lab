@@ -25,7 +25,7 @@ def list_metrics(
     sort: str | None = Query(
         None,
         description="정렬 필드(공통 규약). `-field`는 내림차순. "
-        "예: `-pbr`, `roe`. 허용: roe·roa·pbr·per·ev_ebitda·debt_ratio·"
+        "예: `-pbr`, `roe`. 허용: roe·roa·pbr·per·ev_ebit·debt_ratio·"
         "payout_ratio·year 등(화이트리스트).",
     ),
     page: int = Query(1, ge=1, le=1_000_000),

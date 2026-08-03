@@ -25,7 +25,7 @@ macro_indicator                (원천: ECOS 매크로, 종목 무관 시계열)
 | `valueup_plan` | 원천 | plan_id, corp_code, disclosure_date, target_roe, target_payout_ratio, target_pbr, period_start, period_end, buyback_planned | DART 밸류업 공시 |
 | `ownership` | 원천 | corp_code, as_of, largest_shareholder_pct, treasury_stock_pct | DART 지분공시 |
 | `macro_indicator` | 원천 | indicator, date, value | ECOS |
-| `valuation_metrics` | **파생 VIEW** | corp_code, year, quarter, roe, roa, pbr, per, **ev_ebitda**, debt_ratio, payout_ratio, **net_cash, ebitda_margin**, yoy_revenue_growth, yoy_income_growth | financials×prices 계산 |
+| `valuation_metrics` | **파생 VIEW** | corp_code, year, quarter, roe, roa, pbr, per, **ev_ebit**, debt_ratio, payout_ratio, **net_cash, ebit_margin**, yoy_revenue_growth, yoy_income_growth | financials×prices 계산 |
 | `valueup_score` | 스코어 | corp_code, as_of, achievement_rate, progress_rate, washing_flag, execution_score, buyback_executed, buyback_retired, buyback_status | gap_engine |
 | `mna_score` | 스코어 | corp_code, as_of, mna_target_score, valuation_score, capacity_score, ownership_score, macro_score | mna_engine |
 
@@ -60,15 +60,17 @@ SELECT
     ROUND(f.net_income::numeric / NULLIF(f.total_assets, 0)    * 100, 2) AS roa,
     ROUND(p.market_cap::numeric / NULLIF(f.equity, 0)              , 2) AS pbr,
     ROUND(p.market_cap::numeric / NULLIF(t.net_income_ttm, 0)      , 2) AS per,
-    -- EV/EBITDA: EV = 시총 + 순부채(총차입금 - 현금), EBITDA = 영업이익 + 감가상각비
+    -- EV/EBIT: EV = 시총 + 순부채(총차입금 - 현금), 분모는 EBIT(영업이익)
+    -- [2026-08-04] 감가상각을 쓰지 않는다 — 요약 API에 감가상각 행이 없어 84%가 결측이고,
+    -- COALESCE로 메우면 '공시한 회사만 EBITDA'가 되어 백분위가 공시 여부에 가점을 준다.
     ROUND((p.market_cap + f.total_debt - f.cash)::numeric
-          / NULLIF(f.operating_income + f.depreciation, 0)         , 2) AS ev_ebitda,
+          / NULLIF(f.operating_income, 0)                          , 2) AS ev_ebit,
     ROUND(f.total_liabilities::numeric / NULLIF(f.equity, 0)   * 100, 2) AS debt_ratio,
     ROUND(f.dividend_total::numeric / NULLIF(f.net_income, 0)  * 100, 2) AS payout_ratio,
-    -- M&A 엔진 입력 (F-4): 순현금, EBITDA 마진
+    -- M&A 엔진 입력 (F-4): 순현금, EBIT 마진(위와 같은 이유로 감가상각 미사용)
     (f.cash - f.total_debt)                                             AS net_cash,
-    ROUND((f.operating_income + f.depreciation)::numeric
-          / NULLIF(f.revenue, 0)                              * 100, 2) AS ebitda_margin,
+    ROUND(f.operating_income::numeric
+          / NULLIF(f.revenue, 0)                              * 100, 2) AS ebit_margin,
     ROUND((f.revenue - LAG(f.revenue, 4) OVER w)::numeric
           / NULLIF(LAG(f.revenue, 4) OVER w, 0)              * 100, 2) AS yoy_revenue_growth,
     ROUND((f.net_income - LAG(f.net_income, 4) OVER w)::numeric
