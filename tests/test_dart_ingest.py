@@ -148,6 +148,69 @@ def test_sum_debt_keeps_working_without_sj_div() -> None:
     assert _sum_debt([{"account_nm": "차입금", "thstrm_amount": "100"}]) == 100
 
 
+def test_collect_accounts_revenue_tag_fallback() -> None:
+    """[2026-08-03 P1-6a] 라벨이 '매출'이면 ifrs-full_Revenue 태그로 잡는다.
+
+    실측(라이브 DART): LG CNS·한일홀딩스·한전기술 등 6개사의 손익 계정명이 '매출'
+    ('총 수익' 변형 포함)이라 라벨 완전일치('매출액'·'영업수익')를 전부 비껴갔다 —
+    ebitda_margin 결측으로 버킷 23·62가 시장 폴백. 태그는 IS/CIS 한정.
+    """
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        # LG CNS 형태: 계정명 '매출' — 라벨로는 못 잡고 태그로 잡는다
+        {"sj_div": "IS", "account_id": "ifrs-full_Revenue",
+         "account_nm": "매출", "thstrm_amount": "5,982,627,063,000"},
+        # 하위 태그(공사매출)는 화이트리스트 밖 — 총계만 잡혀야 한다
+        {"sj_div": "IS", "account_id": "ifrs-full_RevenueFromConstructionContracts",
+         "account_nm": "공사매출", "thstrm_amount": "75,567,137,275"},
+    ]
+    accounts = _collect_accounts(rows)
+    assert _pick(accounts, _ACCOUNT_MAP["revenue"]) == 5_982_627_063_000
+
+
+def test_collect_accounts_equity_tag_fallback() -> None:
+    """[2026-08-03 P1-6a] 한섬: 계정명 '자본 총계'(공백) — 완전일치 실패, 태그로 구제."""
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        {"sj_div": "BS", "account_id": "ifrs-full_Equity",
+         "account_nm": "자본 총계", "thstrm_amount": "1,406,099,400,780"},
+    ]
+    assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["equity"]) == 1_406_099_400_780
+
+
+def test_collect_accounts_label_wins_over_tag() -> None:
+    """한글 라벨 완전일치가 태그보다 우선(_ACCOUNT_MAP 순서) — 기존 동작 불변."""
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        {"sj_div": "IS", "account_id": "ifrs-full_Revenue",
+         "account_nm": "매출액", "thstrm_amount": "100"},
+    ]
+    accounts = _collect_accounts(rows)
+    assert _pick(accounts, _ACCOUNT_MAP["revenue"]) == 100
+
+
+def test_collect_accounts_tag_gated_by_statement() -> None:
+    """태그 매칭은 IS/CIS 한정 — 다른 재무제표의 동일 태그는 주입하지 않는다.
+
+    (sj_div가 아예 없는 픽스처는 게이트 미적용 — _sum_debt와 동일 원칙.)
+    """
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        {"sj_div": "CF", "account_id": "ifrs-full_Revenue",
+         "account_nm": "매출", "thstrm_amount": "999"},
+    ]
+    assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["revenue"]) is None
+    # sj_div 없는 구형 응답은 게이트 없이 잡는다
+    rows_legacy = [
+        {"account_id": "ifrs-full_Revenue", "account_nm": "매출", "thstrm_amount": "999"},
+    ]
+    assert _pick(_collect_accounts(rows_legacy), _ACCOUNT_MAP["revenue"]) == 999
+
+
 def test_normalize_nulls_total_debt_when_exceeding_liabilities() -> None:
     """총차입금 > 총부채면 이중 합산 의심 — 틀린 값 대신 null(NFR2)."""
     from app.ingest.dart import DartAdapter

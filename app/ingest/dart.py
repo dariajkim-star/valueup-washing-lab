@@ -38,11 +38,11 @@ _YEAR_RE = re.compile(r"^\d{4}$")
 
 # 단일 값 계정(첫 매칭). 총차입금은 별도 합산 규칙 사용.
 _ACCOUNT_MAP: dict[str, tuple[str, ...]] = {
-    "revenue": ("매출액", "수익(매출액)", "영업수익"),
+    "revenue": ("매출액", "수익(매출액)", "영업수익", "ifrs-full_Revenue"),
     "net_income": ("당기순이익", "당기순이익(손실)", "분기순이익"),
     "operating_income": ("영업이익", "영업이익(손실)"),
     "depreciation": ("감가상각비", "유형자산감가상각비"),
-    "equity": ("자본총계",),
+    "equity": ("자본총계", "ifrs-full_Equity"),
     "total_assets": ("자산총계",),
     "total_liabilities": ("부채총계",),
     "cash": ("현금및현금성자산",),
@@ -75,6 +75,19 @@ _DEBT_ACCOUNT_IDS = frozenset({
     "ifrs-full_NoncurrentPortionOfNoncurrentBondsIssued",
     "ifrs-full_NoncurrentPortionOfNoncurrentLoansReceived",
 })
+
+
+# [2026-08-03] revenue 커버리지(P1-6a): 라벨('매출액'·'영업수익')만으로는 '매출'(LG CNS·
+# 한일홀딩스 등)·'총 수익'(롯데이노베이트)을 놓쳤다 — 6개사 실측 전부 ifrs-full_Revenue
+# 총계 행은 있었다. total_debt와 같은 처방: IFRS 표준 태그 매칭. 단, **손익계산서(IS/CIS)로
+# 한정**한다 — 하위 태그(RevenueFromConstructionContracts 등)는 여기 없으므로 총계만 잡히고,
+# sj_div 게이트가 다른 재무제표의 동계열 행 오염을 차단한다. 라벨 완전일치가 항상 우선
+# (_ACCOUNT_MAP 튜플 순서 = _pick 우선순위).
+_TAGGED_SINGLE_ACCOUNTS: dict[str, tuple[str, ...]] = {
+    "ifrs-full_Revenue": ("IS", "CIS"),
+    # 한섬: 계정명이 '자본 총계'(공백) — 완전일치 실패, 태그로 구제. BS 한정.
+    "ifrs-full_Equity": ("BS",),
+}
 
 
 class DartAdapterError(RuntimeError):
@@ -239,12 +252,7 @@ class DartAdapter(SourceAdapter):
             )
             rows = data.get("list") or []
             if rows:
-                accounts: dict[str, int] = {}
-                for row in rows:
-                    name = row.get("account_nm", "")
-                    val = _parse_amount(row.get("thstrm_amount"))
-                    if val is not None and name not in accounts:
-                        accounts[name] = val
+                accounts = _collect_accounts(rows)
                 # 총차입금은 dedup 전 '모든 행'에서 합산(중복 라벨·유동/비유동 포함)
                 total_debt = _sum_debt(rows)
                 return accounts, total_debt, div
@@ -349,6 +357,33 @@ def _parse_amount(raw: Any) -> int | None:
         return None
     val = int(s)
     return -val if negative else val
+
+
+def _collect_accounts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
+    """응답 rows → 계정명(첫 등장) 딕셔너리 + 화이트리스트된 표준 태그 키 주입.
+
+    태그 키는 라벨 미스 시 _pick의 폴백 경로다(_ACCOUNT_MAP 튜플 순서가 우선순위).
+    sj_div 게이트로 다른 재무제표의 동계열 행을 차단하되, sj_div가 아예 없는
+    응답(구형·테스트 픽스처)은 게이트를 적용하지 않는다(_sum_debt와 동일 원칙).
+    """
+    accounts: dict[str, int] = {}
+    for row in rows:
+        name = row.get("account_nm", "")
+        val = _parse_amount(row.get("thstrm_amount"))
+        if val is None:
+            continue
+        if name not in accounts:
+            accounts[name] = val
+        aid = row.get("account_id") or ""
+        allowed_sj = _TAGGED_SINGLE_ACCOUNTS.get(aid)
+        sj = row.get("sj_div")
+        if (
+            allowed_sj is not None
+            and (not sj or sj in allowed_sj)
+            and aid not in accounts
+        ):
+            accounts[aid] = val
+    return accounts
 
 
 def _pick(accounts: Mapping[str, Any], labels: tuple[str, ...]) -> int | None:
