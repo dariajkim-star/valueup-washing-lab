@@ -247,6 +247,23 @@ def _net_buyback(session: Session, corp_code: str, year: int) -> int | None:
     return None if row is None else int(row[0])
 
 
+def _blind_cf_buyback_krw(session: Session, corp_code: str, year: int) -> int | None:
+    """그 해 CF 자기주식 취득액(0026) — 단, **수량 표가 그 취득을 못 봤을 때만**.
+
+    표가 매입을 봤다면(수량>0) CF>0은 그 매입의 현금일 뿐 반증이 아니다(롯데렌탈:
+    매입=소각이라 순매입 게이트를 통과했고 CF는 그 매입을 확인할 뿐 — 0 지지와 무모순).
+    반증이 되는 것은 표의 매입 칸이 0/null인데 현금이 나간 경우다(신탁 취득 추정).
+    """
+    row = session.execute(
+        text(
+            "SELECT buyback_amount_krw FROM financials "
+            "WHERE corp_code = :c AND year = :y AND COALESCE(buyback_amount, 0) = 0"
+        ),
+        {"c": corp_code, "y": year},
+    ).first()
+    return None if row is None or row[0] is None else int(row[0])
+
+
 def _apply_zero_treasury_gate(session: Session, rec: dict[str, Any]) -> None:
     """자사주 0 판정의 **반증 검사** — 순매입 > 0이면 0을 취소하고 null로 되돌린다.
 
@@ -271,5 +288,17 @@ def _apply_zero_treasury_gate(session: Session, rec: dict[str, Any]) -> None:
         logger.info(
             "자사주 0 판정 취소(순매입 %s주 > 0) corp_code=%s %s",
             net, rec["corp_code"], as_of,
+        )
+        rec["treasury_stock_pct"] = None
+        return
+    # 두 번째 반증(0026 후속): 같은 해 CF에 자기주식 취득 현금 유출이 있는데 수량 표가
+    # `-`였다면, 그 표는 취득을 못 본 표다(신탁 취득 미반영 실측 15행). 이때 `-`=0의
+    # 근거였던 표 자체가 신뢰를 잃으므로 0 확정을 취소한다 — 0의 부정이 아니라 근거의
+    # 부정이라 되돌린 값은 역시 null이다(연내 소각·처분으로 연말 0일 가능성은 남는다).
+    cf = _blind_cf_buyback_krw(session, rec["corp_code"], int(as_of[:4]))
+    if cf is not None and cf > 0:
+        logger.info(
+            "자사주 0 판정 취소(CF 취득 %s원 — 수량 표가 눈멀었다) corp_code=%s %s",
+            cf, rec["corp_code"], as_of,
         )
         rec["treasury_stock_pct"] = None

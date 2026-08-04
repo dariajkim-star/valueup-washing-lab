@@ -139,6 +139,8 @@ def latest_financial_buyback(
     return {
         "buyback_amount": obj.buyback_amount,
         "buyback_retired_amount": obj.buyback_retired_amount,
+        # CF 자기주식 취득액(0026) — 수량 표의 보조 반증 재료(_buyback_signals 참조)
+        "buyback_amount_krw": obj.buyback_amount_krw,
         # 그 수량이 **어느 회계기간**의 것인가(P1-4, 0022). buyback_status가 가리키는
         # 바로 그 행의 기간이어야 시점 판정이 같은 사건을 말한다.
         "year": obj.year,

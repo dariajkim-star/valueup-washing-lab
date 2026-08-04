@@ -110,6 +110,32 @@ def test_buyback_signals_unknown_when_either_missing() -> None:
     assert _buyback_signals(None, None) == (None, None, "unknown")
 
 
+def test_buyback_signals_cf_refutes_blind_table() -> None:
+    # 수량 표 0/스텁인데 CF에 실취득(SK네트웍스 2023 패턴, 실측 15행) → executed 반증
+    executed, retired, status = _buyback_signals(0, 0, cf_amount=100_430_000_000)
+    assert executed is True
+    assert retired is False  # CF는 취득만 매칭 — 소각엔 아무 말도 못 한다
+    assert status == "purchased_only"
+
+
+def test_buyback_signals_cf_covers_null_quantity() -> None:
+    # 수량 null + CF>0 — 실측 0행이지만 규칙은 덮는다(Boundary)
+    executed, retired, status = _buyback_signals(None, None, cf_amount=1_000)
+    assert executed is True
+    assert retired is None
+    assert status == "unknown"
+
+
+def test_buyback_signals_cf_noninformative_values() -> None:
+    # CF 0·음수·null은 아무것도 반증하지 않는다 — 기존 신호 그대로
+    assert _buyback_signals(0, 0, cf_amount=0)[0] is False
+    assert _buyback_signals(0, 0, cf_amount=-1)[0] is False
+    assert _buyback_signals(0, 0, cf_amount=None)[0] is False
+    assert _buyback_signals(None, 0, cf_amount=0)[0] is None
+    # 수량>0이면 CF 유무와 무관(실측 28행: 수량>0·CF 없음)
+    assert _buyback_signals(3_000_000, 0, cf_amount=None)[0] is True
+
+
 def test_execution_score_normal() -> None:
     # 세 항목 모두 약속 → 가중치 그대로. achievement=0.8(0.5)+buyback=1(0.3)+payout=1.0(0.2)
     score, basis = _execution_score(

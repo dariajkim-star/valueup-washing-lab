@@ -133,6 +133,69 @@ def test_retirement_only_does_not_cancel_zero(session: Session) -> None:
     assert obj.treasury_stock_pct == 0.0
 
 
+def test_zero_treasury_cancelled_by_cf_acquisition(session: Session) -> None:
+    """유수홀딩스·세진중공업 실샘플(0026 후속): 수량 표는 `-`인데 같은 해 CF에
+    자기주식 취득 현금 유출. 표가 취득을 못 봤으므로(신탁 추정) `-`=0의 근거인
+    표 자체가 신뢰를 잃는다 → 0 취소, null(연내 소각·처분 가능성은 남는다)."""
+    session.add(Company(corp_code="00000004", corp_name="유수홀딩스"))
+    session.add(Financial(corp_code="00000004", year=2024, quarter=4,
+                          buyback_amount=0, buyback_retired_amount=0,
+                          buyback_amount_krw=62_100_000_000))
+    session.commit()
+
+    adapter = DartOwnershipAdapter()
+    raw = {"corp_code": "00000004", "as_of": "2024-12-31",
+           "rows_hyslr": HYSLR, "rows_stock": DASH_STOCK}
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+
+    obj = session.scalars(
+        select(Ownership).where(Ownership.corp_code == "00000004")
+    ).one()
+    assert obj.treasury_stock_pct is None
+
+
+def test_zero_treasury_survives_cf_zero_or_null(session: Session) -> None:
+    """CF 0·null은 반증이 아니다 — 0 확정 유지."""
+    session.add(Company(corp_code="00000005", corp_name="무취득"))
+    session.add(Financial(corp_code="00000005", year=2024, quarter=4,
+                          buyback_amount=0, buyback_retired_amount=0,
+                          buyback_amount_krw=0))
+    session.commit()
+
+    adapter = DartOwnershipAdapter()
+    raw = {"corp_code": "00000005", "as_of": "2024-12-31",
+           "rows_hyslr": HYSLR, "rows_stock": DASH_STOCK}
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+
+    obj = session.scalars(
+        select(Ownership).where(Ownership.corp_code == "00000005")
+    ).one()
+    assert obj.treasury_stock_pct == 0.0
+
+
+def test_zero_treasury_survives_cf_when_table_saw_purchase(session: Session) -> None:
+    """롯데렌탈 실샘플: 표가 매입=소각을 봤다(눈먼 표 아님) → CF>0은 그 매입의
+    현금일 뿐 반증이 아니다. 순매입 0 + CF>0이어도 0 확정 유지."""
+    session.add(Company(corp_code="00000006", corp_name="롯데렌탈"))
+    session.add(Financial(corp_code="00000006", year=2024, quarter=4,
+                          buyback_amount=1_000_000, buyback_retired_amount=1_000_000,
+                          buyback_amount_krw=9_879_360_860))
+    session.commit()
+
+    adapter = DartOwnershipAdapter()
+    raw = {"corp_code": "00000006", "as_of": "2024-12-31",
+           "rows_hyslr": HYSLR, "rows_stock": DASH_STOCK}
+    adapter.upsert(session, adapter.normalize(raw))
+    session.commit()
+
+    obj = session.scalars(
+        select(Ownership).where(Ownership.corp_code == "00000006")
+    ).one()
+    assert obj.treasury_stock_pct == 0.0
+
+
 def test_gate_does_not_touch_real_values(session: Session) -> None:
     """실수치(10%)는 순매입이 있어도 건드리지 않는다 — 게이트는 0 판정 전용이다."""
     session.add(Company(corp_code="00000003", corp_name="실수치"))

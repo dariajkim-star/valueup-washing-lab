@@ -92,14 +92,21 @@ def _achievement_rate(actual_roe: float | None, target_roe: float | None) -> flo
 
 
 def _buyback_signals(
-    amount: int | None, retired_amount: int | None
+    amount: int | None, retired_amount: int | None, cf_amount: int | None = None
 ) -> tuple[bool | None, bool | None, str]:
     """(buyback_executed, buyback_retired, buyback_status). 수량 null=unknown, 0=확정 없음.
 
     음수는 수량 도메인에 없음(1.8 `_parse_quantity`가 상류에서 이미 걸러 DB엔 안 들어오지만,
     이 함수는 DB 값을 그대로 믿지 않고 자체 방어— 코드리뷰 High, GPT). 음수도 unknown 취급.
+
+    `cf_amount`(현금흐름표 자기주식 취득액, 0026)는 수량 표의 보조 반증 재료다 —
+    표가 0/스텁이어도 현금이 나갔으면 취득은 사실이다(실측 15행, 신탁 취득 미반영 추정).
+    반증 재료가 같은 financials 행에 살므로 게이트 층도 이 순수 함수다(배당 `-`=0과 동층).
+    CF는 취득만 매칭(처분·소각 제외)이라 retired에는 아무 말도 못 한다 — executed만 올린다.
     """
     executed = None if amount is None or amount < 0 else amount > 0
+    if not executed and cf_amount is not None and cf_amount > 0:
+        executed = True  # 수량 표가 뭐라 하든(0·null) 현금 유출이 반증
     retired = None if retired_amount is None or retired_amount < 0 else retired_amount > 0
     if executed is None or retired is None:
         status = "unknown"
@@ -316,7 +323,9 @@ def _score_one(session: Session, corp_code: str, as_of: str, as_of_date: date) -
         None if progress_rate is None
         else _achievement_rate(actual_roe, plan["target_roe"])
     )
-    executed, retired, status = _buyback_signals(amount, retired_amount)
+    executed, retired, status = _buyback_signals(
+        amount, retired_amount, buyback.get("buyback_amount_krw") if buyback else None
+    )
     # 소각 시점 판정(P1-4, 0022) — buyback_status가 가리키는 **바로 그 재무기간**을 쓴다.
     timing = _buyback_timing(
         retired, buyback.get("year") if buyback else None,
