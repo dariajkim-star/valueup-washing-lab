@@ -302,6 +302,15 @@ class DartAdapter(SourceAdapter):
                 accounts = _collect_accounts(rows)
                 # 총차입금은 dedup 전 '모든 행'에서 합산(중복 라벨·유동/비유동 포함)
                 total_debt = _sum_debt(rows)
+                # [2026-08-04 무차입 게이트, 리드 승인] 차입 행이 안 잡혔을 때
+                # '모른다(null)'와 '없다(0)'를 가른다. total_debt의 정의가 이자성
+                # 부채이므로 **이자가 곧 반증이다** — 이자를 한 푼도 안 냈으면 이자성
+                # 부채가 없는 것이고, 한 푼이라도 냈으면(삼원강재 연 425만원·한전KPS
+                # 5.2억·카카오뱅크 이자비용 1.13조) 우리는 모르는 것이다.
+                # 실측(결측 25개사 전수): 이자 흔적 완전 0은 부국철강·SNT다이내믹스·
+                # SNT모티브 3곳뿐 — 셋 다 알려진 무차입 기업.
+                if total_debt is None and _zero_debt_evidence(rows):
+                    total_debt = 0
                 # 자사주 취득액도 같은 응답의 현금흐름표에서 나온다(별도 호출 없음)
                 buyback_krw = _buyback_amount_krw(rows)
                 return accounts, total_debt, buyback_krw, div
@@ -719,6 +728,48 @@ def _buyback_amount_krw(rows: Sequence[Mapping[str, Any]]) -> int | None:
             continue
         total = abs(v) if total is None else total + abs(v)
     return total
+
+
+# 무차입 게이트의 반증 키워드. '이자'+'지급'(미지급 제외)·'이자비용'이 하나라도
+# 0이 아닌 값으로 오면 이자성 부채가 어딘가에 있다 — 0 확정 금지.
+_INTEREST_EXCLUDE = ("미지급", "이자수익", "이자수입", "이자수취")
+
+
+def _zero_debt_evidence(rows: Sequence[Mapping[str, Any]]) -> bool:
+    """무차입(총차입금 0)의 증거가 충분한가 — 세 조건 전부 필요.
+
+    ① BS가 완결됐고(부채총계 행 존재 — 응답 잘림이면 0 확정 불가)
+    ② BS에 차입/사채/리스 계열 행이 하나도 없고
+    ③ 전 재무제표에 이자 지급·비용 흔적이 0이 아닌 값으로 존재하지 않는다.
+
+    ③이 본질이다: total_debt = 이자성 부채이므로 이자의 부재가 곧 부채의 부재다.
+    ①②는 안전벨트 — 응답이 잘렸거나 라벨을 또 놓친 경우를 0으로 세탁하지 않기 위함.
+    """
+    bs = [r for r in rows if isinstance(r, Mapping) and r.get("sj_div") == "BS"]
+    if not bs:
+        return False
+    # ① BS 완결: 부채총계(라벨 변형 포함 — 태그가 총계 행에 붙는다)
+    if not any((r.get("account_id") or "") == "ifrs-full_Liabilities"
+               or _norm_label(r.get("account_nm")) == "부채총계" for r in bs):
+        return False
+    # ② 차입 계열 행 전무('금융부채' 총액형은 차입이 숨어 있을 수 있어 게이트 실격)
+    debt_kw = ("차입", "사채", "리스부채", "금융부채")
+    if any(any(k in (r.get("account_nm") or "") for k in debt_kw) for r in bs):
+        return False
+    # ③ 이자 흔적 전무
+    for r in rows:
+        if not isinstance(r, Mapping):
+            continue
+        nm = r.get("account_nm") or ""
+        if any(k in nm for k in _INTEREST_EXCLUDE):
+            continue
+        is_interest = ("이자" in nm and "지급" in nm) or _norm_label(nm) == "이자비용"
+        if not is_interest:
+            continue
+        v = _parse_amount(r.get("thstrm_amount"))
+        if v:  # 0·None은 반증이 아니다
+            return False
+    return True
 
 
 def _sum_debt(rows: Sequence[Mapping[str, Any]]) -> int | None:

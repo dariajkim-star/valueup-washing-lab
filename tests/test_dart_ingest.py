@@ -215,6 +215,38 @@ def test_collect_accounts_assets_tag_gated_by_statement() -> None:
     assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["total_liabilities"]) is None
 
 
+def test_zero_debt_evidence_gate() -> None:
+    """[2026-08-04 리드 승인] 무차입 게이트 — 이자가 곧 반증이다.
+
+    total_debt = 이자성 부채이므로 이자의 부재가 부채의 부재다. 실측: 결측 25개사 중
+    이자 흔적 완전 0은 부국철강·SNT다이내믹스·SNT모티브 3곳뿐(전부 알려진 무차입).
+    삼원강재(연 425만원)·한전KPS(5.2억)·카카오뱅크(이자비용 1.13조)는 null 유지.
+    """
+    from app.ingest.dart import _zero_debt_evidence
+
+    base = [{"sj_div": "BS", "account_id": "ifrs-full_Liabilities",
+             "account_nm": "부채총계", "thstrm_amount": "1,000"}]
+    # 무차입 확정: BS 완결 + 차입 행 전무 + 이자 흔적 전무
+    assert _zero_debt_evidence(base) is True
+    # 이자 지급이 한 푼이라도 있으면 실격(삼원강재 425만원도 반증)
+    assert _zero_debt_evidence(base + [
+        {"sj_div": "CF", "account_nm": "이자의 지급", "thstrm_amount": "4,253,840"}]) is False
+    # 이자비용도 반증(카카오뱅크형)
+    assert _zero_debt_evidence(base + [
+        {"sj_div": "IS", "account_nm": "이자비용", "thstrm_amount": "1,130,465,000,000"}]) is False
+    # '금융부채' 총액형은 차입이 숨어 있을 수 있어 실격(한전형)
+    assert _zero_debt_evidence(base + [
+        {"sj_div": "BS", "account_nm": "유동금융부채", "thstrm_amount": "44,465,866,000,000"}]) is False
+    # BS에 부채총계가 없으면(응답 잘림) 0 확정 불가
+    assert _zero_debt_evidence([
+        {"sj_div": "BS", "account_nm": "자산총계", "thstrm_amount": "1,000"}]) is False
+    # 미지급이자·이자수익은 반증이 아니다 / 이자 행이 값 '-'면 반증이 아니다
+    assert _zero_debt_evidence(base + [
+        {"sj_div": "BS", "account_nm": "미지급이자", "thstrm_amount": "10"},
+        {"sj_div": "IS", "account_nm": "이자수익", "thstrm_amount": "999"},
+        {"sj_div": "CF", "account_nm": "이자지급", "thstrm_amount": "-"}]) is True
+
+
 def test_collect_accounts_income_tag_fallback() -> None:
     """[2026-08-04] 순이익·영업이익 라벨 변형(로마숫자 접두·연결 접두) — 태그로 구제.
 
