@@ -13,6 +13,7 @@ from typing import Any
 from sqlalchemy import and_, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.analysis import lookahead
 from app.analysis.plan_selection import choose_plan, merge_attachment
 from app.models import (
     Company,
@@ -97,20 +98,19 @@ def latest_valueup_plan(
 
 
 def latest_metrics(session: Session, corp_code: str, as_of: str) -> dict[str, Any] | None:
-    """as_of 이전 최신 (year,quarter) valuation_metrics 행. look-ahead 부분 차단(코드리뷰 High,
-    GPT): 같은 연도의 **사업보고서(quarter=4)는 그 해 안에 공시될 수 없음**(결산 후 통상 90일
-    이내 = 다음 해)이므로 무조건 제외 — `year<as_of_year OR (year=as_of_year AND quarter<4)`.
-    1~3분기 보고서의 동일연도 내 공시시차는 실제 공시일 데이터가 없어 잔여 리스크로 defer
-    (deferred-work.md 2-1 섹션). AD-1: 뷰가 계산한 값을 읽기만.
+    """as_of 이전 최신 (year,quarter) valuation_metrics 행.
+
+    look-ahead 차단은 **`app/analysis/lookahead.py` 단일 정의처**를 부른다(0029 이관).
+    실제 공시일(`available_at`)을 아는 행은 그 날짜로, 모르는 행은 연도 휴리스틱으로.
+    AD-1: 뷰가 계산한 값을 읽기만.
     """
-    as_of_year = int(as_of[:4])
     row = session.execute(
         text(
             "SELECT roe, payout_ratio, total_return_ratio FROM valuation_metrics "
-            "WHERE corp_code = :cc AND (year < :yr OR (year = :yr AND quarter < 4)) "
+            f"WHERE corp_code = :cc AND {lookahead.sql_where()} "
             "ORDER BY year DESC, quarter DESC LIMIT 1"
         ),
-        {"cc": corp_code, "yr": as_of_year},
+        {"cc": corp_code, **lookahead.params(as_of)},
     ).mappings().one_or_none()
     return dict(row) if row is not None else None
 
@@ -119,21 +119,24 @@ def latest_financial_buyback(
     session: Session, corp_code: str, as_of: str
 ) -> dict[str, Any] | None:
     """as_of 이전 최신 (year,quarter) financials의 buyback 수량 필드.
-    look-ahead 부분 차단은 latest_metrics와 동일 규칙(사업보고서 동일연도 제외)."""
-    as_of_year = int(as_of[:4])
+
+    ORM 경로라 SQL 조각을 못 쓰지만 **규칙은 lookahead 단일 정의처와 같다** — 정렬 후
+    파이썬 판(`lookahead.is_available`)으로 거른다. 두 판이 같은 답을 내는지는
+    `tests/test_lookahead.py`가 대조로 강제한다(plan_own_gap 이관 때와 같은 방식).
+    """
     stmt = (
         select(Financial)
-        .where(
-            Financial.corp_code == corp_code,
-            or_(
-                Financial.year < as_of_year,
-                and_(Financial.year == as_of_year, Financial.quarter < 4),
-            ),
-        )
+        .where(Financial.corp_code == corp_code)
         .order_by(Financial.year.desc(), Financial.quarter.desc())
-        .limit(1)
     )
-    obj = session.scalars(stmt).one_or_none()
+    obj = next(
+        (
+            f
+            for f in session.scalars(stmt)
+            if lookahead.is_available(f.available_at, f.year, f.quarter, as_of)
+        ),
+        None,
+    )
     if obj is None:
         return None
     return {

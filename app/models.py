@@ -84,6 +84,10 @@ class Financial(Base):
     # 수량은 자사주 0 게이트가 쓰므로 그대로 둔다(이 열은 추가이지 대체가 아니다).
     buyback_amount_krw: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 취득액(원)
     buyback_retired_krw: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 소각액(원, SCE)
+    # 이 재무를 '언제부터 알 수 있었나'(0029) — 사업보고서 rcept_dt(YYYY-MM-DD).
+    # null이면 미수집 → look-ahead 게이트가 연도 휴리스틱으로 폴백한다.
+    available_at: Mapped[str | None] = mapped_column(String(10))
+    available_rcept_no: Mapped[str | None] = mapped_column(String(20))
 
 
 class Price(Base):

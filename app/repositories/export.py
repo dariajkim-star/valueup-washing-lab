@@ -5,9 +5,10 @@
 호출자가 넘긴 **단일 as_of**의 행만 조회 — 뷰별 CSV가 서로 다른 기준일로 뽑혀
 대시보드에서 시점이 섞이는 것(3.4 리뷰 High와 같은 함정)을 저장소 계약으로 차단.
 
-look-ahead 최신 지표는 screening/stats와 동일한 "부분 차단" 규칙
-(`year < yr OR (year = yr AND quarter < 4)`) — 규칙이 엔드포인트 간 갈라지면
-CSV와 API 수치 패리티가 깨진다(이 스토리 AC의 검증 축).
+look-ahead 차단은 **`app/analysis/lookahead.py` 단일 정의처**를 부른다(0029 이관) —
+규칙이 엔드포인트 간 갈라지면 CSV와 API 수치 패리티가 깨진다(이 스토리 AC의 검증 축).
+그 갈라짐이 실제로 시작되고 있었다: 이관 전 이 파일과 mna_score.py의 주석 서술이
+이미 서로 달랐다.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.analysis import lookahead
 from app.models import Company, MacroIndicator, MnaScore, ValueupScore
 
 
@@ -56,19 +58,18 @@ def as_of_exists_in_both(session: Session, as_of: str) -> dict[str, bool]:
 
 
 def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
-    """corp별 look-ahead 부분 차단 최신 지표 행(전 컬럼). screening._latest_metrics_map과
-    같은 규칙이지만 산점도·업종맵이 쓰는 컬럼이 더 넓어(year·quarter 포함) 독립 작성
-    (시그니처가 소비자마다 다른 look-ahead 패턴 5번째 사용처 — 공통화는 deferred-work 기존 항목).
+    """corp별 look-ahead 차단 최신 지표 행(전 컬럼). 산점도·업종맵이 쓰는 컬럼이 더 넓어
+    (year·quarter 포함) 조회는 따로지만, **차단 규칙은 lookahead 단일 정의처**를 부른다
+    (0029 이관 — 그 전에는 5곳 복제였고 주석 서술이 이미 갈라지고 있었다).
     """
-    as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
             "SELECT corp_code, year, quarter, roe, pbr, per, ev_ebit, debt_ratio, "
             "payout_ratio FROM valuation_metrics "
-            "WHERE year < :yr OR (year = :yr AND quarter < 4) "
+            f"WHERE {lookahead.sql_where()} "
             "ORDER BY corp_code, year DESC, quarter DESC"
         ),
-        {"yr": as_of_year},
+        lookahead.params(as_of),
     ).mappings().all()
     latest: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -216,7 +217,6 @@ def dividend_buyback_rows(
     적용(같은 해 사업보고서 배제). 기간별 상태는 period_buyback_status로 계산
     (스냅숏 상태의 시계열 반복 금지). companies 주입 규약은 뷰 2·3과 동일.
     """
-    as_of_year = int(as_of[:4])
     fin = session.execute(
         text(
             "SELECT f.corp_code, f.year, f.quarter, f.dividend_total, "
@@ -224,10 +224,10 @@ def dividend_buyback_rows(
             "FROM financials f "
             "LEFT JOIN valuation_metrics vm ON vm.corp_code = f.corp_code "
             "AND vm.year = f.year AND vm.quarter = f.quarter "
-            "WHERE f.year < :yr OR (f.year = :yr AND f.quarter < 4) "
+            f"WHERE {lookahead.sql_where('f.')} "
             "ORDER BY f.corp_code, f.year, f.quarter"
         ),
-        {"yr": as_of_year},
+        lookahead.params(as_of),
     ).mappings().all()
     if companies is None:
         companies = _companies(session)

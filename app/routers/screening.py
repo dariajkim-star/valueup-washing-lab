@@ -31,9 +31,9 @@ router = APIRouter(prefix="/screening", tags=["screening"])
         "sort: `field`/`-field` 규약, 허용=execution_score·mna_target_score·opacity_rank"
         "(기본=corp_code). "
         "범위 필터는 null을 매칭하지 않는다(산출 불가는 조건 판단 불가). "
-        "알려진 한계: roe/pbr 등 지표는 look-ahead 부분 차단(같은 해 사업보고서만 배제) — "
-        "명시적 과거 as_of 조회 시 그 해의 이후 분기 지표가 섞일 수 있음(공시일 수집 전까지, "
-        "전 엔드포인트 공통). 시총 필터는 최신가 기준(point-in-time 아님)."
+        "look-ahead: 지표는 **실제 공시일**(사업보고서 rcept_dt) 기준으로 차단한다"
+        "(2026-08-04, 커버리지 706/706). 공시일 미수집 행만 연도 휴리스틱으로 폴백. "
+        "남은 한계: 시총 필터는 최신가 기준(point-in-time 아님)."
     ),
 )
 def screening_list(

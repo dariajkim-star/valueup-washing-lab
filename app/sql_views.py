@@ -17,6 +17,9 @@ SELECT
     f.corp_code,
     f.year,
     f.quarter,
+    -- 이 재무를 언제부터 알 수 있었나(0029) — 사업보고서 rcept_dt. look-ahead 게이트가
+    -- 이 열로 판정하고, null이면 연도 휴리스틱으로 폴백한다(app/analysis/lookahead.py).
+    f.available_at,
     -- 음수/0 분모는 무의미(자본잠식·적자) → NULL. NULLIF(0)만으론 '음수 분모'가 통과해
     -- 지표 부호가 뒤집히고 스크리너를 오염(예: min_roe가 자본잠식 기업을 우량으로 통과)한다.
     -- 그래서 분모 > 0 조건을 CASE로 명시한다(GPT 교차검증 반영).

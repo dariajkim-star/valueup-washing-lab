@@ -1,9 +1,11 @@
 """시장·매크로 통계 조회 저장소 (AD-2: SQL은 여기서만).
 
 `valuation_metrics` VIEW·`valueup_score`·`macro_indicator`를 **읽기만**(각 writer는
-어댑터/엔진, AD-4/AD-7/AD-10 불변). look-ahead 안전 최신 지표 조회는 2.1/2.3(gap_engine·
-mna_engine)의 SQL 패턴을 재사용하되, 완료된 Epic 2 파일(`mna_score.py`)은 건드리지 않고
-이 모듈에 독립 작성한다(blast radius 격리, 3번째 소비자가 생기면 공통 헬퍼로 추출 검토).
+어댑터/엔진, AD-4/AD-7/AD-10 불변).
+
+look-ahead 차단은 **`app/analysis/lookahead.py` 단일 정의처**를 부른다(0029 이관).
+이 모듈 원주석의 *"3번째 소비자가 생기면 공통 헬퍼로 추출 검토"*가 그 트리거였는데,
+실제로는 **여섯 번째**까지 복제된 뒤에야 추출됐다.
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from typing import Any
 from sqlalchemy import bindparam, func, select, text
 from sqlalchemy.orm import Session
 
+from app.analysis import lookahead
 from app.models import Company, MacroIndicator, ValueupScore
 
 # macro_indicator CHECK 제약과 동일한 고정 화이트리스트(app/models.py:MacroIndicator).
@@ -34,22 +37,21 @@ def _finite_or_none(value: float | None) -> float | None:
 
 
 def _latest_metrics_by_market(session: Session, as_of: str) -> dict[str, list[dict[str, Any]]]:
-    """as_of 시점 look-ahead 안전 최신 1건/종목의 roe·pbr·ev_ebit를 market별로 묶는다.
+    """as_of 시점 look-ahead 차단 최신 1건/종목의 roe·pbr·ev_ebit를 market별로 묶는다.
 
-    2.1/2.3과 동일한 사업보고서 배제 규칙(`year<yr OR (year=yr AND quarter<4)`).
+    차단 규칙은 **`app/analysis/lookahead.py` 단일 정의처**를 부른다(0029 이관).
     corp별 최신행 선택은 DISTINCT ON(PostgreSQL 전용) 대신 정렬 후 Python dedupe —
     SQLite/PostgreSQL 양쪽 이식성(1.7 known-limitation 컨벤션).
     """
-    as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
             "SELECT vm.corp_code, c.market, vm.roe, vm.pbr, vm.ev_ebit, vm.year, vm.quarter "
             "FROM valuation_metrics vm JOIN company c ON c.corp_code = vm.corp_code "
-            "WHERE (vm.year < :yr OR (vm.year = :yr AND vm.quarter < 4)) "
+            f"WHERE {lookahead.sql_where('vm.')} "
             "AND c.market IN :markets "
             "ORDER BY vm.corp_code, vm.year DESC, vm.quarter DESC"
         ).bindparams(bindparam("markets", expanding=True)),
-        {"yr": as_of_year, "markets": list(SUPPORTED_MARKETS)},
+        {**lookahead.params(as_of), "markets": list(SUPPORTED_MARKETS)},
     ).mappings().all()
 
     latest_per_corp: dict[str, dict[str, Any]] = {}

@@ -4,9 +4,8 @@ mna_engine(app/analysis/mna_engine.py)의 유일한 DB 접근 지점. 2.1(gap_en
 조회)과 달리 **cross-sectional 백분위**라 전체 모집단을 배치로 한 번에 가져온다 — 종목 루프
 안에서 단건 쿼리하면 N+1이자 설계 오류(한 종목의 점수가 전체 분포에 의존).
 
-look-ahead 부분차단은 2.1(valueup_score.py)과 동일 규칙: 같은 연도의 사업보고서(quarter=4)는
-그 해 안에 공시될 수 없으므로(통상 다음해 3월) 배제 — `year<yr OR (year=yr AND quarter<4)`.
-1~3분기 동일연도 시차는 공통 defer(deferred-work.md 2-1 섹션).
+look-ahead 차단은 **`app/analysis/lookahead.py` 단일 정의처**를 부른다(0029 이관). 그 전에는
+이 규칙이 5곳에 복제돼 있었고 주석 서술이 이미 갈라지고 있었다.
 """
 
 from __future__ import annotations
@@ -16,6 +15,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from app.analysis import lookahead
 from app.models import Company, MacroIndicator, MnaScore, Ownership
 
 
@@ -37,15 +37,14 @@ def all_latest_metrics(session: Session, as_of: str) -> dict[str, dict[str, Any]
     look-ahead 배제 후 corp별 최신 1행을 Python에서 선택(정렬된 결과 첫 등장 유지 —
     SQLite/PostgreSQL 양쪽에서 동일 동작, 데이터 규모상 충분).
     """
-    as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
             "SELECT corp_code, ev_ebit, pbr, debt_ratio, net_cash, ebit_margin "
             "FROM valuation_metrics "
-            "WHERE year < :yr OR (year = :yr AND quarter < 4) "
+            f"WHERE {lookahead.sql_where()} "
             "ORDER BY corp_code, year DESC, quarter DESC"
         ),
-        {"yr": as_of_year},
+        lookahead.params(as_of),
     ).mappings().all()
     latest: dict[str, dict[str, Any]] = {}
     for row in rows:

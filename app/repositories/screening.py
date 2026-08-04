@@ -12,6 +12,7 @@ from typing import Any
 from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.analysis import lookahead
 from app.models import Company, MnaScore, OpacityScore, ValueupPlan, ValueupScore
 
 # 정렬 허용 필드 화이트리스트(AD-6 `field`/`-field` 규약). 사용자 입력을 컬럼 객체로만
@@ -85,25 +86,21 @@ def _lowest_own_gap_map(session: Session, as_of: str) -> dict[str, float]:
 
 
 def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any]]:
-    """corp별 look-ahead **부분 차단** 최신 지표(roe·pbr·ev_ebit·debt_ratio) — 3.3 리뷰 반영.
+    """corp별 look-ahead 차단 최신 지표(roe·pbr·ev_ebit·debt_ratio·환원율 2종).
 
-    2.1/2.3/3.1과 동일한 사업보고서 배제 규칙 + Python dedupe(DISTINCT ON 회피, 이식성).
-    **"안전"이 아니라 "부분 차단"인 이유(재리뷰 정정)**: 같은 해 사업보고서(quarter=4)만
-    확정 배제 가능(항상 다음 해 공시). 1~3분기 보고서의 동일연도 시차는 실제 공시일
-    (`available_at`) 데이터가 없어 차단 불가 — 명시적 과거 as_of 조회 시 그 해의 이후
-    분기가 섞일 수 있다. 완전 해결은 공시일 수집 별도 스토리(deferred-work 2-1, 전 엔진·
-    stats·screening 공통 한계 — 여기만 달력 휴리스틱을 넣으면 엔드포인트 간 규칙이 갈라짐).
-    look-ahead 패턴 4번째 사용처 — 시그니처가 소비자마다 달라 공통화는 deferred.
+    차단 규칙은 **`app/analysis/lookahead.py` 단일 정의처**를 부른다(0029 이관).
+    실제 공시일(`available_at`, 사업보고서 rcept_dt)을 아는 행은 그 날짜로 판정하고,
+    미수집 행만 기존 연도 휴리스틱으로 폴백한다. 커버리지 706/706(2026-08-04 수집).
+    corp별 최신행 선택은 정렬 후 Python dedupe(DISTINCT ON 회피, 이식성).
     """
-    as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
             "SELECT corp_code, roe, pbr, ev_ebit, debt_ratio, total_return_ratio, "
             "retired_return_ratio FROM valuation_metrics "
-            "WHERE year < :yr OR (year = :yr AND quarter < 4) "
+            f"WHERE {lookahead.sql_where()} "
             "ORDER BY corp_code, year DESC, quarter DESC"
         ),
-        {"yr": as_of_year},
+        lookahead.params(as_of),
     ).mappings().all()
     latest: dict[str, dict[str, Any]] = {}
     for row in rows:
@@ -284,8 +281,7 @@ def list_screening(
             "market": company.market,
             "sector": company.sector,
             "as_of": as_of,
-            # 핵심지표(AC3, 3.3 리뷰 반영): look-ahead 부분 차단 최신 지표(재리뷰 정정 —
-            # 같은 해 사업보고서만 확정 배제, 1~3분기 동일연도 잔여 리스크는 기존 defer).
+            # 핵심지표(AC3): look-ahead 차단 최신 지표. 실제 공시일 기준(0029).
             # 없으면 null.
             "roe": m.get("roe") if m else None,
             "pbr": m.get("pbr") if m else None,
