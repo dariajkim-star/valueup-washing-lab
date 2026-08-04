@@ -45,7 +45,8 @@ _ACCOUNT_MAP: dict[str, tuple[str, ...]] = {
     "equity": ("자본총계", "ifrs-full_Equity"),
     "total_assets": ("자산총계", "ifrs-full_Assets"),
     "total_liabilities": ("부채총계", "ifrs-full_Liabilities"),
-    "cash": ("현금및현금성자산",),
+    "cash": ("현금및현금성자산", "ifrs-full_CashAndCashEquivalents",
+             "dart_CashAndCashEquivalentsAtEndOfPeriodCf"),
 }
 # 총차입금(이자성 부채) = 아래 라벨에 매칭되는 '모든 행'의 합.
 # 회사마다 라벨이 다르고(삼성: 단기/장기차입금·사채, 하이닉스: 차입금),
@@ -93,6 +94,24 @@ _TAGGED_SINGLE_ACCOUNTS: dict[str, tuple[str, ...]] = {
     # 표준 태그는 BS 총계 행에만 붙으므로 BS 한정이면 하위 항목 오염이 없다.
     "ifrs-full_Assets": ("BS",),
     "ifrs-full_Liabilities": ("BS",),
+    # [2026-08-04] cash 결측 45행이 두 계열이었다(백로그 "15"는 낡은 수).
+    # ①비금융 2행: BS 라벨이 '현금 및 현금성자산'(공백) — 위와 같은 라벨 갈림, BS 태그로 구제.
+    # ②금융 43행(증권·은행·보험·카드·지주): BS에 이 개념이 없고 '현금및예치금'
+    #   (dart_CashAndDuefromBanks)뿐인데 그건 예치금 포함이라 다른 개념이다(대신증권
+    #   예치금 2.41조 vs 진짜 현금 1.27조 — 대입하면 2배 과대). 대신 **현금흐름표의
+    #   '기말 현금및현금성자산'**이 표본 8/8에서 이 태그로 실재 — 연간보고서의 기말
+    #   잔액은 BS가 보여줄 그 수치다. 단 같은 태그가 '기초' 행에 붙으면 전년 현금이
+    #   올해로 적재되는 1년 오프바이원이라, CF에서는 이름 가드('기말')를 추가로 요구한다
+    #   (_collect_accounts의 _CF_NAME_GUARDS).
+    "ifrs-full_CashAndCashEquivalents": ("BS", "CF"),
+    # 신영증권형: 기말 행에 이쪽 태그를 쓴다 — 태그 이름 자체가 기말이라 가드 불요.
+    "dart_CashAndCashEquivalentsAtEndOfPeriodCf": ("CF",),
+}
+
+# CF에서 태그를 주입할 때 계정명에 반드시 있어야 하는 문자열(태그만으로 모호한 경우).
+# '기말'은 '당기말'·'분기말'·'기말의'를 전부 포함하고 '기초'를 배제한다(실측 8곳 검증).
+_CF_NAME_GUARDS: dict[str, str] = {
+    "ifrs-full_CashAndCashEquivalents": "기말",
 }
 
 
@@ -400,6 +419,11 @@ def _collect_accounts(rows: Sequence[Mapping[str, Any]]) -> dict[str, int]:
             and (not sj or sj in allowed_sj)
             and aid not in accounts
         ):
+            # CF 이름 가드: 같은 태그가 기초/기말 양쪽에 붙을 수 있는 표에서는
+            # 이름이 그 행의 정체를 말한다(기말 잔액만 당기 값이다).
+            guard = _CF_NAME_GUARDS.get(aid)
+            if sj == "CF" and guard is not None and guard not in _norm_label(name):
+                continue
             accounts[aid] = val
     return accounts
 

@@ -215,6 +215,41 @@ def test_collect_accounts_assets_tag_gated_by_statement() -> None:
     assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["total_liabilities"]) is None
 
 
+def test_collect_accounts_cash_tag_fallback_bs() -> None:
+    """[2026-08-04] 비금융 2행: BS 라벨이 '현금 및 현금성자산'(공백) — 태그로 구제."""
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [{"sj_div": "BS", "account_id": "ifrs-full_CashAndCashEquivalents",
+             "account_nm": "현금 및 현금성자산", "thstrm_amount": "29,350,112,230"}]
+    assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["cash"]) == 29_350_112_230
+
+
+def test_collect_accounts_cash_from_cf_period_end() -> None:
+    """[2026-08-04] 금융 43행: BS엔 '현금및예치금'뿐 — CF의 '기말' 잔액으로 구제.
+
+    현금및예치금(dart_CashAndDuefromBanks)은 예치금 포함이라 다른 개념이다(대신증권
+    2.41조 vs 진짜 현금 1.27조). 연간보고서 CF의 기말 현금및현금성자산이 정답이고,
+    같은 태그가 '기초' 행에 붙으면 전년 값이므로 이름 가드('기말')가 그것을 막는다.
+    """
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        # 예치금은 라벨도 태그도 화이트리스트 밖 — 절대 섞이면 안 된다
+        {"sj_div": "BS", "account_id": "dart_CashAndDuefromBanks",
+         "account_nm": "현금및예치금", "thstrm_amount": "2,406,632,887,000"},
+        # 기초 행에 같은 태그가 붙어도 가드가 막는다(1년 오프바이원 방지)
+        {"sj_div": "CF", "account_id": "ifrs-full_CashAndCashEquivalents",
+         "account_nm": "기초현금및현금성자산", "thstrm_amount": "1,564,366,567,000"},
+        # 기말 행 — '당기말의'·'분기말의'·'기말' 변형 전부 '기말'을 포함한다
+        {"sj_div": "CF", "account_id": "ifrs-full_CashAndCashEquivalents",
+         "account_nm": "당기말의 현금및현금성자산", "thstrm_amount": "1,267,694,740,000"},
+    ]
+    assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["cash"]) == 1_267_694_740_000
+    # 기초 행만 있으면(기말 행이 안 온 응답) 값을 만들지 않는다 — null > 전년 값
+    only_begin = [rows[1]]
+    assert _pick(_collect_accounts(only_begin), _ACCOUNT_MAP["cash"]) is None
+
+
 def test_collect_accounts_label_wins_over_tag() -> None:
     """한글 라벨 완전일치가 태그보다 우선(_ACCOUNT_MAP 순서) — 기존 동작 불변."""
     from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
