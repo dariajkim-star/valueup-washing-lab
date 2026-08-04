@@ -215,6 +215,29 @@ def test_collect_accounts_assets_tag_gated_by_statement() -> None:
     assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["total_liabilities"]) is None
 
 
+def test_collect_accounts_income_tag_fallback() -> None:
+    """[2026-08-04] 순이익·영업이익 라벨 변형(로마숫자 접두·연결 접두) — 태그로 구제.
+
+    실측 6곳: '연결당기순이익'(현대차)·'Ⅴ.당기순이익(손실)'(넷마블)·'XI. 당기순이익'
+    (고려아연)·'당기연결순이익'(SKT) — 태그는 전부 ifrs-full_ProfitLoss.
+    지배/비지배 귀속분은 ...AttributableTo... 별도 태그라 섞이지 않는다.
+    """
+    from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick
+
+    rows = [
+        {"sj_div": "CIS", "account_id": "ifrs-full_ProfitLoss",
+         "account_nm": "Ⅴ.당기순이익(손실)", "thstrm_amount": "3,216,188,118"},
+        # 귀속분 — 화이트리스트 밖 태그라 총계를 오염시키지 않는다
+        {"sj_div": "CIS", "account_id": "ifrs-full_ProfitLossAttributableToOwnersOfParent",
+         "account_nm": "지배기업순손익", "thstrm_amount": "25,640,335,233"},
+        {"sj_div": "CIS", "account_id": "dart_OperatingIncomeLoss",
+         "account_nm": "Ⅲ.영업이익(손실)", "thstrm_amount": "215,627,215,188"},
+    ]
+    accounts = _collect_accounts(rows)
+    assert _pick(accounts, _ACCOUNT_MAP["net_income"]) == 3_216_188_118
+    assert _pick(accounts, _ACCOUNT_MAP["operating_income"]) == 215_627_215_188
+
+
 def test_sum_debt_explicit_borrowing_label_variants() -> None:
     """[2026-08-04] 33개사 전수 조사의 '차입 명시' 변형 — 라벨은 공백 무시 정확일치.
 
