@@ -215,6 +215,28 @@ def test_collect_accounts_assets_tag_gated_by_statement() -> None:
     assert _pick(_collect_accounts(rows), _ACCOUNT_MAP["total_liabilities"]) is None
 
 
+def test_sum_debt_explicit_borrowing_label_variants() -> None:
+    """[2026-08-04] 33개사 전수 조사의 '차입 명시' 변형 — 라벨은 공백 무시 정확일치.
+
+    '유동금융부채'·'기타금융부채' 같은 총액·잡동사니 라벨은 **넣지 않는다**(한전 44조를
+    차입금으로 적재하면 과대계상). 차입/사채/리스가 이름에 명시된 것만.
+    """
+    from app.ingest.dart import _sum_debt
+
+    rows = [
+        {"sj_div": "BS", "account_nm": "차입금 및 사채", "thstrm_amount": "100"},  # 공백 변형
+        {"sj_div": "BS", "account_nm": "차입부채", "thstrm_amount": "50"},  # 메리츠·세아제강형
+        {"sj_div": "BS", "account_nm": "유동성리스부채", "thstrm_amount": "5"},
+        # 총액형은 매칭되면 안 된다
+        {"sj_div": "BS", "account_nm": "유동금융부채", "thstrm_amount": "9,999"},
+        {"sj_div": "BS", "account_nm": "기타금융부채", "thstrm_amount": "9,999"},
+        # 새 태그(SBS 비유동차입금) — 이름이 목록 밖이라도 태그로 잡힌다
+        {"sj_div": "BS", "account_id": "dart_LongTermBorrowingsGross",
+         "account_nm": "비유동 차입금 등", "thstrm_amount": "30"},
+    ]
+    assert _sum_debt(rows) == 185
+
+
 def test_collect_accounts_cash_tag_fallback_bs() -> None:
     """[2026-08-04] 비금융 2행: BS 라벨이 '현금 및 현금성자산'(공백) — 태그로 구제."""
     from app.ingest.dart import _ACCOUNT_MAP, _collect_accounts, _pick

@@ -53,6 +53,15 @@ _ACCOUNT_MAP: dict[str, tuple[str, ...]] = {
 # 같은 라벨이 유동/비유동에 중복 등장하므로 dedup이 아니라 전체 합산해야 한다.
 _DEBT_LABELS = (
     "차입금", "단기차입금", "장기차입금", "유동성장기부채", "사채", "리스부채",
+    # [2026-08-04] total_debt 결측 33개사 전수 조사에서 나온 '차입 명시' 라벨 변형.
+    # 이름에 차입/사채/리스가 명시된 것만 추가한다 — '유동금융부채'·'기타금융부채' 같은
+    # 총액·잡동사니 라벨은 차입 아닌 항목(미지급금·보증금 등)이 섞여 있어 넣지 않는다
+    # (한전 '유동금융부채' 44조를 차입금으로 적재하면 과대계상 — null 유지가 NFR2).
+    "차입금및사채",            # 현대엘리베이터('차입금 및 사채' 공백 변형 포함 — _norm 비교)
+    "유동차입금및사채", "비유동차입금및비유동사채",  # 한화시스템
+    "유동차입금", "비유동차입금",  # SBS
+    "차입부채", "유동차입부채", "비유동차입부채",  # 세아제강·세아제강지주(메리츠형)
+    "유동성리스부채", "비유동리스부채", "장기리스부채", "단기리스부채",  # 삼영전자·사조씨푸드
 )
 
 # [2026-07-31] 총차입금 커버리지 67.5% → 개선. 라벨 완전일치만으로는 대부분을 놓쳤다.
@@ -75,6 +84,11 @@ _DEBT_ACCOUNT_IDS = frozenset({
     "ifrs-full_BondsIssued",
     "ifrs-full_NoncurrentPortionOfNoncurrentBondsIssued",
     "ifrs-full_NoncurrentPortionOfNoncurrentLoansReceived",
+    # [2026-08-04] 33개사 전수 조사에서 실측된 차입 명시 태그(한국특강·SBS·삼영전자).
+    "ifrs-full_CurrentPortionOfLongtermBorrowings",
+    "dart_LongTermBorrowingsGross",
+    "dart_CurentPortionOfFinanceLeaseLiabilities",  # (DART 원문 오타 그대로: Curent)
+    "dart_NonCurrentFinanceLeaseLiabilities",
 })
 
 
@@ -721,9 +735,11 @@ def _sum_debt(rows: Sequence[Mapping[str, Any]]) -> int | None:
     for row in rows:
         if has_sj_div and row.get("sj_div") != "BS":
             continue
+        # 라벨은 공백 제거 후 비교(2026-08-04) — '차입금 및 사채'(한국특강)가 공백 때문에
+        # '차입금및사채'를 비껴갔다. _norm_label은 정확일치 원칙을 바꾸지 않는다(1.6 교훈).
         matched = (
             row.get("account_id") in _DEBT_ACCOUNT_IDS
-            or row.get("account_nm", "") in _DEBT_LABELS
+            or _norm_label(row.get("account_nm", "")) in _DEBT_LABELS
         )
         if not matched:
             continue
