@@ -83,6 +83,7 @@ class Financial(Base):
     # 원천도 다르다 — 수량은 tesstkAcqsDspsSttus, 금액은 재무제표 현금흐름표(CF).
     # 수량은 자사주 0 게이트가 쓰므로 그대로 둔다(이 열은 추가이지 대체가 아니다).
     buyback_amount_krw: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 취득액(원)
+    buyback_retired_krw: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 소각액(원, SCE)
 
 
 class Price(Base):

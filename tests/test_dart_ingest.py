@@ -1008,3 +1008,91 @@ def test_dividend_total_negative_among_candidates_is_null() -> None:
         {"se": "현금배당금총액(백만원)", "thstrm": "100"},
     ]
     assert _dividend_total(rows) is None
+
+
+def test_buyback_retired_krw_reads_sce() -> None:
+    """[2026-08-04 2차] 소각 '금액'은 CF가 아니라 SCE(자본변동표)에 있다.
+
+    소각은 비현금 사건이라 CF에 없는 게 회계적으로 당연했다(백로그 원안의 여섯 번째
+    반전). SCE는 같은 사건이 자본 구성요소별 여러 행에 ±X로 갈라져 온다(동원산업:
+    자본금 -104.6억 / 기타자본 +104.6억 / 나머지 0) — 합산하면 상쇄돼 0이므로
+    |금액| 최대값을 사건 크기로 읽는다.
+    """
+    from app.ingest.dart import _buyback_retired_krw
+
+    dongwon = [
+        {"sj_div": "SCE", "account_id": "ifrs-full_CancellationOfTreasuryShares",
+         "account_nm": "자기주식 소각", "thstrm_amount": "-10,460,770,000"},
+        {"sj_div": "SCE", "account_id": "ifrs-full_CancellationOfTreasuryShares",
+         "account_nm": "자기주식 소각", "thstrm_amount": "0"},
+        {"sj_div": "SCE", "account_id": "ifrs-full_CancellationOfTreasuryShares",
+         "account_nm": "자기주식 소각", "thstrm_amount": "10,460,770,000"},
+    ]
+    assert _buyback_retired_krw(dongwon) == 10_460_770_000
+    # 이름 변형 셋(실측 라벨 분포) — 태그 없이도 이름으로 잡힌다(현대백화점형)
+    for name in ("자기주식 소각", "자기주식의 소각", "자기주식소각"):
+        rows = [{"sj_div": "SCE", "account_id": "dart_TreasuryShareTransactions",
+                 "account_nm": name, "thstrm_amount": "69,369,512,000"}]
+        assert _buyback_retired_krw(rows) == 69_369_512_000, name
+
+
+def test_buyback_retired_krw_rejects_mixed_rows() -> None:
+    """혼합 행은 소각을 분해할 수 없다 — null이 정답(우리금융·콜마·현대모비스 실측).
+
+    '순증감'·'변동'·'취득 및 처분'은 소각 아닌 사건이 섞인 총액이라, 잡으면
+    과대/과소가 아니라 **다른 것**을 재는 값이 된다('금융부채' 총액형과 같은 계열).
+    """
+    from app.ingest.dart import _buyback_retired_krw
+
+    for name in ("자기주식 순증감", "자기주식의 변동", "자기주식의 취득 및 처분"):
+        assert _buyback_retired_krw(
+            [{"sj_div": "SCE", "account_nm": name, "thstrm_amount": "1,000"}]
+        ) is None, name
+    # CF의 소각 '비용'(수수료)은 소각 금액이 아니다(신한 실측 0.8억)
+    assert _buyback_retired_krw(
+        [{"sj_div": "CF", "account_nm": "자기주식의 소각 비용", "thstrm_amount": "81,000,000"}]
+    ) is None
+    # SCE 밖(sj_div 명시)의 동명 행은 잡지 않는다
+    assert _buyback_retired_krw(
+        [{"sj_div": "CF", "account_nm": "자기주식의 소각", "thstrm_amount": "1,000"}]
+    ) is None
+
+
+def test_buyback_retired_krw_normalize_gate() -> None:
+    """소각 수량 0 확정 + SCE 행 없음 → 0 / 수량>0 + 행 없음 → null(취득액과 동일 게이트)."""
+    from app.ingest.dart import DartAdapter
+
+    raw = {
+        "company": {"corp_code": "00000001", "corp_name": "테스트"},
+        "periods": [{
+            "year": 2024, "quarter": 4, "fs_div": "CFS",
+            "accounts": {"자산총계": 1000},
+            "buyback_retired_krw": None,
+            # 표가 왔고 수치 전무 → 수량 (0, 0) 확정
+            "buyback_rows": [{"se": "합계", "change_qy_acqs": "-", "change_qy_incnr": "-"}],
+            "dividend_rows": [],
+        }],
+    }
+    _, recs = DartAdapter().normalize(raw)
+    assert recs[0]["buyback_retired_amount"] == 0
+    assert recs[0]["buyback_retired_krw"] == 0  # 수량 0 확정이 금액 0을 지지
+
+    raw["periods"][0]["buyback_rows"] = [
+        {"se": "합계", "change_qy_acqs": "1,000", "change_qy_incnr": "1,000"}
+    ]
+    _, recs = DartAdapter().normalize(raw)
+    assert recs[0]["buyback_retired_amount"] == 1000
+    assert recs[0]["buyback_retired_krw"] is None  # 소각은 했는데 액수를 모른다
+
+
+def test_buyback_retired_krw_subsidiary_and_all_zero() -> None:
+    """SK디스커버리 실측 회귀: ①종속회사 소각은 우리 주주환원이 아니다(취득액 규칙과
+    동일) ②전부 0인 그룹은 None — 수량>0인데 0원 소각은 모순, 0으로 세탁 금지."""
+    from app.ingest.dart import _buyback_retired_krw
+
+    subsidiary = [{"sj_div": "SCE", "account_id": "ifrs-full_CancellationOfTreasuryShares",
+                   "account_nm": "종속회사 자기주식소각", "thstrm_amount": "5,000"}]
+    assert _buyback_retired_krw(subsidiary) is None
+    all_zero = [{"sj_div": "SCE", "account_id": "ifrs-full_CancellationOfTreasuryShares",
+                 "account_nm": "자기주식 소각", "thstrm_amount": "0"}] * 3
+    assert _buyback_retired_krw(all_zero) is None

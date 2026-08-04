@@ -190,7 +190,7 @@ class DartAdapter(SourceAdapter):
             raise DartAdapterError(f"잘못된 bsns_year(YYYY 아님): {bsns_year!r}")
 
         company = self._fetch_company(key, corp_code)
-        accounts, total_debt, buyback_krw, used_fs_div = self._fetch_accounts(
+        accounts, total_debt, buyback_krw, retired_krw, used_fs_div = self._fetch_accounts(
             key, corp_code, bsns_year, reprt_code, fs_div
         )
         periods: list[dict[str, Any]] = []
@@ -258,6 +258,7 @@ class DartAdapter(SourceAdapter):
                     "accounts": accounts,
                     "total_debt": total_debt,
                     "buyback_amount_krw": buyback_krw,
+                    "buyback_retired_krw": retired_krw,
                     "fs_div": used_fs_div,
                     "buyback_rows": buyback_rows,
                     "dividend_rows": dividend_rows,
@@ -282,8 +283,8 @@ class DartAdapter(SourceAdapter):
 
     def _fetch_accounts(
         self, key: str, corp_code: str, bsns_year: str, reprt_code: str, fs_div: str
-    ) -> tuple[dict[str, int], int | None, int | None, str | None]:
-        """(단일값 계정 dict, 총차입금 합, 자사주 취득액, 사용한 fs_div) 반환."""
+    ) -> tuple[dict[str, int], int | None, int | None, int | None, str | None]:
+        """(단일값 계정 dict, 총차입금 합, 자사주 취득액, 자사주 소각액, 사용한 fs_div) 반환."""
         for div in (fs_div, "OFS" if fs_div == "CFS" else None):
             if div is None:
                 break
@@ -313,8 +314,10 @@ class DartAdapter(SourceAdapter):
                     total_debt = 0
                 # 자사주 취득액도 같은 응답의 현금흐름표에서 나온다(별도 호출 없음)
                 buyback_krw = _buyback_amount_krw(rows)
-                return accounts, total_debt, buyback_krw, div
-        return {}, None, None, None
+                # 소각액은 같은 응답의 자본변동표(SCE)에서(0027 — 소각은 비현금이라 CF에 없다)
+                retired_krw = _buyback_retired_krw(rows)
+                return accounts, total_debt, buyback_krw, retired_krw, div
+        return {}, None, None, None, None
 
     def _get(
         self, endpoint: str, params: Mapping[str, Any], allow_no_data: bool = False
@@ -393,6 +396,13 @@ class DartAdapter(SourceAdapter):
             if krw is None and rec["buyback_amount"] == 0:
                 krw = 0
             rec["buyback_amount_krw"] = krw
+            # 소각 '금액'(KRW, 0027) — 취득액과 같은 게이트 구조, 원천만 SCE.
+            # 소각 수량 0 확정 + SCE 행 없음 → 0(두 표가 같은 말) / 수량>0 + 행 없음 →
+            # null(소각은 했는데 액수를 모른다 — 우리금융 '순증감' 혼합형 포함).
+            retired_krw = period.get("buyback_retired_krw")
+            if retired_krw is None and rec["buyback_retired_amount"] == 0:
+                retired_krw = 0
+            rec["buyback_retired_krw"] = retired_krw
             fin_recs.append(rec)
         return company, fin_recs
 
@@ -728,6 +738,60 @@ def _buyback_amount_krw(rows: Sequence[Mapping[str, Any]]) -> int | None:
             continue
         total = abs(v) if total is None else total + abs(v)
     return total
+
+
+# 소각 '금액' 매칭 규칙 — 2026-08-04 2차 재측정(표본 20, HIT 16).
+#
+# 소각은 **비현금 사건**이라 CF에 없다(백로그 원안 "CF에서 캐자"의 여섯 번째 반전) —
+# CF에 보이는 것은 소각 '비용'(수수료, 신한 0.8억)뿐이다. 실체는 SCE(자본변동표)이고,
+# 여기서는 0026 취득액과 정반대로 **태그가 권위다**: `ifrs-full_CancellationOfTreasuryShares`
+# 가 지배적(13/16)이고 이름은 '자기주식 소각/의 소각/소각'으로 갈린다. 태그 OR 이름으로
+# 잡되, 혼합 행('순증감'·'변동'·'취득 및 처분' — 우리금융·콜마·현대모비스형)은 소각을
+# 분해할 수 없으므로 **잡지 않는다**(null이 정답 — '금융부채' 총액형과 같은 계열).
+# 현대백화점형(dart_TreasuryShareTransactions)·미사용 태그는 이름 매칭이 잡는다.
+# 종속회사 계열은 취득액 규칙과 같은 이유로 제외 — 자회사 소각은 우리 주주환원이 아니다
+# (SK디스커버리 실측: '종속회사 자기주식소각'이 Cancellation 태그를 달고 온다).
+_RETIRED_KRW_TAGS = ("ifrs-full_CancellationOfTreasuryShares",)
+_RETIRED_KRW_EXCLUDE = (
+    "순증감", "변동", "취득", "처분", "비용", "종속회사", "종속기업", "자회사", "관계기업",
+)
+
+
+def _buyback_retired_krw(rows: Sequence[Mapping[str, Any]]) -> int | None:
+    """SCE(자본변동표)의 자기주식 소각액(KRW). 없으면 None(수량 0 처리는 호출자 몫).
+
+    SCE는 같은 소각 사건이 자본 구성요소(자본금·이익잉여금·자기주식…)별로 **여러 행**에
+    ±X로 갈라져 온다(동원산업: 자본금 -104.6억 / 기타자본 +104.6억 / 나머지 0).
+    합산하면 ±가 상쇄돼 0이 되므로 **그룹 내 |금액| 최대값**을 사건 크기로 읽는다.
+
+    알려진 한계(문서화된 선택): ① 신한형 비대칭(이익잉여금 감소에 소각 비용 0.8억이
+    섞임)은 max가 비용 포함 쪽을 집는다 — 오차 0.02% 수준, 쓰임이 cross-sectional
+    비율이라 허용. ② 한 해에 크기가 다른 소각이 두 번이면 큰 쪽만 잡힌다(하한 추정).
+    """
+    best: int | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        sj = row.get("sj_div")
+        if sj and sj != "SCE":
+            continue
+        name = row.get("account_nm") or ""
+        tag = row.get("account_id") or ""
+        cancel_tag = tag == _RETIRED_KRW_TAGS[0]
+        named = any(k in name for k in ("자기주식", "자사주")) and "소각" in name
+        if not (cancel_tag or named):
+            continue
+        if any(k in name for k in _RETIRED_KRW_EXCLUDE):
+            continue  # 혼합 행 — 소각만 분해할 수 없다
+        v = _parse_amount(row.get("thstrm_amount"))
+        if v is None or v == 0:
+            # 0은 '이 구성요소 열에는 변동 없음'이지 소각 금액이 아니다. 그룹 전체가
+            # 0뿐이면 None — 수량>0인데 0원 소각은 모순이므로 0으로 세탁하지 않는다
+            # (SK디스커버리 실측: 실체는 '취득 및 소각' 혼합 행 → null이 정답).
+            continue
+        if best is None or abs(v) > best:
+            best = abs(v)
+    return best
 
 
 # 무차입 게이트의 반증 키워드. '이자'+'지급'(미지급 제외)·'이자비용'이 하나라도

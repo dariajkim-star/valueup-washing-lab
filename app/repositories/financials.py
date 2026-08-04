@@ -46,7 +46,7 @@ def upsert_financial(session: Session, rec: dict) -> Financial:
         "revenue", "net_income", "operating_income", "depreciation",
         "equity", "total_assets", "total_liabilities", "cash", "total_debt",
         "dividend_total", "buyback_amount", "buyback_retired_amount",
-        "buyback_amount_krw",
+        "buyback_amount_krw", "buyback_retired_krw",
     ):
         if rec.get(field) is not None:
             setattr(obj, field, rec[field])
