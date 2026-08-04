@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from app.analysis.plan_signals import (
     AXIS_TARGETS,
+    EXEMPT_SHORT_FORM,
     NO_TARGETS,
     OTHER_METRIC,
     REFILING,
@@ -106,3 +107,46 @@ class TestNoTargets:
     def test_empty_and_none(self):
         assert classify_body(None, EMPTY).kind == NO_TARGETS
         assert classify_body("", EMPTY).kind == NO_TARGETS
+
+
+class TestExemptShortForm:
+    """[2026-08-04] 회사가 첨부가 없다고 명시한 약식 공시 — 첨부 목록에서 빼기 위한 신호.
+
+    실측 근거: no_targets 175건 전수 판독에서 101개사가 같은 문장을 썼다.
+    나누는 유일한 이유는 **행동이 다르다**는 것 — 없는 문서를 찾으러 보내지 않는다.
+    """
+
+    HIGH_DIV = (
+        "5. 기타 투자판단과 관련한 중요사항\n"
+        "1. 조세특례제한법 제104조의27에 따른 고배당기업에 해당하여 "
+        "별도의 기업가치 제고 계획 첨부 없이 주요 내용을 기재하였습니다."
+    )
+
+    def test_no_attachment_declaration(self):
+        assert classify_body(self.HIGH_DIV, EMPTY).kind == EXEMPT_SHORT_FORM
+
+    def test_spacing_variant(self):
+        """'첨부 없이'와 '첨부없이'가 둘 다 실재한다(총계 라벨 갈림과 같은 계열)."""
+        assert classify_body(
+            self.HIGH_DIV.replace("첨부 없이", "첨부없이"), EMPTY
+        ).kind == EXEMPT_SHORT_FORM
+
+    def test_omission_variant(self):
+        """신라교역형 — '첨부서류를 생략한 약식 공시'."""
+        text = "4. 본 공시는 기업가치 제고 계획 첨부서류를 생략한 약식 공시입니다."
+        assert classify_body(text, EMPTY).kind == EXEMPT_SHORT_FORM
+
+    def test_real_reference_stays_no_targets(self):
+        """진짜 첨부 참조는 갈라내지 않는다 — 이쪽이 첨부 수집의 실제 대상이다."""
+        text = "상세한 내용은 첨부된 '기업가치 제고 계획'을 참고하시기 바랍니다."
+        assert classify_body(text, EMPTY).kind == NO_TARGETS
+
+    def test_axis_targets_still_win(self):
+        """축을 확보했으면 첨부 부존재 선언이 있어도 axis_targets다(우선순위 불변)."""
+        sig = classify_body(self.HIGH_DIV, {"target_roe": 10.0})
+        assert sig.kind == AXIS_TARGETS
+
+    def test_other_metric_outranks(self):
+        """다른 지표로라도 목표를 공시했으면 그 사실이 먼저다."""
+        text = self.HIGH_DIV + "\n'28년 EBITDA Margin 10% 중반 이상 목표"
+        assert classify_body(text, EMPTY).kind == OTHER_METRIC

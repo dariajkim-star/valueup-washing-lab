@@ -17,11 +17,32 @@
      그것이 지목한 02-06이다.
 
 설계 원칙(레아): 규칙을 넓히지 말고, **행동이 달라지는 만큼만** 나눈다.
-  - refiling         → 선택 규칙이 바뀐다(가리킨 공시로 간다).
-  - other_metric     → 화면 문구가 바뀐다(+ 첨부를 받아도 우리 축이 안 나올 수 있다는 신호).
-  - axis_targets     → 정상 경로.
-  - no_targets       → 본문에 숫자 목표 자체가 없음(진짜 표지 통지문).
+  - refiling           → 선택 규칙이 바뀐다(가리킨 공시로 간다).
+  - other_metric       → 화면 문구가 바뀐다(+ 첨부를 받아도 우리 축이 안 나올 수 있다는 신호).
+  - axis_targets       → 정상 경로.
+  - exempt_short_form  → **첨부 작업 목록에서 뺀다**(2026-08-04 신설, 아래 참조).
+  - no_targets         → 본문에 숫자 목표 자체가 없음(진짜 표지 통지문).
 행동이 같은 상태는 만들지 않았다.
+
+■ exempt_short_form 신설 근거 (2026-08-04 재측정)
+`no_targets` 175건의 원문을 전수로 열어보니 **한 칸에 이유가 셋** 들어 있었다:
+
+    101개사  "조세특례제한법 제104조의27에 따른 고배당기업에 해당하여 별도의
+             기업가치 제고 계획 **첨부 없이** 주요 내용을 기재하였습니다."
+             → 회사가 **첨부가 없다고 직접 말했다.** 받으러 갈 곳이 없다.
+     13개사  "상세한 내용은 **첨부된** '…기업가치 제고 계획'을 참고하시기 바랍니다."
+             → 진짜 참조. 이것이 첨부 수집의 실제 대상이다.
+     57건    첨부 무언급 — 그냥 짧은 통지문.
+
+**행동이 실제로 갈렸다**: `attachment_worklist`가 129건을 부르고 있었는데 그 상위가
+전부 첫 번째 부류였다(E1·LX인터내셔널·SBS·SIMPAC·SNT홀딩스…). **도구가 사람을 시켜
+존재하지 않는 문서를 찾아오게 하고 있었다** — 워싱 플래그·`washing_only` 토글·
+`isUnsupportedSector`와 같은 계열의 실패(도구가 사실이 아닌 것을 말한다).
+
+**부실 공시로 읽지 않는다.** 이들은 자기 자격을 근거로 약식으로 냈다고 명시한 것이고,
+"본문에 목표가 없다"는 사실은 같아도 **그 이유가 제도 쪽에 있다.** 순위에서는 이미
+`is_unrankable`로 제외돼 벌점이 없다(실측: 채점 0·불투명 0/101) — 이번 변경은
+**점수를 건드리지 않고 작업 목록만 고친다.**
 """
 
 from __future__ import annotations
@@ -35,6 +56,7 @@ from typing import Any
 # import하면 순환이 된다). 여기서는 판정 로직만 갖고 어휘는 빌려 쓴다.
 from app.analysis.plan_selection import (  # noqa: F401 — 재수출(호출부 편의)
     AXIS_TARGETS,
+    EXEMPT_SHORT_FORM,
     NO_TARGETS,
     OTHER_METRIC,
     REFILING,
@@ -49,6 +71,13 @@ _NUMERIC = re.compile(r"\d+(?:\.\d+)?\s*(?:%|배)")
 # 숫자 주변 이 폭 안에 표지가 있으면 '목표 수치'로 본다(개행은 넘지 않는다 — 다른 항목 침범 방지).
 _WINDOW = 25
 
+# 첨부 부존재 선언(2026-08-04 실측). 회사가 본문에서 **첨부가 없다고 직접 말한 경우**다:
+#   "조세특례제한법 제104조의27에 따른 고배당기업에 해당하여 별도의 기업가치 제고 계획
+#    첨부 없이 주요 내용을 기재하였습니다."   ← 101개사가 이 형태(공백 유무만 다름)
+#   "본 공시는 기업가치 제고 계획 첨부서류를 생략한 약식 공시입니다."  ← 신라교역형
+# 공백을 모두 지우고 비교한다 — '첨부 없이'/'첨부없이'가 둘 다 실재한다(총계 라벨 갈림과 같은 계열).
+_NO_ATTACHMENT_DECL = ("첨부없이", "첨부를생략", "첨부서류를생략", "첨부생략")
+
 # 재공시 참조: "旣공시(2026.2.6) 내용 참조" / "기공시(2026-02-06)" 등.
 # 한자 旣와 한글 기 둘 다, 구분자는 . - / 허용.
 _REFILING_REF = re.compile(
@@ -62,6 +91,11 @@ _REFILING_WORD = re.compile(r"재공시|기공시한 경우|旣공시")
 class BodySignal:
     kind: str
     referenced_date: str | None = None  # refiling일 때 가리킨 공시일(ISO), 못 읽으면 None
+
+
+def _squeeze(text: str) -> str:
+    """공백 전부 제거 — 같은 문장의 공백 변형('첨부 없이'/'첨부없이')을 한 형태로 본다."""
+    return re.sub(r"\s+", "", text)
 
 
 def _has_numeric_target(text: str) -> bool:
@@ -108,6 +142,11 @@ def classify_body(raw_text: str | None, targets: Mapping[str, Any]) -> BodySigna
     if _has_numeric_target(text):
         return BodySignal(OTHER_METRIC)
 
+    # 목표가 없는 것은 확정. 남은 질문은 "그래서 첨부를 받으러 갈 것인가"이고,
+    # 회사가 첨부가 없다고 말했으면 갈 곳이 없다 — 그 사실만큼만 갈라낸다.
+    if any(k in _squeeze(text) for k in _NO_ATTACHMENT_DECL):
+        return BodySignal(EXEMPT_SHORT_FORM)
+
     return BodySignal(NO_TARGETS)
 
 
@@ -145,5 +184,6 @@ SIGNAL_LABEL = {
     AXIS_TARGETS: "본문에서 목표 확보",
     OTHER_METRIC: "다른 지표로 공시(우리 축 밖)",
     REFILING: "재공시 — 다른 공시를 가리킴",
+    EXEMPT_SHORT_FORM: "약식 공시 — 회사가 첨부 없음을 명시",
     NO_TARGETS: "본문에 목표 없음",
 }

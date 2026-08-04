@@ -52,6 +52,10 @@ AXIS_TARGETS = "axis_targets"
 OTHER_METRIC = "other_metric"
 REFILING = "refiling"
 NO_TARGETS = "no_targets"
+# 회사가 **첨부가 없다고 본문에 명시**한 약식 공시(2026-08-04 실측 101개사).
+# no_targets에서 갈라낸 이유는 딱 하나 — **행동이 다르다**: 첨부 작업 목록이
+# 이들을 부르면 안 된다(없는 문서를 찾으러 사람을 보내는 꼴).
+EXEMPT_SHORT_FORM = "exempt_short_form"
 
 
 def opacity_axes(plan: Mapping[str, Any]) -> dict[str, bool]:

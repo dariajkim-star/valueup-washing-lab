@@ -10,6 +10,11 @@ DB를 뒤져 대상을 고르게 하면 그게 진짜 수작업이 된다.
   1. 순위 불가(4축 전무) — 첨부 없이는 살릴 방법이 없는 종목. 여기가 첨부의 본래 목적.
   2. 부분 공시(1~3축) — 첨부에 나머지가 있을 수 있다.
 이미 첨부를 파싱한 공시는 제외한다.
+
+**받을 수 없는 것은 부르지 않는다(2026-08-04)**: `exempt_short_form` — 회사가 본문에
+"첨부 없이 주요 내용을 기재하였습니다"라고 명시한 약식 공시는 제외한다. 이전에는
+목록이 129건이었는데 그중 101개사가 이 부류였다. **존재하지 않는 문서를 찾아오라고
+사람을 보내는 목록**은 작업 목록이 아니라 오답이다. 분류 근거는 `plan_signals.py`.
 """
 
 from __future__ import annotations
@@ -19,6 +24,7 @@ import argparse
 from sqlalchemy import select
 
 from app.analysis.plan_selection import (
+    EXEMPT_SHORT_FORM,
     OTHER_METRIC,
     choose_plan,
     disclosed_axis_count,
@@ -72,6 +78,11 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
         chosen = choice.plan
         axes = disclosed_axis_count(chosen)
         if chosen["plan_id"] in done:
+            continue
+        # [2026-08-04] 회사가 **첨부가 없다고 본문에 명시**한 약식 공시는 부르지 않는다.
+        # 이전에는 이 목록이 129건이었고 그 대부분(101개사)이 이 부류였다 — 존재하지
+        # 않는 문서를 찾아오라고 사람을 보내고 있었다. 목록은 "받을 수 있는 것"만 담는다.
+        if chosen.get("body_signal") == EXEMPT_SHORT_FORM:
             continue
         if axes == 0:
             priority = 1
