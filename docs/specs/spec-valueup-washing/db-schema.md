@@ -18,9 +18,11 @@ macro_indicator                (원천: ECOS 매크로, 종목 무관 시계열)
 | 테이블 | 성격 | 핵심 컬럼 | 소스 |
 |---|---|---|---|
 | `company` | 원천 | corp_code(PK), stock_code, corp_name, market(KOSPI/KOSDAQ), sector | DART |
-| `financials` | 원천 | corp_code, year, quarter, revenue, net_income, equity, total_assets, total_liabilities, operating_income, depreciation, cash, total_debt, dividend_total, buyback_amount, **buyback_retired_amount** | DART |
+| `financials` | 원천 | corp_code, year, quarter, revenue, net_income, equity, total_assets, total_liabilities, operating_income, depreciation, cash, total_debt, dividend_total, buyback_amount, **buyback_retired_amount**, **buyback_amount_krw** | DART |
 
-> **자사주 필드 각주(1.8)**: `buyback_amount`·`buyback_retired_amount`는 `tesstkAcqsDspsSttus`(자기주식 취득·처분 현황)의 **취득/소각 수량(주)**이다(KRW 액 아님). 워싱 판정이 `>0`(실행/소각 여부)로만 소비하므로 수량을 presence-proxy로 저장. 엔드포인트가 금액을 제공하지 않음. KRW 정밀액은 후속(수량×결산일 종가).
+> **자사주 필드 각주(1.8 · 2026-08-04 갱신)**: `buyback_amount`·`buyback_retired_amount`는 `tesstkAcqsDspsSttus`(자기주식 취득·처분 현황)의 **취득/소각 수량(주)**이다(KRW 액 아님) — 그 엔드포인트에는 수량 칸만 있다(`bsis_qy`·`change_qy_*`·`trmend_qy`). 워싱 판정이 `>0`(실행/소각 여부)로만 소비하므로 수량을 presence-proxy로 저장하고, 자사주 0 게이트도 이 수량을 쓴다.
+>
+> **`buyback_amount_krw`는 취득 '금액'(원)이고 원천이 다르다 — 재무제표 현금흐름표**다. 각주가 예고했던 '수량×결산일 종가' 근사는 **채택하지 않았다**(매입 단가는 기간 평균이지 결산일 종가가 아니다 — 근사는 틀린 값을 만든다). 이 열이 생긴 계기는 `total_return_ratio` 뷰가 수량(주)을 원(₩)에 더하고 있었던 것이다: 실측 579행 중 564행에서 총주주환원율이 배당성향과 소수 둘째자리까지 같았고, 자사주 1,445만 주를 매입한 종목조차 기여가 0.01%p였다. 수집 규칙은 **CF 한정 · 계정명에 `취득` 포함 · `처분`·`소각`·`종속기업` 제외 · 이름이 태그보다 우선**(계정명이 '자기주식의 취득'인데 태그가 처분인 행이 실재한다). 취득 수량이 0으로 확정된 행은 금액도 0이고, 수량>0인데 CF 행이 없으면 null이다.
 | `prices` | 원천 | corp_code, date, close, volume, trading_value, market_cap | KRX |
 | `valueup_plan` | 원천 | plan_id, corp_code, disclosure_date, target_roe, target_payout_ratio, target_pbr, period_start, period_end, buyback_planned | DART 밸류업 공시 |
 | `ownership` | 원천 | corp_code, as_of, largest_shareholder_pct, treasury_stock_pct | DART 지분공시 |

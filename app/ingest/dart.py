@@ -150,7 +150,7 @@ class DartAdapter(SourceAdapter):
             raise DartAdapterError(f"잘못된 bsns_year(YYYY 아님): {bsns_year!r}")
 
         company = self._fetch_company(key, corp_code)
-        accounts, total_debt, used_fs_div = self._fetch_accounts(
+        accounts, total_debt, buyback_krw, used_fs_div = self._fetch_accounts(
             key, corp_code, bsns_year, reprt_code, fs_div
         )
         periods: list[dict[str, Any]] = []
@@ -217,6 +217,7 @@ class DartAdapter(SourceAdapter):
                     "quarter": _REPRT_QUARTER[reprt_code],
                     "accounts": accounts,
                     "total_debt": total_debt,
+                    "buyback_amount_krw": buyback_krw,
                     "fs_div": used_fs_div,
                     "buyback_rows": buyback_rows,
                     "dividend_rows": dividend_rows,
@@ -241,8 +242,8 @@ class DartAdapter(SourceAdapter):
 
     def _fetch_accounts(
         self, key: str, corp_code: str, bsns_year: str, reprt_code: str, fs_div: str
-    ) -> tuple[dict[str, int], int | None, str | None]:
-        """(단일값 계정 dict, 총차입금 합, 사용한 fs_div) 반환."""
+    ) -> tuple[dict[str, int], int | None, int | None, str | None]:
+        """(단일값 계정 dict, 총차입금 합, 자사주 취득액, 사용한 fs_div) 반환."""
         for div in (fs_div, "OFS" if fs_div == "CFS" else None):
             if div is None:
                 break
@@ -261,8 +262,10 @@ class DartAdapter(SourceAdapter):
                 accounts = _collect_accounts(rows)
                 # 총차입금은 dedup 전 '모든 행'에서 합산(중복 라벨·유동/비유동 포함)
                 total_debt = _sum_debt(rows)
-                return accounts, total_debt, div
-        return {}, None, None
+                # 자사주 취득액도 같은 응답의 현금흐름표에서 나온다(별도 호출 없음)
+                buyback_krw = _buyback_amount_krw(rows)
+                return accounts, total_debt, buyback_krw, div
+        return {}, None, None, None
 
     def _get(
         self, endpoint: str, params: Mapping[str, Any], allow_no_data: bool = False
@@ -332,6 +335,15 @@ class DartAdapter(SourceAdapter):
             rec["buyback_amount"], rec["buyback_retired_amount"] = _buyback_totals(
                 period.get("buyback_rows")
             )
+            # 자사주 취득 '금액'(KRW) — 수량과 다른 열·다른 원천(현금흐름표).
+            # 취득 **수량이 0으로 확정**됐는데 CF에 취득 행이 없다면, 그건 결측이 아니라
+            # 금액도 0이다(같은 사건을 두 표가 같은 말로 말하고 있다). 반대로 수량이
+            # 0보다 큰데 금액 행을 못 찾으면 **null** — 매입은 했는데 액수를 모른다.
+            # (실측: 수량>0인 40곳 표본 중 36곳에서 CF 취득 행을 찾았다.)
+            krw = period.get("buyback_amount_krw")
+            if krw is None and rec["buyback_amount"] == 0:
+                krw = 0
+            rec["buyback_amount_krw"] = krw
             fin_recs.append(rec)
         return company, fin_recs
 
@@ -615,6 +627,53 @@ def _buyback_totals(
         _buyback_field_total(safe_rows, "change_qy_acqs"),
         _buyback_field_total(safe_rows, "change_qy_incnr"),
     )
+
+
+# 자사주 취득 '금액'(KRW) 매칭 규칙 — 2026-08-04 파티 승인.
+#
+# 왜 이름이 권위인가: 오전의 자산·부채 총계는 라벨이 갈려서 **태그로 구제**했는데, 여기선
+# 정반대다. 실측 40곳 표본에서 계정명이 '자기주식의 취득'(26)·'자기주식의 취득으로 인한
+# 현금의 유출'(7)·'자기주식 취득'(2)·'자기주식 등의 취득'(1)로 갈리는 반면, 태그는
+# dart_AcquisitionOfTreasuryShares·ifrs-full_PurchaseOfTreasuryShares·
+# ifrs-full_PaymentsToAcquireOrRedeemEntitysShares·'-표준계정코드 미사용-'(4건)로 흩어지고,
+# **계정명이 '자기주식의 취득'인데 태그가 처분(ProceedsFromSaleOrIssue...)인 행까지 있다.**
+# → 열마다 권위가 다르다: 재무상태표 총계는 태그, 현금흐름 항목은 이름.
+#
+# 제외 라벨이 규칙의 절반이다. '취득' 부분일치만 하면 다음이 딸려 들어온다:
+#   - '종속기업의 자기주식 취득' = 자회사 주식이지 우리 주주에게 간 돈이 아니다
+#   - '자기주식의 소각 비용' = 소각 수수료이지 취득이 아니다
+#   - '자기주식의 처분 및 발행 현금흐름' = 반대 방향
+_BUYBACK_KRW_REQUIRED = ("자기주식", "자사주")
+_BUYBACK_KRW_EXCLUDE = ("처분", "소각", "종속기업", "자회사", "관계기업")
+
+
+def _buyback_amount_krw(rows: Sequence[Mapping[str, Any]]) -> int | None:
+    """현금흐름표의 자사주 취득액(KRW). 없으면 None(수량 0 처리는 호출자 몫).
+
+    부호는 크기로 읽는다 — 실측 표본에서 양수 32·음수 1로 회사마다 유출 표기 규약이
+    갈렸다(같은 사건을 어떤 곳은 -136,699,000,000, 어떤 곳은 820,000,000,000으로 쓴다).
+    sj_div 게이트는 CF 한정이되, sj_div가 없는 응답(구형·픽스처)엔 적용하지 않는다
+    (_sum_debt·_collect_accounts와 동일 원칙).
+    """
+    total: int | None = None
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        sj = row.get("sj_div")
+        if sj and sj != "CF":
+            continue
+        name = row.get("account_nm") or ""
+        if not any(k in name for k in _BUYBACK_KRW_REQUIRED):
+            continue
+        if "취득" not in name:
+            continue
+        if any(k in name for k in _BUYBACK_KRW_EXCLUDE):
+            continue
+        v = _parse_amount(row.get("thstrm_amount"))
+        if v is None:
+            continue
+        total = abs(v) if total is None else total + abs(v)
+    return total
 
 
 def _sum_debt(rows: Sequence[Mapping[str, Any]]) -> int | None:

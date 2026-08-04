@@ -77,6 +77,12 @@ class Financial(Base):
     # 자사주(1.8, tesstkAcqsDspsSttus): 취득/소각 수량(주) — 워싱 presence 신호(>0), KRW 액 아님
     buyback_amount: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 취득 수량(주)
     buyback_retired_amount: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 소각 수량(주)
+    # [2026-08-04] 자사주 취득 **금액**(KRW) — 위 수량과 다른 열이다. 단위를 이름에 박는다:
+    # total_return_ratio 뷰가 수량(주)을 원(₩)에 더하고 있었고(단위 불일치), 실측 579행 중
+    # 564행에서 총주주환원율이 배당성향과 소수 둘째자리까지 같았다 = 자사주 환원이 미반영.
+    # 원천도 다르다 — 수량은 tesstkAcqsDspsSttus, 금액은 재무제표 현금흐름표(CF).
+    # 수량은 자사주 0 게이트가 쓰므로 그대로 둔다(이 열은 추가이지 대체가 아니다).
+    buyback_amount_krw: Mapped[int | None] = mapped_column(BigInteger)  # 자사주 취득액(원)
 
 
 class Price(Base):

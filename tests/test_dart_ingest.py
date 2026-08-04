@@ -318,6 +318,106 @@ def test_fetch_rejects_bad_args(monkeypatch) -> None:
 
 # ── Story 1.9: 배당총액 (alotMatter) ──
 
+def test_buyback_amount_krw_reads_cash_flow() -> None:
+    """[2026-08-04] 자사주 취득 '금액'은 자사주 표가 아니라 현금흐름표에 있다.
+
+    tesstkAcqsDspsSttus에는 수량 칸만 있다(bsis_qy·change_qy_*·trmend_qy).
+    실측 40곳 표본에서 계정명이 네 갈래로 갈렸고(아래), 태그는 그보다 더 흩어졌다.
+    """
+    from app.ingest.dart import _buyback_amount_krw
+
+    for name in ("자기주식의 취득", "자기주식 취득", "자기주식 등의 취득",
+                 "자기주식의 취득으로 인한 현금의 유출"):
+        rows = [{"sj_div": "CF", "account_id": "dart_AcquisitionOfTreasuryShares",
+                 "account_nm": name, "thstrm_amount": "820,000,000,000"}]
+        assert _buyback_amount_krw(rows) == 820_000_000_000, name
+
+
+def test_buyback_amount_krw_name_beats_tag() -> None:
+    """계정명이 권위다 — 실측에 '자기주식의 취득'인데 태그가 **처분**인 행이 있었다.
+
+    오전의 자산·부채 총계는 정반대였다(라벨이 갈려 태그로 구제). 열마다 권위가 다르다:
+    재무상태표 총계는 태그, 현금흐름 항목은 이름.
+    """
+    from app.ingest.dart import _buyback_amount_krw
+
+    mistagged = [{"sj_div": "CF",
+                  "account_id": "ifrs-full_ProceedsFromSaleOrIssueOfTreasuryShares",
+                  "account_nm": "자기주식의 취득", "thstrm_amount": "-396,885,000,000"}]
+    assert _buyback_amount_krw(mistagged) == 396_885_000_000
+    # 표준계정코드를 안 쓰는 회사도 이름으로 잡힌다(실측 40곳 중 4곳)
+    untagged = [{"sj_div": "CF", "account_id": "-표준계정코드 미사용-",
+                 "account_nm": "자기주식의 취득", "thstrm_amount": "151,682,000,000"}]
+    assert _buyback_amount_krw(untagged) == 151_682_000_000
+
+
+def test_buyback_amount_krw_excludes_non_returns() -> None:
+    """제외 라벨이 규칙의 절반 — '취득' 부분일치만 하면 셋이 딸려 들어온다."""
+    from app.ingest.dart import _buyback_amount_krw
+
+    # 자회사 주식이지 우리 주주에게 간 돈이 아니다
+    assert _buyback_amount_krw([{"sj_div": "CF", "account_nm": "종속기업의 자기주식 취득",
+                                 "thstrm_amount": "1,000"}]) is None
+    # 소각 '비용'은 취득이 아니다
+    assert _buyback_amount_krw([{"sj_div": "CF", "account_nm": "자기주식의 소각 비용",
+                                 "thstrm_amount": "1,000"}]) is None
+    # 반대 방향
+    assert _buyback_amount_krw([{"sj_div": "CF", "account_nm": "자기주식의 처분",
+                                 "thstrm_amount": "1,000"}]) is None
+    assert _buyback_amount_krw([{"sj_div": "CF",
+                                 "account_nm": "자기주식의 처분 및 발행 현금흐름",
+                                 "thstrm_amount": "1,000"}]) is None
+    # 현금흐름표 밖의 동명 행은 잡지 않는다(자본변동표에 같은 이름이 온다)
+    assert _buyback_amount_krw([{"sj_div": "SCE", "account_nm": "자기주식의 취득",
+                                 "thstrm_amount": "1,000"}]) is None
+
+
+def test_buyback_amount_krw_sign_and_absence() -> None:
+    """부호 규약이 회사마다 갈려(양수 32·음수 1) 크기로 읽는다. 행이 없으면 None."""
+    from app.ingest.dart import _buyback_amount_krw
+
+    assert _buyback_amount_krw([{"sj_div": "CF", "account_nm": "자기주식의 취득",
+                                 "thstrm_amount": "-136,699,000,000"}]) == 136_699_000_000
+    assert _buyback_amount_krw([]) is None
+    assert _buyback_amount_krw([{"sj_div": "CF", "account_nm": "배당금의 지급",
+                                 "thstrm_amount": "100"}]) is None
+    # 취득 행이 여럿이면 합산(신탁·직접취득이 따로 오는 회사)
+    two = [
+        {"sj_div": "CF", "account_nm": "자기주식의 취득", "thstrm_amount": "100"},
+        {"sj_div": "CF", "account_nm": "자기주식 취득", "thstrm_amount": "-50"},
+    ]
+    assert _buyback_amount_krw(two) == 150
+
+
+def test_normalize_zero_quantity_means_zero_amount() -> None:
+    """취득 수량이 0으로 확정됐는데 CF에 취득 행이 없으면 금액도 0(결측 아님).
+
+    두 표가 같은 말을 하고 있다. 반대로 수량>0인데 금액 행을 못 찾으면 null —
+    매입은 했는데 액수를 모르는 상태를 0으로 세탁하지 않는다.
+    """
+    from app.ingest.dart import DartAdapter
+
+    raw = {
+        "company": {"corp_code": "00000001", "corp_name": "테스트"},
+        "periods": [{
+            "year": 2024, "quarter": 4, "accounts": {}, "total_debt": None,
+            "buyback_amount_krw": None, "fs_div": "CFS",
+            "buyback_rows": [{"acqs_mth1": "총계", "change_qy_acqs": "0",
+                              "change_qy_incnr": "0"}],
+            "dividend_rows": [],
+        }],
+    }
+    _, fins = DartAdapter().normalize(raw)
+    assert fins[0]["buyback_amount"] == 0
+    assert fins[0]["buyback_amount_krw"] == 0
+
+    raw["periods"][0]["buyback_rows"] = [{"acqs_mth1": "총계", "change_qy_acqs": "1,000",
+                                          "change_qy_incnr": "0"}]
+    _, fins = DartAdapter().normalize(raw)
+    assert fins[0]["buyback_amount"] == 1000
+    assert fins[0]["buyback_amount_krw"] is None
+
+
 def test_dividend_total_scales_million_won() -> None:
     """AC2: '현금배당금총액(백만원)' 행 × 1,000,000 = KRW. 스케일 누락은 100만배 축소 오염."""
     from app.ingest.dart import _dividend_total
