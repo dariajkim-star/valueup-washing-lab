@@ -308,3 +308,62 @@ def test_nan_inf_filter_rejected(engine, monkeypatch) -> None:
     client = TestClient(fastapi_app)
     assert client.get("/metrics", params={"max_pbr": "nan"}).status_code == 422
     assert client.get("/metrics", params={"min_roe": "inf"}).status_code == 422
+
+
+def test_view_retired_return_and_retirement_rate(engine) -> None:
+    """[0028] 이중 시선 파생 — 소각 기준 환원율·소각률.
+
+    정의를 바꾸지 않는다: total_return_ratio(매입 기준)는 그대로, 소각 기준을 나란히.
+    소각률은 이월 소각으로 100%를 넘을 수 있다(캡 없음 — payout_achievement 원칙).
+    """
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed(s)
+        # 2024: 배당 30 · 취득 45 · 소각 27 · 순익 150
+        s.execute(text(
+            "UPDATE financials SET buyback_amount_krw=45, buyback_retired_krw=27 "
+            "WHERE corp_code='00000001' AND year=2024"
+        ))
+        # 2023: 취득 10 · 소각 15(이월 소각 — 취득보다 크다) · 배당 20 · 순익 100
+        s.execute(text(
+            "UPDATE financials SET buyback_amount_krw=10, buyback_retired_krw=15 "
+            "WHERE corp_code='00000001' AND year=2023"
+        ))
+        s.commit()
+        y24 = s.execute(text(
+            "SELECT * FROM valuation_metrics WHERE year=2024")).mappings().one()
+        y23 = s.execute(text(
+            "SELECT * FROM valuation_metrics WHERE year=2023")).mappings().one()
+    # 매입 기준 (30+45)/150=50 · 소각 기준 (30+27)/150=38 · 소각률 27/45=60
+    assert y24["total_return_ratio"] == 50.0
+    assert y24["retired_return_ratio"] == 38.0
+    assert y24["retirement_rate"] == 60.0
+    # 이월 소각: 소각률 150%(캡 없음), 소각 기준 (20+15)/100=35
+    assert y23["retirement_rate"] == 150.0
+    assert y23["retired_return_ratio"] == 35.0
+
+
+def test_view_retired_metrics_null_contract(engine) -> None:
+    """소각액 미상 → 두 파생 다 null(0 세탁 금지) · 취득 0인 해의 소각률 null(0% 아님)."""
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed(s)
+        # 2024: 취득은 알고 소각은 미상
+        s.execute(text(
+            "UPDATE financials SET buyback_amount_krw=45, buyback_retired_krw=NULL "
+            "WHERE corp_code='00000001' AND year=2024"
+        ))
+        # 2023: 취득 0 확정 + 소각 0 확정 → 환원율은 서고 소각률은 분모 없음
+        s.execute(text(
+            "UPDATE financials SET buyback_amount_krw=0, buyback_retired_krw=0 "
+            "WHERE corp_code='00000001' AND year=2023"
+        ))
+        s.commit()
+        y24 = s.execute(text(
+            "SELECT * FROM valuation_metrics WHERE year=2024")).mappings().one()
+        y23 = s.execute(text(
+            "SELECT * FROM valuation_metrics WHERE year=2023")).mappings().one()
+    assert y24["retired_return_ratio"] is None
+    assert y24["retirement_rate"] is None
+    assert y23["retired_return_ratio"] == 20.0  # (20+0)/100 — 배당만
+    assert y23["retirement_rate"] is None  # 취득 0 — 분모가 없다(0%로 세탁 금지)

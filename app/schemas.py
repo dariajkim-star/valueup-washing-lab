@@ -54,9 +54,15 @@ class ReturnBreakdownOut(BaseModel):
     dividend_total: int | None = None
     buyback_amount_krw: int | None = None
     buyback_retired_qty: int | None = None
+    # 소각 '금액'(원, SCE 원천, 0027) — 수량과 별개 열. null=미상(혼합 행 등 분해 불가)
+    buyback_retired_krw: int | None = None
     net_income: int | None = None
     total_return_ratio: float | None = None
     payout_ratio: float | None = None
+    # 이중 시선(0028): 소각 기준 환원율 (배당+소각액)/순이익 · 소각률 소각액/취득액.
+    # retirement_rate는 이월 소각으로 100% 초과 가능(캡 없음), 취득 0인 해는 null.
+    retired_return_ratio: float | None = None
+    retirement_rate: float | None = None
 
 
 class ScreeningOut(BaseModel):
@@ -81,6 +87,9 @@ class ScreeningOut(BaseModel):
     # 총주주환원율(최신 사업연도, %) — '매입만·소각 0' 필터(2026-08-04)가 buyback_status와
     # 함께 쓰는 짝. 필터만 만들고 값을 숨기면 "왜 걸렸는지"를 화면이 말할 수 없다.
     total_return_ratio: float | None = None
+    # 소각 기준 환원율(0028) = (배당+소각액)/순이익. 매입 기준과의 차이가 곧
+    # '매입만 한 기업' 신호(scoring.md 이중 시선). null=소각액 미상(0 표시 금지)
+    retired_return_ratio: float | None = None
     has_valueup_score: bool
     has_mna_score: bool
     has_opacity_score: bool

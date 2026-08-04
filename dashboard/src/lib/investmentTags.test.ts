@@ -10,6 +10,7 @@ function header(partial: Partial<ScreeningRow>): ScreeningRow {
   return {
     corp_code: "00000000", corp_name: "테스트", market: "KOSPI", sector: "26100",
     as_of: "2026-07-13", roe: null, pbr: null, total_return_ratio: null,
+    retired_return_ratio: null,
     execution_score: null, score_basis: null,
     washing_flag: null, buyback_status: null, buyback_executed: null,
     mna_target_score: null, population_basis: null,

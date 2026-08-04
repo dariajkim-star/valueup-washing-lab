@@ -98,8 +98,8 @@ def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any
     as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
-            "SELECT corp_code, roe, pbr, ev_ebit, debt_ratio, total_return_ratio "
-            "FROM valuation_metrics "
+            "SELECT corp_code, roe, pbr, ev_ebit, debt_ratio, total_return_ratio, "
+            "retired_return_ratio FROM valuation_metrics "
             "WHERE year < :yr OR (year = :yr AND quarter < 4) "
             "ORDER BY corp_code, year DESC, quarter DESC"
         ),
@@ -291,6 +291,9 @@ def list_screening(
             "pbr": m.get("pbr") if m else None,
             # 총환원율 — '매입만·소각 0' 필터의 짝. 필터가 왜 걸렸는지 화면이 말하게 한다.
             "total_return_ratio": m.get("total_return_ratio") if m else None,
+            # 소각 기준 환원율(0028) — 매입 기준과 나란히 서빙해 두 시선의 차이가
+            # 한 행에서 보이게 한다(그 차이가 곧 '매입만 한 기업' 신호).
+            "retired_return_ratio": m.get("retired_return_ratio") if m else None,
             # has_* 플래그: "row 없음(엔진 미실행)"과 "row는 있으나 전부 null(엄격
             # 게이팅으로 산출 불가)"을 구분(GPT 리뷰 Med — 없으면 소비자가 식별 불가)
             "has_valueup_score": vs is not None,

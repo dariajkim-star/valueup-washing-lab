@@ -51,6 +51,20 @@ SELECT
     ROUND(CASE WHEN f.net_income > 0 AND f.buyback_amount_krw IS NOT NULL
                THEN (f.dividend_total + f.buyback_amount_krw) * 100.0 / f.net_income END, 2)
                                                                                AS total_return_ratio,
+    -- [2026-08-04 2차, 0028] 소각 '금액'(buyback_retired_krw, SCE 원천)이 채워져 백로그
+    -- ("소각하지 않은 자사주를 환원으로 볼 것인지")를 다시 열었다 — 정의를 바꾸지 않고
+    -- **두 번째 시선을 나란히 둔다**(scoring.md 의도된 이중 시선의 수치화).
+    -- retired_return_ratio: 소각 기준 총환원율 = (배당 + 소각액)/순이익. 매입 기준
+    -- (total_return_ratio)과의 차이가 곧 '매입만 한 기업' 신호다.
+    ROUND(CASE WHEN f.net_income > 0 AND f.buyback_retired_krw IS NOT NULL
+               THEN (f.dividend_total + f.buyback_retired_krw) * 100.0 / f.net_income END, 2)
+                                                                               AS retired_return_ratio,
+    -- retirement_rate: 소각률 = 소각액/취득액(같은 회계연도). 이월 자사주 소각(전년
+    -- 취득분을 올해 소각)이 있으면 100%를 넘을 수 있다 — 캡을 걸지 않는다(원값 보존,
+    -- payout_achievement와 같은 원칙). 취득 0인 해의 소각은 분모가 없어 null(0% 아님).
+    ROUND(CASE WHEN f.buyback_amount_krw > 0 AND f.buyback_retired_krw IS NOT NULL
+               THEN f.buyback_retired_krw * 100.0 / f.buyback_amount_krw END, 2)
+                                                                               AS retirement_rate,
     (f.cash - f.total_debt)                                                        AS net_cash,
     -- 매출 > 0에서만. EBIT 자체는 음수 가능(음수 마진은 유의미)이라 분자 부호는 유지.
     -- 감가상각을 쓰지 않는 이유는 ev_ebit 주석 참조(같은 결정, 같은 실측).

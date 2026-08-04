@@ -163,9 +163,15 @@ export interface ReturnBreakdownPoint {
   dividend_total: number | null;
   buyback_amount_krw: number | null;
   buyback_retired_qty: number | null;
+  // 소각 '금액'(원, SCE 원천, 0027). null=미상(혼합 행 등 분해 불가 — 0 표시 금지)
+  buyback_retired_krw: number | null;
   net_income: number | null;
   total_return_ratio: number | null;
   payout_ratio: number | null;
+  // 이중 시선(0028): 소각 기준 환원율 (배당+소각액)/순이익 · 소각률 소각액/취득액
+  // (이월 소각으로 100% 초과 가능 — 캡 없음, 취득 0인 해는 null)
+  retired_return_ratio: number | null;
+  retirement_rate: number | null;
 }
 
 export function useReturnsBreakdown(corpCode: string | undefined) {

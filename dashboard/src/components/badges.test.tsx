@@ -27,6 +27,7 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     roe: null,
     pbr: null,
     total_return_ratio: null,
+    retired_return_ratio: null,
     execution_score: null,
     score_basis: null,
     washing_flag: null,

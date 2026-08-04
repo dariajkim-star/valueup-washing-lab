@@ -13,9 +13,12 @@ function pt(partial: Partial<ReturnBreakdownPoint> & { year: number }): ReturnBr
     dividend_total: null,
     buyback_amount_krw: null,
     buyback_retired_qty: null,
+    buyback_retired_krw: null,
     net_income: null,
     total_return_ratio: null,
     payout_ratio: null,
+    retired_return_ratio: null,
+    retirement_rate: null,
     ...partial,
   };
 }
@@ -70,5 +73,39 @@ describe("ReturnBreakdownCard", () => {
   it("행이 없으면 데이터 없음을 말한다(빈 차트로 위장하지 않음)", () => {
     render(<ReturnBreakdownCard rows={[]} />);
     expect(screen.getByText("연간 재무 데이터 없음")).toBeTruthy();
+  });
+});
+
+// [0028] 이중 시선 — 소각 축이 카드에 들어왔다.
+describe("ReturnBreakdownCard 소각 축", () => {
+  const YUSU_2024 = pt({
+    year: 2024, dividend_total: 9_115_000_000, buyback_amount_krw: 62_100_000_000,
+    buyback_retired_qty: 0, buyback_retired_krw: 0, net_income: 31_644_811_581,
+    total_return_ratio: 225.0, retired_return_ratio: 28.8, retirement_rate: 0.0,
+  });
+
+  it("소각 기준 환원율 칩을 매입 기준과 나란히 보여준다(유수홀딩스 실측)", () => {
+    render(<ReturnBreakdownCard rows={[YUSU_2024]} />);
+    expect(screen.getByText(/소각 기준 28\.8%/)).toBeTruthy();
+    expect(screen.getByText("225.0%")).toBeTruthy();
+  });
+
+  it("소각률 칩(최신 연도) — 취득이 있는 해만", () => {
+    render(<ReturnBreakdownCard rows={[YUSU_2024]} />);
+    expect(screen.getByText(/소각률 0%/)).toBeTruthy();
+  });
+
+  it("소각률 null(취득 0인 해)이면 칩이 없다 — 0%로 세탁 금지", () => {
+    const noBuy = pt({ ...YUSU_2024, year: 2023, buyback_amount_krw: 0,
+                       retirement_rate: null, total_return_ratio: 28.8 });
+    render(<ReturnBreakdownCard rows={[noBuy]} />);
+    expect(screen.queryByText(/소각률/)).toBeNull();
+  });
+
+  it("소각액 미상이면 소각 기준 칩이 없다 — 모르는 값은 그리지 않는다", () => {
+    const unknown = pt({ ...YUSU_2024, buyback_retired_krw: null,
+                         retired_return_ratio: null, retirement_rate: null });
+    render(<ReturnBreakdownCard rows={[unknown]} />);
+    expect(screen.queryByText(/소각 기준/)).toBeNull();
   });
 });

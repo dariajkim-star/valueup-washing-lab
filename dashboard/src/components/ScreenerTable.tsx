@@ -135,13 +135,30 @@ export function ScreenerTable({
       }),
       // [2026-08-04] 총주주환원율 — '매입만·소각 0' 필터의 짝. null=산출 불가("—",
       // 0%로 표시 금지 — 분자 미상을 "환원 안 함"으로 세탁하지 않는다).
+      // [0028] 소각 기준을 같은 셀 아래에 나란히 — 두 시선의 격차가 한 셀에서 읽힌다
+      // (유수홀딩스: 매입 기준 225.0% / 소각 기준 28.8% — 그 차이가 곧 신호다).
       col.accessor("total_return_ratio", {
         header: () => <span className="block text-right">총환원율</span>,
         cell: (c) => {
           const v = c.getValue();
+          const retired = c.row.original.retired_return_ratio;
+          // 두 시선이 갈릴 때만 둘째 줄을 그린다 — 배당만 하는 회사는 두 값이 같아
+          // "19.4% / 소각 19.4%" 중복이 소음이 된다(차이가 곧 신호라는 정의 그대로).
+          const diverges =
+            retired !== null && (v === null || Math.abs(v - retired) >= 0.05);
           return (
-            <div className="text-right text-xs text-gray-700">
-              {v === null ? <span className="text-gray-300">—</span> : `${v.toFixed(1)}%`}
+            <div className="flex flex-col items-end gap-0.5 text-xs text-gray-700">
+              <span title="매입 기준(업계 표준): (배당 + 자사주 취득)/순이익">
+                {v === null ? <span className="text-gray-300">—</span> : `${v.toFixed(1)}%`}
+              </span>
+              {retired !== null && diverges && (
+                <span
+                  className="text-[9px] text-gray-400"
+                  title="소각 기준: (배당 + 자사주 소각액)/순이익 — 소각 전 자사주는 재매각(재발행)될 수 있다. 매입 기준과의 차이가 '매입만 한 기업' 신호다."
+                >
+                  소각 {retired.toFixed(1)}%
+                </span>
+              )}
             </div>
           );
         },

@@ -117,8 +117,10 @@ def returns_breakdown(session: Session, corp_code: str) -> list[dict]:
     rows = session.execute(
         text(
             "SELECT f.year, f.dividend_total, f.buyback_amount_krw, "
-            "f.buyback_retired_amount AS buyback_retired_qty, f.net_income, "
-            "vm.total_return_ratio, vm.payout_ratio "
+            "f.buyback_retired_amount AS buyback_retired_qty, "
+            "f.buyback_retired_krw, f.net_income, "
+            "vm.total_return_ratio, vm.payout_ratio, "
+            "vm.retired_return_ratio, vm.retirement_rate "
             "FROM financials f "
             "LEFT JOIN valuation_metrics vm "
             "ON vm.corp_code = f.corp_code AND vm.year = f.year AND vm.quarter = f.quarter "

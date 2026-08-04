@@ -13,6 +13,9 @@ export interface ScreeningRow {
   // 총주주환원율(%, 최신 지표) — '매입만·소각 0' 필터(2026-08-04)의 짝.
   // null=산출 불가(분자 미상 포함 — 0%로 표시 금지)
   total_return_ratio: number | null;
+  // 소각 기준 환원율(0028) = (배당+소각액)/순이익. 매입 기준과의 차이가 곧
+  // '매입만 한 기업' 신호. null=소각액 미상(혼합 행 등 — 0%로 표시 금지)
+  retired_return_ratio: number | null;
   execution_score: number | null;
   score_basis: string | null; // 채점 근거(5-1) — 가중치 기반이 종목마다 다름
   washing_flag: boolean | null; // true=워싱의심 / false=근거없음 / null=판단불가
