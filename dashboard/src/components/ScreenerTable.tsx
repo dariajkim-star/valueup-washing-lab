@@ -9,7 +9,8 @@ import {
 import type { ScreeningRow } from "../api/screening";
 import { useFilters } from "../state/filters";
 import {
-  AmbitionBadge, BuybackRetiredBadge, MarketPill, MnaCell, OpacityCell, ValueUpCell,
+  AmbitionBadge, BuybackRetiredBadge, MarketPill, MnaCell, OpacityCell,
+  PurchasedOnlyBadge, ValueUpCell,
 } from "./badges"; // WashingBadge: 은퇴(불투명도로 대체)
 import { ApiRequestError } from "../api/client";
 
@@ -45,8 +46,9 @@ export function ScreenerTable({
   loading: boolean;
   error: unknown;
 }) {
-  const { scoreMode, page, size, setPage } = useFilters();
+  const { scoreMode, page, size, setPage, purchasedOnlyMinReturn } = useFilters();
   const navigate = useNavigate(); // AC1/AC6: 행 클릭 → /company/:corpCode 딥링크 라우트
+  const purchasedOnlyOn = purchasedOnlyMinReturn !== undefined;
 
   const columns = useMemo(
     () => [
@@ -65,6 +67,11 @@ export function ScreenerTable({
             />
             {/* P1-7: 야심도도 점수와 독립인 사실이라 같은 자리에 둔다. */}
             <AmbitionBadge gap={c.row.original.lowest_own_gap} />
+            {/* [2026-08-04] 필터가 켜진 문맥에서만 — 걸러 놓고 이유를 숨기지 않는다. */}
+            <PurchasedOnlyBadge
+              status={c.row.original.buyback_status}
+              filterOn={purchasedOnlyOn}
+            />
           </div>
         ),
       }),
@@ -126,12 +133,25 @@ export function ScreenerTable({
           );
         },
       }),
+      // [2026-08-04] 총주주환원율 — '매입만·소각 0' 필터의 짝. null=산출 불가("—",
+      // 0%로 표시 금지 — 분자 미상을 "환원 안 함"으로 세탁하지 않는다).
+      col.accessor("total_return_ratio", {
+        header: () => <span className="block text-right">총환원율</span>,
+        cell: (c) => {
+          const v = c.getValue();
+          return (
+            <div className="text-right text-xs text-gray-700">
+              {v === null ? <span className="text-gray-300">—</span> : `${v.toFixed(1)}%`}
+            </div>
+          );
+        },
+      }),
       // [2026-07-28] washing_flag 컬럼은 **은퇴**했다(2026-07-23 임시 은닉 → 확정).
       // '고의 판정'이라 프로젝트 서명("불확실을 확실로 세탁하지 않는다")을 위반했고 실측
       // True=0인 켜질 수 없는 경고등이었다. 그 자리는 위의 '불투명' 컬럼이 대신한다 —
       // 고의를 판정하지 않고 공시 격차를 드러낸다.
     ],
-    [],
+    [purchasedOnlyOn],
   );
 
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });

@@ -70,6 +70,16 @@ def screening_list(
     buyback_executed: bool | None = Query(
         None, description="true=매입 실행 / false=미실행 — null(판단 불가)은 양쪽 다 제외"
     ),
+    # '매입만·소각 0' 필터(2026-08-04): buyback_status=purchased_only + min_total_return
+    # 조합이 "환원율은 높은데 소각 기준으론 0"을 뽑는다(scoring.md 의도된 이중 시선).
+    buyback_status: str | None = Query(
+        None, pattern=r"^(retired|purchased_only|none|unknown)$",
+        description="소각 3단계 상태 정확일치 — purchased_only=매입만·소각 0",
+    ),
+    min_total_return: float | None = Query(
+        None, allow_inf_nan=False,
+        description="총주주환원율(%) 하한 — 최신 지표 기준, null은 매칭 안 됨",
+    ),
     sort: str | None = Query(
         None,
         description="execution_score | mna_target_score | opacity_rank, `-` 내림차순",
@@ -90,6 +100,8 @@ def screening_list(
         "min_opacity_rank": min_opacity_rank, "max_opacity_rank": max_opacity_rank,
         "max_own_gap": max_own_gap,
         "buyback_executed": buyback_executed,
+        "buyback_status": buyback_status,
+        "min_total_return": min_total_return,
         "as_of": as_of.isoformat() if as_of else None,
     }
     try:

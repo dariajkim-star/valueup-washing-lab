@@ -40,6 +40,25 @@ class MetricOut(BaseModel):
     yoy_income_growth: float | None = None
 
 
+class ReturnBreakdownOut(BaseModel):
+    """연도별 주주환원 구성(2026-08-04) — 환원율 점프를 구성으로 설명한다(종목 상세).
+
+    null 계약: dividend_total/buyback_amount_krw null=미상(0 표시 금지 — 0은 '없다'는
+    확정이고 null은 '모른다'다, 프로젝트 전반의 null 규약). total_return_ratio는
+    valuation_metrics 뷰가 단일 정의처 — 분자에 null이 있으면 뷰가 전체를 null로 낸다.
+    buyback_retired_qty는 **수량(주)**이다 — 소각 0 배지 판정(>0)에만 쓰고 금액 축에
+    합산하지 말 것(0026 단위 사고의 재발 방지).
+    """
+
+    year: int
+    dividend_total: int | None = None
+    buyback_amount_krw: int | None = None
+    buyback_retired_qty: int | None = None
+    net_income: int | None = None
+    total_return_ratio: float | None = None
+    payout_ratio: float | None = None
+
+
 class ScreeningOut(BaseModel):
     """company + valueup_score + mna_score + opacity_score outer join 결과 (2.6 다중조건 스크리닝).
 
@@ -59,6 +78,9 @@ class ScreeningOut(BaseModel):
     # 핵심지표(AC3, 3.3 리뷰 반영) — look-ahead 안전 최신값, null=지표 없음
     roe: float | None = None
     pbr: float | None = None
+    # 총주주환원율(최신 사업연도, %) — '매입만·소각 0' 필터(2026-08-04)가 buyback_status와
+    # 함께 쓰는 짝. 필터만 만들고 값을 숨기면 "왜 걸렸는지"를 화면이 말할 수 없다.
+    total_return_ratio: float | None = None
     has_valueup_score: bool
     has_mna_score: bool
     has_opacity_score: bool

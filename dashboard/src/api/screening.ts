@@ -10,6 +10,9 @@ export interface ScreeningRow {
   as_of: string;
   roe: number | null; // 핵심지표(AC3) — null=지표 없음
   pbr: number | null;
+  // 총주주환원율(%, 최신 지표) — '매입만·소각 0' 필터(2026-08-04)의 짝.
+  // null=산출 불가(분자 미상 포함 — 0%로 표시 금지)
+  total_return_ratio: number | null;
   execution_score: number | null;
   score_basis: string | null; // 채점 근거(5-1) — 가중치 기반이 종목마다 다름
   washing_flag: boolean | null; // true=워싱의심 / false=근거없음 / null=판단불가
@@ -68,6 +71,9 @@ export interface ScreeningParams {
   // 자기 과거 대비 목표 격차 상한(%p) — 0이면 "하던 것보다 낮은 목표"만.
   max_own_gap?: number;
   buyback_executed?: boolean;
+  // '매입만·소각 0' 필터(2026-08-04): status 정확일치 + 총환원율 하한 조합
+  buyback_status?: string;
+  min_total_return?: number;
   sort?: string; // field / -field
   page?: number;
   size?: number;

@@ -105,6 +105,30 @@ def list_metrics(
     return [dict(r) for r in rows], total
 
 
+def returns_breakdown(session: Session, corp_code: str) -> list[dict]:
+    """연도별 주주환원 구성(2026-08-04, Sally) — 환원율 점프를 구성으로 설명한다.
+
+    총환원율이 갑자기 뛴 종목(에이피알 0%→55.7%)의 "왜"를 화면이 말하려면 분자의
+    구성(배당 vs 자사주 취득)이 필요하다. 비율은 여기서 재계산하지 않고
+    **valuation_metrics 뷰에서 조인**한다 — 정의처는 뷰 하나다(0026 단위 정정 이래).
+    사업보고서(quarter=4) 행만 준다: 배당·CF취득은 연 단위 사실이라 분기 행은 소음이다.
+    소각은 buyback_retired_amount(**수량, 주**) — 금액이 아니라는 것을 필드명이 말한다.
+    """
+    rows = session.execute(
+        text(
+            "SELECT f.year, f.dividend_total, f.buyback_amount_krw, "
+            "f.buyback_retired_amount AS buyback_retired_qty, f.net_income, "
+            "vm.total_return_ratio, vm.payout_ratio "
+            "FROM financials f "
+            "LEFT JOIN valuation_metrics vm "
+            "ON vm.corp_code = f.corp_code AND vm.year = f.year AND vm.quarter = f.quarter "
+            "WHERE f.corp_code = :cc AND f.quarter = 4 ORDER BY f.year"
+        ),
+        {"cc": corp_code},
+    ).mappings().all()
+    return [dict(r) for r in rows]
+
+
 def metrics_by_corp(session: Session, corp_code: str) -> list[dict]:
     rows = session.execute(
         text(_BASE_SELECT + " WHERE vm.corp_code = :cc ORDER BY vm.year, vm.quarter"),

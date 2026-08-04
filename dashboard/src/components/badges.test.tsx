@@ -11,6 +11,7 @@ import {
   WashingBadge,
   ScoreBasisChip,
   AmbitionBadge,
+  PurchasedOnlyBadge,
 } from "./badges";
 import type { ScreeningRow } from "../api/screening";
 
@@ -25,6 +26,7 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     as_of: "2026-07-13",
     roe: null,
     pbr: null,
+    total_return_ratio: null,
     execution_score: null,
     score_basis: null,
     washing_flag: null,
@@ -313,5 +315,29 @@ describe("AmbitionBadge", () => {
   it("null(비교할 과거 없음)은 배지를 띄우지 않는다 — 측정 불가는 판정이 아니다", () => {
     const { container } = render(<AmbitionBadge gap={null} />);
     expect(container.textContent).toBe("");
+  });
+});
+
+// [2026-08-04] "매입만 · 소각 0" 배지 — 필터 문맥 한정 렌더.
+// 상시 배지는 "안 했다" 판정에 가까워진다는 BuybackRetiredBadge 원칙은 유지하되,
+// 사용자가 명시적으로 걸러 달라고 한 화면에서는 걸린 이유가 보여야 한다.
+describe("PurchasedOnlyBadge", () => {
+  it("필터 켜짐 + purchased_only면 렌더", () => {
+    render(<PurchasedOnlyBadge status="purchased_only" filterOn={true} />);
+    expect(screen.getByText("매입만 · 소각 0")).toBeTruthy();
+  });
+
+  it("필터가 꺼져 있으면 purchased_only여도 렌더하지 않는다(상시 판정 금지)", () => {
+    const { container } = render(
+      <PurchasedOnlyBadge status="purchased_only" filterOn={false} />,
+    );
+    expect(container.textContent).toBe("");
+  });
+
+  it("retired·null은 필터가 켜져도 렌더하지 않는다", () => {
+    const r1 = render(<PurchasedOnlyBadge status="retired" filterOn={true} />);
+    expect(r1.container.textContent).toBe("");
+    const r2 = render(<PurchasedOnlyBadge status={null} filterOn={true} />);
+    expect(r2.container.textContent).toBe("");
   });
 });

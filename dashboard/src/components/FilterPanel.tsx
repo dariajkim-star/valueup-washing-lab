@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useFilters, DEFAULT_OPAQUE_MIN_RANK, type McapBucket } from "../state/filters";
+import {
+  useFilters,
+  DEFAULT_OPAQUE_MIN_RANK,
+  DEFAULT_PURCHASED_ONLY_MIN_RETURN,
+  type McapBucket,
+} from "../state/filters";
 
 // UX-DR1: 시장·업종·시총구간·지표 슬라이더·워싱 토글·스코어 모드 전환 — 전부 실배선
 // (3.3 리뷰 반영: 가짜 컨트롤 금지, 모든 조작이 /screening 재요청으로 이어진다).
@@ -120,6 +125,7 @@ export function FilterPanel() {
   const f = useFilters();
   const opaqueOn = f.opaqueMinRank !== undefined;
   const lowAmbitionOn = f.lowAmbitionMaxGap !== undefined;
+  const purchasedOnlyOn = f.purchasedOnlyMinReturn !== undefined;
 
   return (
     <aside className="flex w-[300px] shrink-0 flex-col gap-5 bg-white p-5">
@@ -271,6 +277,50 @@ export function FilterPanel() {
             />
           </span>
         </button>
+
+        {/* [2026-08-04, John] "매입만·소각 0" 필터. 새 점수가 아니라 두 기존 사실
+            (buyback_status=purchased_only × 총환원율 하한)의 교집합이다. scoring.md의
+            의도된 이중 시선: 환원율은 업계 표준(매입 포함), 3단계 축은 소각 기준 —
+            그 차이가 곧 '매입만 한 기업' 신호. 임계는 화면 다이얼 소유(7-28 전례). */}
+        <button
+          onClick={() =>
+            f.setPurchasedOnlyMinReturn(
+              purchasedOnlyOn ? undefined : DEFAULT_PURCHASED_ONLY_MIN_RETURN,
+            )
+          }
+          className="mt-1 flex items-center justify-between border-t border-amber-200/60 pt-2 text-left"
+          aria-pressed={purchasedOnlyOn}
+          title="총주주환원율은 높은데 소각은 0인 종목만 — 매입한 자사주는 소각 전까지 재매각(재발행)될 수 있다. 환원율 산출 불가(null)인 종목은 매칭되지 않는다."
+        >
+          <span className="flex flex-col">
+            <span className="text-xs font-semibold text-amber-800">◪ 매입만 · 소각 0</span>
+            <span className="text-[10px] text-amber-700/70">
+              {purchasedOnlyOn ? "총환원 높은데 소각 기준 0인 종목" : "꺼짐 — 전체 표시"}
+            </span>
+          </span>
+          <span
+            className="relative h-5 w-9 shrink-0 rounded-full transition"
+            style={{ background: purchasedOnlyOn ? "#b45309" : "#d1d5db" }}
+          >
+            <span
+              className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
+              style={{ left: purchasedOnlyOn ? 18 : 2 }}
+            />
+          </span>
+        </button>
+        {purchasedOnlyOn && (
+          <RangeFilter
+            label="총환원율 ≥"
+            unit="%"
+            min={0}
+            max={200}
+            step={10}
+            value={f.purchasedOnlyMinReturn}
+            // 다이얼 '해제'는 임계만 푼다(0 = 환원율 무관, status 필터는 유지) —
+            // 필터 전체 끄기는 위 토글의 역할이다(불투명 다이얼과 달리 0≠꺼짐).
+            onCommit={(v) => f.setPurchasedOnlyMinReturn(v ?? 0)}
+          />
+        )}
       </div>
     </aside>
   );

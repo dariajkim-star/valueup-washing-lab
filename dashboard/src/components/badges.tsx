@@ -268,6 +268,27 @@ export function BuybackRetiredBadge(
   );
 }
 
+// [2026-08-04, John] "매입만 · 소각 0" 배지 — **필터가 켜져 있을 때만** 렌더한다.
+//
+// BuybackRetiredBadge 주석의 원칙("purchased_only를 상시 배지로 강조하면 '안 했다'
+// 판정에 가까워진다")은 그대로 유효하다. 다만 사용자가 그 조합을 **명시적으로 걸러 달라고
+// 요청한 화면**에서는 사정이 다르다 — 걸러 놓고 왜 걸렸는지 안 보이면 화면이 거짓말한다
+// (AmbitionBadge의 필터/배지 정합과 같은 계열). 그래서 상시가 아니라 필터 문맥 한정이다.
+export function PurchasedOnlyBadge(
+  { status, filterOn }: { status: string | null; filterOn: boolean },
+) {
+  if (!filterOn || status !== "purchased_only") return null;
+  return (
+    <span
+      className="inline-flex w-fit items-center rounded px-1.5 py-px text-[9px] font-semibold"
+      style={{ background: "#fef3c7", color: "#92400e" }}
+      title="직전 재무 기간에 자사주 매입은 있었으나 소각 수량은 0이다. 소각 전까지 자사주는 재매각(재발행)될 수 있다 — 환원율(매입 포함)과 3단계 축(소각 기준)의 의도된 차이가 이 신호다."
+    >
+      매입만 · 소각 0
+    </span>
+  );
+}
+
 // [파티 결정 2026-07-29] market_fallback 라벨 "전체시장 폴백" → "시장 전체 비교".
 // 실측: KSIC sparsity로 peer 버킷이 서지 않아 **전건**이 market_fallback이다(3주째).
 // "폴백"은 일시적 강등처럼 읽히지만 현실은 상시 상태다 — 조건부 경고 배지 대신

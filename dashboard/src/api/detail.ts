@@ -154,3 +154,24 @@ export function useMetricsByCorp(corpCode: string | undefined) {
     enabled: !!corpCode,
   });
 }
+
+// ReturnBreakdownOut(2026-08-04)과 1:1 — 환원율 점프 설명 카드용 연도별 구성.
+// null 계약: dividend_total/buyback_amount_krw null=미상(0 표시 금지 — 0은 '없다' 확정).
+// buyback_retired_qty는 **수량(주)** — 소각 0 배지 판정(>0)에만 쓰고 금액 축에 합산 금지.
+export interface ReturnBreakdownPoint {
+  year: number;
+  dividend_total: number | null;
+  buyback_amount_krw: number | null;
+  buyback_retired_qty: number | null;
+  net_income: number | null;
+  total_return_ratio: number | null;
+  payout_ratio: number | null;
+}
+
+export function useReturnsBreakdown(corpCode: string | undefined) {
+  return useQuery({
+    queryKey: ["returns-breakdown", corpCode],
+    queryFn: () => apiGet<ReturnBreakdownPoint[]>(`/metrics/${corpCode}/returns`),
+    enabled: !!corpCode,
+  });
+}

@@ -253,6 +253,49 @@ def test_min_roe_filter_excludes_capital_impaired(engine, monkeypatch) -> None:
     assert "00000001" in codes      # 정상 우량 포함
 
 
+def test_returns_breakdown_endpoint(engine, monkeypatch) -> None:
+    """/metrics/{corp}/returns — 환원율 점프 설명 카드(2026-08-04, Sally).
+
+    구성(배당·CF취득·소각수량·순이익)과 뷰의 총환원율을 연도별로 준다.
+    비율은 재계산하지 않고 valuation_metrics 조인 — 정의처는 뷰 하나다.
+    """
+    from fastapi.testclient import TestClient
+
+    import app.db as db_module
+
+    Session_ = sessionmaker(bind=engine)
+    with Session_() as s:
+        _seed(s)  # 2023: 배당 20/순익 100 · 2024: 배당 30/순익 150
+        # 2024에 CF 취득 45 추가 → 총환원율 (30+45)/150 = 50.0
+        s.execute(text(
+            "UPDATE financials SET buyback_amount_krw=45, buyback_retired_amount=0 "
+            "WHERE corp_code='00000001' AND year=2024"
+        ))
+        s.commit()
+    monkeypatch.setattr(db_module, "SessionLocal", Session_)
+    from app.main import app as fastapi_app
+    client = TestClient(fastapi_app)
+
+    r = client.get("/metrics/00000001/returns")
+    assert r.status_code == 200
+    rows = r.json()
+    assert [x["year"] for x in rows] == [2023, 2024]
+    y24 = rows[1]
+    assert y24["dividend_total"] == 30
+    assert y24["buyback_amount_krw"] == 45
+    assert y24["buyback_retired_qty"] == 0
+    assert y24["net_income"] == 150
+    assert y24["total_return_ratio"] == 50.0
+    # 2023은 CF취득 미상(null) → 뷰 계약대로 총환원율 null(0으로 메우지 않음),
+    # payout_ratio는 살아있다(배당은 안다)
+    y23 = rows[0]
+    assert y23["buyback_amount_krw"] is None
+    assert y23["total_return_ratio"] is None
+    assert y23["payout_ratio"] == 20.0
+    # 없는 종목은 빈 배열(404 아님 — 데이터 없음은 오류가 아니다)
+    assert client.get("/metrics/99999999/returns").json() == []
+
+
 def test_nan_inf_filter_rejected(engine, monkeypatch) -> None:
     """GPT 교차검증 patch: NaN/inf 필터값은 422로 거부(DB별 비교 규칙 갈림 방지)."""
     from fastapi.testclient import TestClient

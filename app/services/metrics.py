@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.repositories import metrics as repo
-from app.schemas import MetricOut, Page
+from app.schemas import MetricOut, Page, ReturnBreakdownOut
 
 
 def list_metrics(
@@ -22,3 +22,7 @@ def list_metrics(
 
 def metrics_by_corp(session: Session, corp_code: str) -> list[MetricOut]:
     return [MetricOut(**r) for r in repo.metrics_by_corp(session, corp_code)]
+
+
+def returns_breakdown(session: Session, corp_code: str) -> list[ReturnBreakdownOut]:
+    return [ReturnBreakdownOut(**r) for r in repo.returns_breakdown(session, corp_code)]

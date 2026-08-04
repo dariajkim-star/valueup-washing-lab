@@ -79,11 +79,14 @@ def _seed(s: Session) -> None:
     # 고PBR·고부채(200%). 00000003/4는 지표 없음(roe/pbr null — 범위 필터 불통과 검증용).
     # ev_ebit = (market_cap + total_debt - cash) / operating_income:
     #   corp1 = (1000+500-100)/220 = 6.36 / corp2 = (5000+2000-100)/60 = 115.0
+    # 총환원율(min_total_return 필터·서빙): corp1 = (60+40)/200 = 50.0%,
+    # corp2는 배당 미상(null) → 뷰 계약대로 전체 null(0으로 메우지 않음 — 과소평가 방지)
     s.execute(text(
         "INSERT INTO financials (corp_code, year, quarter, revenue, net_income, equity, "
-        "total_assets, total_liabilities, operating_income, total_debt, cash) VALUES "
-        "('00000001', 2025, 3, 1000, 200, 1000, 3000, 500, 220, 500, 100), "
-        "('00000002', 2025, 3, 1000, 50, 1000, 3000, 2000, 60, 2000, 100)"
+        "total_assets, total_liabilities, operating_income, total_debt, cash, "
+        "dividend_total, buyback_amount_krw) VALUES "
+        "('00000001', 2025, 3, 1000, 200, 1000, 3000, 500, 220, 500, 100, 60, 40), "
+        "('00000002', 2025, 3, 1000, 50, 1000, 3000, 2000, 60, 2000, 100, NULL, NULL)"
     ))
     s.execute(text(
         "INSERT INTO prices (corp_code, date, close, volume, trading_value, market_cap) VALUES "
@@ -169,6 +172,38 @@ def test_buyback_filters(client) -> None:
     r_false = client.get("/screening", params={"buyback_executed": False})
     # null(00000003)은 false에도 포함되지 않는다(판단 불가 세탁 금지)
     assert [i["corp_code"] for i in r_false.json()["items"]] == ["00000002"]
+
+
+def test_buyback_status_filter(client) -> None:
+    """'매입만·소각 0' 필터(2026-08-04): buyback_status 정확일치.
+
+    status가 null(엔진 미실행, 00000004)인 행은 어느 값에도 매칭되지 않고,
+    'unknown'은 명시적으로 골랐을 때만 나온다 — null 세탁 없음.
+    """
+    r = client.get("/screening", params={"buyback_status": "purchased_only"})
+    assert [i["corp_code"] for i in r.json()["items"]] == ["00000001"]
+    r_unknown = client.get("/screening", params={"buyback_status": "unknown"})
+    assert [i["corp_code"] for i in r_unknown.json()["items"]] == ["00000003"]
+    # 화이트리스트 밖 값은 422(오타가 빈 결과로 세탁되지 않게 패턴 검증)
+    assert client.get("/screening", params={"buyback_status": "bogus"}).status_code == 422
+
+
+def test_min_total_return_filter_and_serving(client) -> None:
+    """총환원율 하한 필터 + 응답 서빙 — '매입만·소각 0'의 임계 짝.
+
+    corp1 = (배당 60 + 자사주취득 40)/순이익 200 = 50.0%.
+    corp2는 배당 미상 → 뷰가 전체 null → 범위 필터 불통과(null 세탁 금지).
+    """
+    r = client.get("/screening", params={"min_total_return": 40})
+    items = r.json()["items"]
+    assert [i["corp_code"] for i in items] == ["00000001"]
+    assert items[0]["total_return_ratio"] == 50.0
+    # 조합: purchased_only + 총환원 하한 = 목업의 '매입만·소각 0' 칩 그 자체
+    r2 = client.get(
+        "/screening",
+        params={"buyback_status": "purchased_only", "min_total_return": 60},
+    )
+    assert r2.json()["items"] == []
 
 
 def test_sort_whitelist_and_null_last(client) -> None:

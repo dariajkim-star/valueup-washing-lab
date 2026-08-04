@@ -1,5 +1,6 @@
 import { Link, useParams } from "react-router-dom";
-import { useGapDetail, useMetricsByCorp, useMnaDetail } from "../api/detail";
+import { useGapDetail, useMetricsByCorp, useMnaDetail, useReturnsBreakdown } from "../api/detail";
+import { ReturnBreakdownCard } from "../components/detail/ReturnBreakdownCard";
 import { useScreeningDetail } from "../api/screening";
 import { GapCard } from "../components/detail/GapCard";
 import { MetricsChart } from "../components/detail/MetricsChart";
@@ -25,6 +26,7 @@ export default function CompanyDetail() {
   const gap = useGapDetail(corpCode, asOf);
   const mna = useMnaDetail(corpCode, asOf);
   const metrics = useMetricsByCorp(corpCode);
+  const returns = useReturnsBreakdown(corpCode);
 
   const tags = [...valueupTags(header.data ?? null, gap.data ?? null), ...mnaTags(mna.data ?? null)];
   const tagInputsLoading = header.isLoading || gap.isLoading || mna.isLoading;
@@ -82,6 +84,15 @@ export default function CompanyDetail() {
             <LoadingCard />
           ) : (
             <GapCard gap={gap.data ?? null} />
+          )}
+          {/* [2026-08-04] 환원율 점프 설명 — 연도별 배당 vs 자사주 취득 적층 막대.
+              시계열 차트와 같은 예외(본질이 "역사"라 as_of 시점 정합 대상이 아니다). */}
+          {returns.isError ? (
+            <ErrorCard what="주주환원 구성" />
+          ) : returns.isLoading ? (
+            <LoadingCard />
+          ) : (
+            <ReturnBreakdownCard rows={returns.data ?? []} />
           )}
         </div>
         <div className="flex w-[420px] shrink-0 flex-col gap-5">

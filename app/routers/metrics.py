@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.schemas import MetricOut, Page
+from app.schemas import MetricOut, Page, ReturnBreakdownOut
 from app.services import metrics as service
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
@@ -42,6 +42,22 @@ def list_metrics(
     except ValueError as e:
         # 화이트리스트 밖 sort 필드 → 400 (인젝션 시도도 여기서 차단)
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@router.get(
+    "/{corp_code}/returns",
+    response_model=list[ReturnBreakdownOut],
+    description=(
+        "연도별 주주환원 구성(배당·자사주 취득 CF·소각 수량·순이익) — 종목 상세의 "
+        "환원율 점프 설명 카드용. 사업보고서(quarter=4) 행만, 연도 오름차순. "
+        "총환원율은 valuation_metrics 뷰 정의 그대로(재계산 없음). "
+        "null=미상(0 표시 금지)."
+    ),
+)
+def returns_by_corp(
+    corp_code: str, db: Session = Depends(get_db)
+) -> list[ReturnBreakdownOut]:
+    return service.returns_breakdown(db, corp_code)
 
 
 @router.get("/{corp_code}", response_model=list[MetricOut])

@@ -98,7 +98,8 @@ def _latest_metrics_map(session: Session, as_of: str) -> dict[str, dict[str, Any
     as_of_year = int(as_of[:4])
     rows = session.execute(
         text(
-            "SELECT corp_code, roe, pbr, ev_ebit, debt_ratio FROM valuation_metrics "
+            "SELECT corp_code, roe, pbr, ev_ebit, debt_ratio, total_return_ratio "
+            "FROM valuation_metrics "
             "WHERE year < :yr OR (year = :yr AND quarter < 4) "
             "ORDER BY corp_code, year DESC, quarter DESC"
         ),
@@ -134,6 +135,9 @@ _METRIC_FILTERS = (
     ("max_pbr", "pbr", "le"),
     ("max_ev_ebit", "ev_ebit", "le"),
     ("max_debt_ratio", "debt_ratio", "le"),
+    # '매입만·소각 0' 필터(2026-08-04)의 임계 짝 — buyback_status와 조합해 쓴다.
+    # 임계값 자체는 화면 다이얼 소유(7-28 임계 소유권 전례), 백엔드는 범위 필터만 준다.
+    ("min_total_return", "total_return_ratio", "ge"),
 )
 
 
@@ -185,6 +189,12 @@ def list_screening(
         conds.append(OpacityScore.opacity_rank <= filters["max_opacity_rank"])
     if filters.get("buyback_executed") is not None:
         conds.append(ValueupScore.buyback_executed.is_(filters["buyback_executed"]))
+    # '매입만·소각 0' 필터(2026-08-04, John): buyback_status 정확일치. 새 점수를 만들지
+    # 않는다 — 이미 서빙 중인 사실(status)과 총환원율(min_total_return, _METRIC_FILTERS)의
+    # 교집합이다. 정확일치라 status가 null(엔진 미실행)인 행은 어느 값에도 매칭되지 않고,
+    # 'unknown'(판단 불가)은 명시적으로 그 값을 골랐을 때만 나온다 — null 세탁 없음.
+    if filters.get("buyback_status") is not None:
+        conds.append(ValueupScore.buyback_status == filters["buyback_status"])
 
     # 지표 범위 필터(3.3 리뷰 반영, AC2): 뷰(valuation_metrics)는 ORM 매핑이 없어 조인
     # 대신 2단계 — 통과 corp_code 집합을 Python에서 구해 IN 조건으로 주입. COUNT·정렬·
@@ -279,6 +289,8 @@ def list_screening(
             # 없으면 null.
             "roe": m.get("roe") if m else None,
             "pbr": m.get("pbr") if m else None,
+            # 총환원율 — '매입만·소각 0' 필터의 짝. 필터가 왜 걸렸는지 화면이 말하게 한다.
+            "total_return_ratio": m.get("total_return_ratio") if m else None,
             # has_* 플래그: "row 없음(엔진 미실행)"과 "row는 있으나 전부 null(엄격
             # 게이팅으로 산출 불가)"을 구분(GPT 리뷰 Med — 없으면 소비자가 식별 불가)
             "has_valueup_score": vs is not None,

@@ -20,6 +20,10 @@ const DEFAULT_SORT: Record<ScoreMode, string> = {
 // 아래 값은 다이얼의 **기본 위치**일 뿐, 잠긴 정의가 아니다.
 export const DEFAULT_OPAQUE_MIN_RANK = 0.7;
 
+// "매입만·소각 0" 토글의 기본 임계(총환원율 %) — 다이얼의 시작 위치일 뿐 잠긴 정의가
+// 아니다(불투명 다이얼과 같은 소유권 원칙). 0으로 내리면 환원율 무관 purchased_only 전체.
+export const DEFAULT_PURCHASED_ONLY_MIN_RETURN = 40;
+
 // 시총구간 버킷(KRW 원, 백엔드 비교는 포함(>=,<=)이라 max는 -1로 잘라 상호 배타 보장):
 // 대형 = 10조 이상 / 중형 = 1조 이상 10조 미만 / 소형 = 1조 미만 (재리뷰 #2 — 경계 중복 제거)
 export type McapBucket = "all" | "large" | "mid" | "small";
@@ -48,6 +52,11 @@ export interface FilterState {
   // 0이면 "하던 것만큼도 약속하지 않은" 기업만 남는다. 불투명 다이얼과 같은 형식:
   // 켜짐 여부를 값의 유무로 표현한다(둘로 나누면 어긋난 상태가 생긴다).
   lowAmbitionMaxGap?: number;
+  // "매입만·소각 0"만 보기(2026-08-04, John) — 총환원율 하한(%). undefined = 꺼짐.
+  // 불투명·야심도 다이얼과 같은 형식: 켜짐 여부 = 값의 유무(임계 소유권은 화면).
+  // 켜지면 buyback_status=purchased_only가 함께 나간다(toParams에서 유도 — 상태 둘로
+  // 나누면 "status만 켜지고 임계는 딴 값"인 어긋난 상태가 생긴다).
+  purchasedOnlyMinReturn?: number;
   buybackExecuted?: boolean;
   sort: string;
   page: number;
@@ -58,6 +67,7 @@ export interface FilterState {
   setMcapBucket: (b: McapBucket) => void;
   setOpaqueMinRank: (v?: number) => void;
   setLowAmbitionMaxGap: (v?: number) => void;
+  setPurchasedOnlyMinReturn: (v?: number) => void;
   setSort: (s: string) => void;
   setPage: (p: number) => void;
   patch: (p: Partial<FilterState>) => void; // 필터류 일괄 갱신(page 1 리셋)
@@ -78,6 +88,8 @@ export const useFilters = create<FilterState>((set) => ({
   setMcapBucket: (mcapBucket) => set({ mcapBucket, page: 1 }),
   setOpaqueMinRank: (opaqueMinRank) => set({ opaqueMinRank, page: 1 }),
   setLowAmbitionMaxGap: (lowAmbitionMaxGap) => set({ lowAmbitionMaxGap, page: 1 }),
+  setPurchasedOnlyMinReturn: (purchasedOnlyMinReturn) =>
+    set({ purchasedOnlyMinReturn, page: 1 }),
   setSort: (sort) => set({ sort, page: 1 }),
   setPage: (page) => set({ page }),
   patch: (p) => set({ ...p, page: 1 }),
@@ -97,6 +109,10 @@ export function toParams(s: FilterState): ScreeningParams {
     max_market_cap: mcap.max,
     min_opacity_rank: s.opaqueMinRank,
     max_own_gap: s.lowAmbitionMaxGap,
+    // "매입만·소각 0": 값 하나에서 status+임계 둘을 유도(어긋난 상태 원천 차단)
+    buyback_status:
+      s.purchasedOnlyMinReturn !== undefined ? "purchased_only" : undefined,
+    min_total_return: s.purchasedOnlyMinReturn,
     buyback_executed: s.buybackExecuted,
     sort: s.sort,
     page: s.page,
