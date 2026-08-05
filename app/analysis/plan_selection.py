@@ -52,10 +52,11 @@ AXIS_TARGETS = "axis_targets"
 OTHER_METRIC = "other_metric"
 REFILING = "refiling"
 NO_TARGETS = "no_targets"
-# 회사가 **첨부가 없다고 본문에 명시**한 약식 공시(2026-08-04 실측 101개사).
-# no_targets에서 갈라낸 이유는 딱 하나 — **행동이 다르다**: 첨부 작업 목록이
-# 이들을 부르면 안 된다(없는 문서를 찾으러 사람을 보내는 꼴).
-EXEMPT_SHORT_FORM = "exempt_short_form"
+# [2026-08-05] `exempt_short_form`은 여기 있었으나 **칸을 잘못 골랐다**. 첨부 부존재는
+# body_signal이 답하는 질문("왜 축을 못 채웠나")과 **직교한 사실**이다 — 실측: 첨부
+# 부존재를 선언한 212건 중 102건이 axis_targets(축까지 공시한 회사도 첨부는 안 붙였다).
+# 한 칸에 넣으면 우선순위 사다리 위쪽 신호에 가려 새고, 실제로 8건이 샜다.
+# 지금은 직교 컬럼 `valueup_plan.attachment_absent`가 그 사실을 갖는다(plan_signals).
 
 
 def opacity_axes(plan: Mapping[str, Any]) -> dict[str, bool]:

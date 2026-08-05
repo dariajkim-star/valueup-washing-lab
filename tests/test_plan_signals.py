@@ -8,11 +8,11 @@ from __future__ import annotations
 
 from app.analysis.plan_signals import (
     AXIS_TARGETS,
-    EXEMPT_SHORT_FORM,
     NO_TARGETS,
     OTHER_METRIC,
     REFILING,
     classify_body,
+    declares_no_attachment,
 )
 
 EMPTY = {
@@ -109,11 +109,16 @@ class TestNoTargets:
         assert classify_body("", EMPTY).kind == NO_TARGETS
 
 
-class TestExemptShortForm:
-    """[2026-08-04] 회사가 첨부가 없다고 명시한 약식 공시 — 첨부 목록에서 빼기 위한 신호.
+class TestDeclaresNoAttachment:
+    """[2026-08-04 신설 → 2026-08-05 직교 컬럼으로 이관] 회사가 첨부가 없다고 명시했는가.
 
-    실측 근거: no_targets 175건 전수 판독에서 101개사가 같은 문장을 썼다.
-    나누는 유일한 이유는 **행동이 다르다**는 것 — 없는 문서를 찾으러 보내지 않는다.
+    실측 근거: no_targets 175건 전수 판독에서 101개사가 같은 문장을 썼고, 다음날 전
+    코퍼스를 세니 **212건**이었다. 처음엔 이 사실을 `body_signal`의 한 칸
+    (`exempt_short_form`)에 넣었는데 그건 우선순위 사다리라 **목표를 공시한 회사가 첨부
+    부존재를 함께 선언하면 위쪽 신호에 가려 샜다**(실측 8건). 그래서 판정을 사다리에서
+    떼어내 독립 함수로 두고, 저장도 직교 컬럼으로 옮겼다(마이그 0031).
+
+    이 클래스가 고정하는 계약: **두 축은 서로를 가리지 않는다.**
     """
 
     HIGH_DIV = (
@@ -123,30 +128,46 @@ class TestExemptShortForm:
     )
 
     def test_no_attachment_declaration(self):
-        assert classify_body(self.HIGH_DIV, EMPTY).kind == EXEMPT_SHORT_FORM
+        assert declares_no_attachment(self.HIGH_DIV) is True
 
     def test_spacing_variant(self):
         """'첨부 없이'와 '첨부없이'가 둘 다 실재한다(총계 라벨 갈림과 같은 계열)."""
-        assert classify_body(
-            self.HIGH_DIV.replace("첨부 없이", "첨부없이"), EMPTY
-        ).kind == EXEMPT_SHORT_FORM
+        assert declares_no_attachment(
+            self.HIGH_DIV.replace("첨부 없이", "첨부없이")
+        ) is True
 
     def test_omission_variant(self):
         """신라교역형 — '첨부서류를 생략한 약식 공시'."""
         text = "4. 본 공시는 기업가치 제고 계획 첨부서류를 생략한 약식 공시입니다."
-        assert classify_body(text, EMPTY).kind == EXEMPT_SHORT_FORM
+        assert declares_no_attachment(text) is True
 
-    def test_real_reference_stays_no_targets(self):
-        """진짜 첨부 참조는 갈라내지 않는다 — 이쪽이 첨부 수집의 실제 대상이다."""
+    def test_real_reference_is_not_a_declaration(self):
+        """진짜 첨부 참조는 선언이 아니다 — 이쪽이 첨부 수집의 실제 대상이다."""
         text = "상세한 내용은 첨부된 '기업가치 제고 계획'을 참고하시기 바랍니다."
+        assert declares_no_attachment(text) is False
         assert classify_body(text, EMPTY).kind == NO_TARGETS
 
-    def test_axis_targets_still_win(self):
-        """축을 확보했으면 첨부 부존재 선언이 있어도 axis_targets다(우선순위 불변)."""
-        sig = classify_body(self.HIGH_DIV, {"target_roe": 10.0})
-        assert sig.kind == AXIS_TARGETS
+    def test_empty_text(self):
+        assert declares_no_attachment(None) is False
+        assert declares_no_attachment("") is False
 
-    def test_other_metric_outranks(self):
-        """다른 지표로라도 목표를 공시했으면 그 사실이 먼저다."""
+    # ── 직교성: body_signal이 무엇이든 선언은 선언이다(2026-08-05 결함의 재발 방지) ──
+
+    def test_axis_targets_does_not_hide_declaration(self):
+        """축을 확보한 공시도 첨부는 안 붙였을 수 있다 — 실측 102건이 이 조합이다."""
+        assert classify_body(self.HIGH_DIV, {"target_roe": 10.0}).kind == AXIS_TARGETS
+        assert declares_no_attachment(self.HIGH_DIV) is True
+
+    def test_other_metric_does_not_hide_declaration(self):
+        """실측 6건(도화엔지니어링·제주은행·대한유화·아세아시멘트·HL디앤아이한라·
+        코리안리) — 이 조합이 워크리스트에 새어 있던 경로다."""
         text = self.HIGH_DIV + "\n'28년 EBITDA Margin 10% 중반 이상 목표"
         assert classify_body(text, EMPTY).kind == OTHER_METRIC
+        assert declares_no_attachment(text) is True
+
+    def test_refiling_does_not_hide_declaration(self):
+        """실측 2건(신도리코 등). 여기서 우선순위를 뒤집었다면 **선택 규칙이 깨진다** —
+        재공시가 가리킨 실제 계획을 못 따라가게 된다. 그래서 축을 나눈 것이다."""
+        text = self.HIGH_DIV + "\n旣공시(2026.2.6) 내용 참조"
+        assert classify_body(text, EMPTY).kind == REFILING
+        assert declares_no_attachment(text) is True

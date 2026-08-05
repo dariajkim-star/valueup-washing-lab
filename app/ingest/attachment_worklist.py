@@ -11,10 +11,17 @@ DB를 뒤져 대상을 고르게 하면 그게 진짜 수작업이 된다.
   2. 부분 공시(1~3축) — 첨부에 나머지가 있을 수 있다.
 이미 첨부를 파싱한 공시는 제외한다.
 
-**받을 수 없는 것은 부르지 않는다(2026-08-04)**: `exempt_short_form` — 회사가 본문에
-"첨부 없이 주요 내용을 기재하였습니다"라고 명시한 약식 공시는 제외한다. 이전에는
-목록이 129건이었는데 그중 101개사가 이 부류였다. **존재하지 않는 문서를 찾아오라고
-사람을 보내는 목록**은 작업 목록이 아니라 오답이다. 분류 근거는 `plan_signals.py`.
+**받을 수 없는 것은 부르지 않는다(2026-08-04)**: 회사가 본문에 "첨부 없이 주요 내용을
+기재하였습니다"라고 명시한 약식 공시는 제외한다. 이전에는 목록이 129건이었는데 그중
+101개사가 이 부류였다. **존재하지 않는 문서를 찾아오라고 사람을 보내는 목록**은 작업
+목록이 아니라 오답이다.
+
+**그 수정이 절반만 들었다(2026-08-05 정정)**: 처음엔 `body_signal='exempt_short_form'`
+으로 걸렀는데, 그 신호는 우선순위 사다리의 맨 아래 칸이라 **목표를 공시한 회사가 첨부
+부존재를 함께 선언하면 위쪽 신호(other_metric·refiling)에 가려 샜다.** 그래서 7건이
+여전히 목록에 있었다(도화엔지니어링·신도리코·제주은행·대한유화·아세아시멘트·
+HL디앤아이한라·코리안리재보험). 지금은 **직교 컬럼** `attachment_absent`로 거른다 —
+"왜 축을 못 채웠나"와 "받으러 갈 문서가 있나"는 다른 질문이다(마이그 0031).
 """
 
 from __future__ import annotations
@@ -24,11 +31,11 @@ import argparse
 from sqlalchemy import select
 
 from app.analysis.plan_selection import (
-    EXEMPT_SHORT_FORM,
     OTHER_METRIC,
     choose_plan,
     disclosed_axis_count,
 )
+from app.analysis.plan_signals import declares_no_attachment
 from app.db import SessionLocal
 from app.models import Company, PlanAttachment, ValueupPlan
 
@@ -69,6 +76,14 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
                 # 우리금융에 03-23(고배당기업 표시용 재공시)의 첨부를 요구하게 된다.
                 "body_signal": p.body_signal,
                 "body_reference_date": p.body_reference_date,
+                # 컬럼이 비어 있으면(백필 전 행) 원문으로 그 자리에서 판정한다. 같은
+                # 함수를 부르므로 정의처는 하나이고, 백필을 잊었다는 이유로 목록이
+                # 다시 없는 문서를 부르는 일은 없다. 원문도 없으면 None(모른다).
+                "attachment_absent": (
+                    p.attachment_absent if p.attachment_absent is not None
+                    else declares_no_attachment(p.raw_text) if p.raw_text
+                    else None
+                ),
             }
             for p in candidates
         ]
@@ -79,10 +94,11 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
         axes = disclosed_axis_count(chosen)
         if chosen["plan_id"] in done:
             continue
-        # [2026-08-04] 회사가 **첨부가 없다고 본문에 명시**한 약식 공시는 부르지 않는다.
-        # 이전에는 이 목록이 129건이었고 그 대부분(101개사)이 이 부류였다 — 존재하지
-        # 않는 문서를 찾아오라고 사람을 보내고 있었다. 목록은 "받을 수 있는 것"만 담는다.
-        if chosen.get("body_signal") == EXEMPT_SHORT_FORM:
+        # [2026-08-04, 2026-08-05 정정] 회사가 **첨부가 없다고 본문에 명시**한 공시는
+        # 부르지 않는다. 목록은 "받을 수 있는 것"만 담는다. body_signal이 아니라 직교
+        # 컬럼을 보는 이유는 모듈 문서 참조 — 신호로 걸렀을 때 7건이 새어나갔다.
+        # None(모른다)은 거르지 않는다: 없다고 확인된 것만 뺀다(NFR2).
+        if chosen.get("attachment_absent") is True:
             continue
         if axes == 0:
             priority = 1

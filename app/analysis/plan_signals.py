@@ -20,12 +20,11 @@
   - refiling           → 선택 규칙이 바뀐다(가리킨 공시로 간다).
   - other_metric       → 화면 문구가 바뀐다(+ 첨부를 받아도 우리 축이 안 나올 수 있다는 신호).
   - axis_targets       → 정상 경로.
-  - exempt_short_form  → **첨부 작업 목록에서 뺀다**(2026-08-04 신설, 아래 참조).
   - no_targets         → 본문에 숫자 목표 자체가 없음(진짜 표지 통지문).
 행동이 같은 상태는 만들지 않았다.
 
-■ exempt_short_form 신설 근거 (2026-08-04 재측정)
-`no_targets` 175건의 원문을 전수로 열어보니 **한 칸에 이유가 셋** 들어 있었다:
+■ 첨부 부존재는 **직교한 사실**이다 (2026-08-05 재측정이 전날의 칸 선택을 정정)
+2026-08-04에 `no_targets` 175건을 전수 판독해 한 칸에 이유가 셋 들어 있음을 확인했다:
 
     101개사  "조세특례제한법 제104조의27에 따른 고배당기업에 해당하여 별도의
              기업가치 제고 계획 **첨부 없이** 주요 내용을 기재하였습니다."
@@ -34,15 +33,34 @@
              → 진짜 참조. 이것이 첨부 수집의 실제 대상이다.
      57건    첨부 무언급 — 그냥 짧은 통지문.
 
-**행동이 실제로 갈렸다**: `attachment_worklist`가 129건을 부르고 있었는데 그 상위가
-전부 첫 번째 부류였다(E1·LX인터내셔널·SBS·SIMPAC·SNT홀딩스…). **도구가 사람을 시켜
-존재하지 않는 문서를 찾아오게 하고 있었다** — 워싱 플래그·`washing_only` 토글·
-`isUnsupportedSector`와 같은 계열의 실패(도구가 사실이 아닌 것을 말한다).
+그날의 처방은 `body_signal`에 `exempt_short_form`을 신설하는 것이었다. **처방은 맞고
+칸이 틀렸다.** 다음날 전 코퍼스를 세어보니 첨부 부존재를 선언한 공시는 101이 아니라
+**212건**이고, 그중 `exempt_short_form`으로 잡힌 건 102건뿐이었다:
+
+    axis_targets        102   ← 축까지 공시한 회사도 첨부는 안 붙였다
+    exempt_short_form   102
+    other_metric          6   ← 워크리스트가 여전히 부르고 있었다
+    refiling              2   ← 〃 (신도리코)
+
+`classify_body`는 우선순위 사다리이고 exempt는 그 **맨 아래**였다. 그래서 "목표가 있는"
+공시가 첨부 부존재를 선언하면 위쪽 신호에 가려 새어나갔다 — 어제 고친 결함이 8건 남아
+있었던 것이다(그중 7건이 워크리스트에 실려 있었다).
+
+**우선순위를 올리는 것은 오답이다.** `refiling`은 선택 규칙을 바꾸는 신호라(가리킨
+공시로 이동) exempt로 덮으면 신도리코가 가리킨 실제 계획을 못 따라간다. 두 사실이
+경쟁하는 게 아니라 **서로 다른 질문에 답한다**:
+
+    body_signal        "이 본문이 왜 우리 4축을 못 채웠나"
+    attachment_absent  "받으러 갈 문서가 존재하나"
+
+그래서 후자를 `valueup_plan.attachment_absent` 직교 컬럼으로 옮겼다(마이그 0031).
+판정 함수는 `declares_no_attachment` 하나뿐이며, 수집·백필·워크리스트가 그것만 부른다
+(어제 `lookahead.py`에서 배운 단일 정의처 — 복제하면 갈라진다).
 
 **부실 공시로 읽지 않는다.** 이들은 자기 자격을 근거로 약식으로 냈다고 명시한 것이고,
 "본문에 목표가 없다"는 사실은 같아도 **그 이유가 제도 쪽에 있다.** 순위에서는 이미
-`is_unrankable`로 제외돼 벌점이 없다(실측: 채점 0·불투명 0/101) — 이번 변경은
-**점수를 건드리지 않고 작업 목록만 고친다.**
+`is_unrankable`로 제외돼 벌점이 없다 — 이 변경도 **점수를 건드리지 않고 작업 목록과
+화면 문구만 고친다.**
 """
 
 from __future__ import annotations
@@ -56,7 +74,6 @@ from typing import Any
 # import하면 순환이 된다). 여기서는 판정 로직만 갖고 어휘는 빌려 쓴다.
 from app.analysis.plan_selection import (  # noqa: F401 — 재수출(호출부 편의)
     AXIS_TARGETS,
-    EXEMPT_SHORT_FORM,
     NO_TARGETS,
     OTHER_METRIC,
     REFILING,
@@ -71,7 +88,8 @@ _NUMERIC = re.compile(r"\d+(?:\.\d+)?\s*(?:%|배)")
 # 숫자 주변 이 폭 안에 표지가 있으면 '목표 수치'로 본다(개행은 넘지 않는다 — 다른 항목 침범 방지).
 _WINDOW = 25
 
-# 첨부 부존재 선언(2026-08-04 실측). 회사가 본문에서 **첨부가 없다고 직접 말한 경우**다:
+# 첨부 부존재 선언(2026-08-04 실측, 2026-08-05 직교 컬럼으로 이관).
+# 회사가 본문에서 **첨부가 없다고 직접 말한 경우**다:
 #   "조세특례제한법 제104조의27에 따른 고배당기업에 해당하여 별도의 기업가치 제고 계획
 #    첨부 없이 주요 내용을 기재하였습니다."   ← 101개사가 이 형태(공백 유무만 다름)
 #   "본 공시는 기업가치 제고 계획 첨부서류를 생략한 약식 공시입니다."  ← 신라교역형
@@ -142,12 +160,21 @@ def classify_body(raw_text: str | None, targets: Mapping[str, Any]) -> BodySigna
     if _has_numeric_target(text):
         return BodySignal(OTHER_METRIC)
 
-    # 목표가 없는 것은 확정. 남은 질문은 "그래서 첨부를 받으러 갈 것인가"이고,
-    # 회사가 첨부가 없다고 말했으면 갈 곳이 없다 — 그 사실만큼만 갈라낸다.
-    if any(k in _squeeze(text) for k in _NO_ATTACHMENT_DECL):
-        return BodySignal(EXEMPT_SHORT_FORM)
-
     return BodySignal(NO_TARGETS)
+
+
+def declares_no_attachment(raw_text: str | None) -> bool:
+    """본문이 **첨부가 없다고 직접 선언**했는가 — `attachment_absent`의 단일 정의처.
+
+    `classify_body`와 **독립**이다. 공시가 축을 몇 개 채웠든, 재공시든, 다른 지표로
+    공시했든, "첨부 없이 기재했다"는 문장은 그것대로 참이다(실측: 212건 중 102건이
+    axis_targets와 공존). 그래서 우선순위 사다리에 끼우지 않고 따로 묻는다.
+
+    True로 읽는 유일한 근거는 **회사가 쓴 문장**이다 — 첨부가 실제로 없다는 것을
+    우리가 확인한 게 아니라, 없다고 회사가 말했다는 사실을 옮길 뿐이다. 원문이 없으면
+    선언 여부를 모르므로 False가 아니라 **판정하지 않는다**(호출부가 None으로 저장).
+    """
+    return any(k in _squeeze(raw_text or "") for k in _NO_ATTACHMENT_DECL)
 
 
 # ── 관련 웹페이지 URL 추출(0019) ──
@@ -184,6 +211,9 @@ SIGNAL_LABEL = {
     AXIS_TARGETS: "본문에서 목표 확보",
     OTHER_METRIC: "다른 지표로 공시(우리 축 밖)",
     REFILING: "재공시 — 다른 공시를 가리킴",
-    EXEMPT_SHORT_FORM: "약식 공시 — 회사가 첨부 없음을 명시",
     NO_TARGETS: "본문에 목표 없음",
 }
+
+# 첨부 부존재는 body_signal과 **다른 축**이라 라벨도 따로 둔다. 화면은 둘을 조합해
+# 말한다("본문에 목표 없음 · 약식 공시 — 회사가 첨부 없음을 명시").
+ATTACHMENT_ABSENT_LABEL = "약식 공시 — 회사가 첨부 없음을 명시"

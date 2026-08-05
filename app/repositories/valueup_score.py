@@ -258,6 +258,9 @@ def list_scores(
             # 본문 신호(0018) — 축을 못 채웠을 때 **왜**인지. 화면이 "순위 불가"라고만
             # 말하면 LG엔솔(매출·EBITDA로 명확히 공시)이 부실 공시로 읽힌다.
             "plan_body_signal": plan.body_signal if plan else None,
+            # 첨부 부존재(0031) — 위 신호와 다른 질문에 답한다("받으러 갈 문서가 있나").
+            # 화면은 둘을 조합해 말한다: "본문에 목표 없음 · 회사가 첨부 없음을 명시".
+            "plan_attachment_absent": plan.attachment_absent if plan else None,
             # 범위 공시 원문(0023) — 하한 채택 사실을 화면이 말할 수 있게
             "target_ranges": plan.target_ranges if plan else None,
             # 근거 공시가 그 종목의 최신이 아니면 폴백이다(최신 공시에 목표가 없어 이전

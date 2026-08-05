@@ -29,7 +29,7 @@ from requests.adapters import HTTPAdapter
 from sqlalchemy.orm import Session
 from urllib3.util.retry import Retry
 
-from app.analysis.plan_signals import classify_body
+from app.analysis.plan_signals import classify_body, declares_no_attachment
 from app.config import settings
 from app.ingest.base import SourceAdapter
 from app.ingest.dart import (
@@ -677,6 +677,11 @@ class DartValueupAdapter(SourceAdapter):
             signal = classify_body(plan.get("raw_text"), rec)
             rec["body_signal"] = signal.kind
             rec["body_reference_date"] = signal.referenced_date
+            # 첨부 부존재(0031)는 **위 신호와 독립**으로 묻는다 — 축을 채웠든 아니든
+            # "첨부 없이 기재했다"는 문장은 그것대로 참이다. 원문이 없으면 판정하지
+            # 않고 null로 둔다("없다"가 아니라 "모른다").
+            raw = plan.get("raw_text")
+            rec["attachment_absent"] = declares_no_attachment(raw) if raw else None
             recs.append(rec)
         return recs
 
