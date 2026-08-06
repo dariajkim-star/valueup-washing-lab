@@ -166,12 +166,27 @@ def choose_plan(ordered_plans: Sequence[Mapping[str, Any]]) -> PlanChoice | None
 
     # 1) 재공시 건너뛰기 — 연쇄(재공시가 재공시를 가리키는 경우)도 따라간다.
     #    무한 루프 방지를 위해 방문한 날짜를 기억하고, 후보 수만큼만 시도한다.
+    #
+    # [Story 1.11 T2.5, 파티 비준 2026-08-06] **참조 날짜는 라벨과 직교한 사실이다.**
+    # 판정 키가 `body_signal == REFILING`뿐이면, 파서가 좋아져 재공시 사본의 목표가
+    # 파싱되는 순간 `classify_body`의 사다리 1번(축>0)이 라벨을 axis_targets로 덮어
+    # **건너뛰기가 죽는다**(서울보증보험 98 실측). 지금까지 이 규칙이 작동한 것은
+    # 재공시 문서들이 **우연히** 파싱되지 않았기 때문이고, 1.11이 그 우연을 없앤다.
+    #
+    # 그래서 참조 날짜를 **병렬 트리거로 추가**한다 — 교체가 아니다:
+    #   · 날짜 있음  → 라벨과 무관하게 그것이 가리킨 공시로 간다(새로 열리는 경로)
+    #   · 날짜 없음 + refiling 라벨 → 기존대로 후보에서 뺀다(보존해야 하는 경로)
+    # 날짜로 **교체**하면 refiling 19건 중 날짜 없는 15건의 제외 경로가 사라져
+    # 실측 4개사(포스코퓨처엠·한국전력기술·DB하이텍·한국타이어)의 선택이 바뀐다.
+    #
+    # 보일러플레이트 방어는 날짜가 대신한다: "변경 시 재공시 할 예정"은 미래 약속이라
+    # 가리킬 날짜가 없다(실측 — axis_targets 309건 전부 참조 날짜 없음).
     seen_dates: set[str] = set()
     for _ in range(len(candidates)):
         head = candidates[0]
-        if head.get("body_signal") != REFILING:
-            break
         ref = head.get("body_reference_date")
+        if not ref and head.get("body_signal") != REFILING:
+            break
         if ref and ref not in seen_dates:
             seen_dates.add(ref)
             target = [c for c in candidates if c.get("disclosure_date") == ref]

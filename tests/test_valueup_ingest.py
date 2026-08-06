@@ -292,6 +292,104 @@ def test_period_backtick_two_digit_years() -> None:
     assert t2["period_end"] == "2027"
 
 
+# ── Story 1.11: 축=0 구간 전수 재판독 (v2-backlog P1-2 2차) ──
+#
+# 배경: P1-2 1차의 결론("본문에 정말 목표가 없다")은 `no_targets` 175건만 보고 내린
+# 것이었다. 축=0 구간 210건 중 나머지 35건(refiling 19 + other_metric 16)은 전수
+# 판독된 적이 없었고, 거기서 5건이 나왔다. 아래는 **실샘플 원문 그대로**다 —
+# 정규화한 문자열로 쓰면 개행 버그가 테스트를 통과한다(1.11 Dev Notes).
+
+
+def test_roe_label_and_value_on_separate_lines() -> None:
+    """원인 A · 서울보증보험(plan 98·99): 라벨과 값이 다른 줄.
+
+    `_plain_gap`이 개행을 금지해 끊겼다. 공시가 `③ ROE` 다음 줄에 `- 중장기 목표 10%`를
+    쓰는 불릿 서식이라 통째로 버려지고 있었다.
+    """
+    text = (
+        "① 주주환원 \n- 업계 최고 수준의 총주주환원 \n② K-ICS 비율 \n"
+        "- 중장기 목표 320% 이상 \n③ ROE \n- 중장기 목표 10% \n"
+        "2. 기업가치 제고를 위한 실행방안"
+    )
+    assert parse_targets(text)["target_roe"] == 10.0
+
+
+def test_newline_requires_target_marker_on_next_line() -> None:
+    """원인 A의 안전장치: 개행을 넘으려면 **다음 줄이 목표를 말해야** 한다.
+
+    개행 너머는 대개 다른 항목이다. 표지 없이 열면 라벨이 무관한 줄의 숫자를 훔친다.
+    """
+    assert parse_targets("③ ROE \n2. 기업가치 제고를 위한 실행방안 50%")["target_roe"] is None
+
+
+def test_newline_does_not_cross_into_competing_metric() -> None:
+    """원인 A의 안전장치 2: 개행을 열어도 경쟁 지표의 숫자는 훔치지 않는다.
+
+    G2(표 셀 경계) 가드와 같은 계열 — 1.10 일괄리뷰 High 3건이 전부 이 방향이었다.
+    """
+    assert parse_targets("ROE 개선 \n- 배당성향 목표 30%")["target_roe"] is None
+
+
+def test_return_target_marker_before_the_value() -> None:
+    """원인 B · 코웨이(plan 317): 목표 표지가 값 **앞**에 있다.
+
+    `_TARGET_MARK`는 값 뒤 12자만 본다. 여기서 표지(`상향`)는 라벨과 값 사이에 있고,
+    값 뒤에는 다음 항목이 온다.
+    """
+    text = "2) 주주환원율 상향: 당기순이익(연결)의 40% \n3) 재무건전성과 자본효율성을 고려한 적정 자본구조"
+    assert parse_targets(text)["target_total_return_ratio"] == 40.0
+
+
+def test_return_range_with_marker_on_following_line() -> None:
+    """원인 C · 한솔케미칼(plan 215): 표지가 값 뒤 15자째(창은 12자) + 개행 너머.
+
+    OQ-1 확정대로 범위는 **하한**을 채택하고 원문 범위를 보존한다.
+    """
+    text = "2) 주주환원 확대 - 주주환원율 20~50% \n- 2026년 주주환원 확대 적극 검토"
+    t = parse_targets(text)
+    assert t["target_total_return_ratio"] == 20.0
+    assert "total_return_ratio:20~50" in (t["target_ranges"] or "")
+
+
+def test_return_past_performance_is_not_taken_as_target() -> None:
+    """원인 C의 안전장치 · 한솔 실측 함정: **같은 문서에 목표와 실적이 나란히 있다**.
+
+    `2) 주주환원 초과 달성 - 주주환원율 57%`는 2025년 **이행 실적**이다.
+    표지 조건을 느슨하게 풀면 57%를 목표로 삼는다 — `_TARGET_MARK`가 존재하는 이유다
+    (5-1 실샘플: 라벨+숫자만 보면 13건 중 5건이 과거 실적이었다).
+    """
+    text = (
+        "1. 2026년 기업가치 제고 계획 \n2) 주주환원 확대 - 주주환원율 20~50% \n"
+        "- 2026년 주주환원 확대 적극 검토 \n"
+        "2. 2025년 기업가치 제고 계획 이행 현황 \n2) 주주환원 초과 달성 - 주주환원율 57%"
+    )
+    assert parse_targets(text)["target_total_return_ratio"] == 20.0
+
+
+def test_return_bare_performance_still_rejected() -> None:
+    """회귀 방어(5-1): 표지 없는 주주환원율 실적은 여전히 채택하지 않는다."""
+    assert parse_targets("'25년 총 주주환원율 268.0%")["target_total_return_ratio"] is None
+    assert parse_targets("3년 평균 주주환원율 78%(현황)")["target_total_return_ratio"] is None
+
+
+def test_separate_basis_return_ratio_is_not_adopted() -> None:
+    """원인 D · 현대지에프홀딩스(plan 72): **역순 + 회사 자기 정의**.
+
+    `별도 당기순이익 기준 80% 이상 주주환원율 지향` — 값이 라벨 앞에 오는 역순이고,
+    분모가 **별도** 당기순이익이다. 우리 실적은 연결 기준이라 이 값을 채택하면
+    **다른 정의로 채점**하게 된다.
+
+    2026-08-05에 환원율 축 소각 기준 재론을 기각한 근거가 정확히 이것이었다 —
+    *"기업마다 총주주환원율 정의가 다르다"*. 그때 죽인 것을 여기서 되살리지 않는다.
+    이 건은 조건부 백로그 **P1-9의 트리거 후보 1건**으로만 계상한다.
+
+    → 그래서 역순 정규식을 **추가하지 않는다**. 실증된 유일한 역순 샘플이 '채택하면
+      안 되는 건'이므로, 규칙을 넓히는 것은 관념적 개선이 된다(1.10 Debug Log 규율).
+    """
+    text = "- '27년 배당금총액 500억(결산+반기) 수준 지향 \n- 별도 당기순이익 기준 80% 이상 주주환원율 지향"
+    assert parse_targets(text)["target_total_return_ratio"] is None
+
+
 def test_period_two_digit_requires_marker() -> None:
     """2자리 연도는 백틱/따옴표 표식 필수 — '24~26개월' 같은 비연도 오탐 방지."""
     t = parse_targets("향후 24~26개월 내 실행")

@@ -136,22 +136,46 @@ def _has_numeric_target(text: str) -> bool:
     return False
 
 
+def _referenced_date(text: str) -> str | None:
+    """본문이 **가리키는 공시일** — 라벨과 무관한 사실이므로 사다리 밖에서 뽑는다.
+
+    [Story 1.11 T2.5 · 파티 비준 2026-08-06] 이전에는 이 추출이 사다리 2번 안에 있어
+    축>0인 공시에서는 **실행조차 되지 않았다**. 그 설계가 지금까지 버틴 이유는 재공시
+    사본이 **우연히** 파싱되지 않았기 때문이고(축=0이라 사다리 1번을 통과), 1.11이 그
+    우연을 없앤다 — 계획이 복사된 재공시(서울보증보험 98)는 파싱에 성공한다.
+
+    두 사실은 서로 다른 질문에 답한다(`attachment_absent`와 같은 계열):
+        body_signal        "이 본문이 왜 우리 4축을 못 채웠나"
+        referenced_date    "이 문서가 어느 공시를 가리키나"
+    축을 채웠다고 참조 사실이 사라지면 `choose_plan`이 껍데기를 근거로 삼는다.
+
+    날짜가 **없는** 재공시 문구("변경 시 재공시 할 예정")는 미래 약속이라 여기서 None이다
+    — 실측상 그것이 보일러플레이트 68건을 오폭에서 지키는 눈금이다.
+    """
+    m = _REFILING_REF.search(text)
+    if not m:
+        return None
+    y, mo, d = m.group(1), int(m.group(2)), int(m.group(3))
+    return f"{y}-{mo:02d}-{d:02d}"
+
+
 def classify_body(raw_text: str | None, targets: Mapping[str, Any]) -> BodySignal:
     """본문 원문 + 그 본문에서 뽑은 목표 → 신호.
 
     우선순위: 축 확보 > 재공시 > 다른 지표 > 목표 없음.
     축을 하나라도 확보했으면 그것이 사실이므로 다른 분류를 붙이지 않는다(재공시 문구가
     섞여 있어도 마찬가지 — 실제로 쓸 값이 있으면 그 공시가 근거다).
+
+    **단, 참조 날짜는 라벨과 직교하므로 어느 분기에서든 보존한다**(`_referenced_date`).
     """
-    if disclosed_axis_count(targets) > 0:
-        return BodySignal(AXIS_TARGETS)
-
     text = raw_text or ""
+    ref = _referenced_date(text)
 
-    m = _REFILING_REF.search(text)
-    if m:
-        y, mo, d = m.group(1), int(m.group(2)), int(m.group(3))
-        return BodySignal(REFILING, referenced_date=f"{y}-{mo:02d}-{d:02d}")
+    if disclosed_axis_count(targets) > 0:
+        return BodySignal(AXIS_TARGETS, referenced_date=ref)
+
+    if ref:
+        return BodySignal(REFILING, referenced_date=ref)
 
     if _REFILING_WORD.search(text) and not _has_numeric_target(text):
         # 재공시라고 말하는데 가리킨 날짜를 못 읽은 경우 — 날짜는 null로 정직하게 둔다.

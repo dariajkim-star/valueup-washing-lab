@@ -222,6 +222,68 @@ _ROE_ARROW_RE = re.compile(_ROE_LABEL + _arrow_tail(_OTHERS_FOR_ROE), re.IGNOREC
 _PAYOUT_ARROW_RE = re.compile(r"배당성향" + _arrow_tail(_OTHERS_FOR_PAYOUT))
 _RETURN_ARROW_RE = re.compile(_RETURN_LABEL + _arrow_tail(_OTHERS_FOR_RETURN) + _TARGET_MARK)
 # PBR은 '배' 단위 **필수**(연도·페이지번호를 PBR로 오탐하는 것 차단).
+# ── [Story 1.11, 2026-08-06] 개행 tier: 라벨과 값이 다른 줄 ──
+#
+# 실측(서울보증보험 98·99): 공시가 `③ ROE` 다음 줄에 `- 중장기 목표 10%`를 쓰는 불릿
+# 서식이라, 개행을 금지하는 `_plain_gap`에서 통째로 끊겼다.
+#
+# **개행 금지는 의도된 방어였다**(G2 표 셀 경계 — 인접 지표의 %를 훔치지 않기 위해).
+# 그래서 여는 것이 아니라 **조건을 붙여 한 줄만** 넘는다. 세 겹으로 좁힌다:
+#   1. 개행 **1회**만, 다음 줄 불릿 표식(`-`·`①`·`1)` 등) 뒤로 이어질 것
+#   2. 다음 줄이 **목표를 말할 것**(표지 필수) — 개행 너머는 대개 다른 항목이다
+#   3. 경쟁 지표 라벨 금지(`_plain_gap`과 동일) — G2 가드가 여기서도 산다
+# 이 tier는 기존 규칙이 못 찾았을 때만 도는 폴백이라 회귀 위험이 구조적으로 0이다.
+_BULLET = r"(?:[-–—·•*ㆍ]|[①-⑳]|[㉠-㉭]|\(?\d{1,2}[).]|[□■○●▶>])"
+# 다음 줄이 목표를 말한다는 표지. `_TARGET_MARK`(값 뒤 룩어헤드)와 달리 **값 앞**을 본다.
+_NEWLINE_MARK = r"(?:목표|지향|이상|달성|확대|중반|수준|상향|계획)"
+
+
+def _newline_gap(others: str) -> str:
+    """라벨 → (같은 줄 잔여) → 개행 1회 → 불릿 → 표지 → 값."""
+    same_line = rf"(?:(?!{others})[^0-9%\n]){{0,8}}"
+    crossing = rf"\n\s*{_BULLET}?\s*"
+    before_mark = rf"(?:(?!{others})[^0-9%\n]){{0,12}}?"
+    after_mark = rf"(?:(?!{others})[^0-9%\n]){{0,8}}?"
+    return same_line + crossing + before_mark + _NEWLINE_MARK + after_mark
+
+
+_ROE_NEWLINE_RE = re.compile(
+    _ROE_LABEL + _newline_gap(_OTHERS_FOR_ROE) + _PCT, re.IGNORECASE
+)
+_PAYOUT_NEWLINE_RE = re.compile(r"배당성향" + _newline_gap(_OTHERS_FOR_PAYOUT) + _PCT)
+_RETURN_NEWLINE_RE = re.compile(_RETURN_LABEL + _newline_gap(_OTHERS_FOR_RETURN) + _PCT)
+
+# ── [Story 1.11] 표지가 값 **앞**에 오는 형태 ──
+#
+# `_TARGET_MARK`는 값 **뒤** 12자만 본다. 실측 두 형태가 그 창 밖에 있다:
+#   B) 코웨이:   `주주환원율 상향: 당기순이익(연결)의 40%`  — 표지가 라벨과 값 사이
+#   C) 한솔:     `주주환원율 20~50% \n- … 주주환원 확대`     — 표지가 15자째 + 개행 너머
+#
+# 표지 요구 자체는 **없애지 않는다.** 주주환원율은 계획 공시에서 목표만큼 자주 *실적*으로
+# 등장하고(5-1 실측: 13건 중 5건이 과거 실적), 한솔은 같은 문서에 목표(20~50%)와
+# 실적(57%)이 나란히 있다. 창을 넓히는 대신 **표지의 위치를 하나 더 인정**한다.
+def _premark_gap(others: str) -> str:
+    """라벨 → (짧은 구간) → **표지** → (수식어·괄호) → 값."""
+    pre = rf"(?:(?!{others})[^0-9%\n]){{0,12}}?"
+    body = rf"(?:(?!{others})[^0-9%\n(]){{0,12}}"
+    paren = rf"(?:\((?:(?!%|{others})[^)\n]){{0,25}}\))?"
+    tail = rf"(?:(?!{others})[^0-9%\n]){{0,8}}?"
+    return pre + _NEWLINE_MARK + body + paren + tail
+
+
+_RETURN_PREMARK_RE = re.compile(_RETURN_LABEL + _premark_gap(_OTHERS_FOR_RETURN) + _PCT)
+
+# 원인 C 전용 — 범위 표현에 한해 표지 창을 넓히고 개행 1회를 넘게 한다.
+# 범위(`20~50%`)는 단일 값보다 **목표일 개연성이 구조적으로 높다**: 실적은 확정된 한 값으로
+# 적히지 범위로 적히지 않는다(실측 — 실적 표기 57%·268.0%·78%는 전부 단일 값).
+_RETURN_MARK_WIDE = (
+    rf"(?=(?:(?!{_OTHERS_FOR_RETURN})[^\n]){{0,6}}\n?"
+    rf"(?:(?!{_OTHERS_FOR_RETURN})[^\n]){{0,20}}?{_NEWLINE_MARK})"
+)
+_RETURN_RANGE_WIDE_RE = re.compile(
+    _RETURN_LABEL + _plain_gap(_OTHERS_FOR_RETURN) + _PCT_RANGE + _RETURN_MARK_WIDE
+)
+
 _PBR_RE = re.compile(r"PBR[^0-9\n]{0,15}?(\d+(?:\.\d+)?)\s*배", re.IGNORECASE)
 _PERIOD_RE = re.compile(r"(20\d{2})\s*년?\s*[~\-–∼]\s*(20\d{2})")
 # 1.10: 백틱/따옴표 표식이 붙은 2자리 연도 범위(실샘플 `24~`30년) → 20xx 확장.
@@ -500,6 +562,8 @@ def parse_targets(
     roe = _with_range(_num_with_arrow(_ROE_ARROW_RE, _ROE_RE), _ROE_RANGE_RE, "roe")
     if roe is None:
         roe = _num_qualified(_ROE_QUAL_RE)
+    if roe is None:
+        roe = _num(_ROE_NEWLINE_RE)  # 계열C(1.11) — 라벨과 값이 다른 줄
     payout = _with_range(
         _num_with_arrow(_PAYOUT_ARROW_RE, _PAYOUT_RE), _PAYOUT_RANGE_RE, "payout_ratio"
     )
@@ -513,6 +577,12 @@ def parse_targets(
     )
     if total_return is None:
         total_return = _num_qualified(_RETURN_QUAL_RE)
+    if total_return is None:
+        total_return = _num(_RETURN_PREMARK_RE)  # 계열D(1.11) — 표지가 값 앞
+    if total_return is None:
+        total_return = _num(_RETURN_NEWLINE_RE)  # 계열C(1.11) — 라벨과 값이 다른 줄
+    if total_return is None:  # 계열E(1.11) — 범위 + 넓힌 표지 창
+        total_return = _with_range(None, _RETURN_RANGE_WIDE_RE, "total_return_ratio")
 
     return {
         "target_roe": roe,

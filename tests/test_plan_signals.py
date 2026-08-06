@@ -54,6 +54,30 @@ class TestAxisTargetsWins:
         """축을 하나라도 확보했으면 그것이 사실 — 재공시 문구가 섞여도 마찬가지."""
         s = classify_body(WOORI_REFILING, {**EMPTY, "target_roe": 10.0})
         assert s.kind == AXIS_TARGETS
+
+    def test_reference_date_survives_axis_targets(self):
+        """[Story 1.11 T2.5 · 파티 비준 2026-08-06] **계약 개정**.
+
+        이전 계약은 `axis_targets`면 `referenced_date is None`이었다. 그 전제는
+        "재공시 사본은 어차피 파싱이 안 된다"였고, 1.11이 그 우연을 없앤다 —
+        서울보증보험 98처럼 계획이 복사된 재공시는 파싱에 성공한다.
+
+        라벨(`왜 축을 못 채웠나`)과 참조 사실(`어느 공시를 가리키나`)은 **직교**다.
+        축을 채웠다고 참조 사실이 사라지면 `choose_plan`이 껍데기 문서를 근거로 삼는다.
+        """
+        s = classify_body(WOORI_REFILING, {**EMPTY, "target_roe": 10.0})
+        assert s.kind == AXIS_TARGETS
+        assert s.referenced_date == "2026-02-06"
+
+    def test_axis_targets_without_pointer_keeps_null(self):
+        """보일러플레이트 방어 — '변경 시 재공시 할 예정'은 가리킬 날짜가 없다.
+
+        실측: `axis_targets` 309건 전부 참조 날짜 없음. 여기서 날짜가 생기면
+        68건이 오폭된다.
+        """
+        text = "시장상황 변화에 따라 변경될 수 있으며, 변경 시 재공시 할 예정입니다."
+        s = classify_body(text, {**EMPTY, "target_roe": 10.0})
+        assert s.kind == AXIS_TARGETS
         assert s.referenced_date is None
 
 
