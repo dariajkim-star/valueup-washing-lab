@@ -228,30 +228,64 @@ _RETURN_ARROW_RE = re.compile(_RETURN_LABEL + _arrow_tail(_OTHERS_FOR_RETURN) + 
 # 서식이라, 개행을 금지하는 `_plain_gap`에서 통째로 끊겼다.
 #
 # **개행 금지는 의도된 방어였다**(G2 표 셀 경계 — 인접 지표의 %를 훔치지 않기 위해).
-# 그래서 여는 것이 아니라 **조건을 붙여 한 줄만** 넘는다. 세 겹으로 좁힌다:
-#   1. 개행 **1회**만, 다음 줄 불릿 표식(`-`·`①`·`1)` 등) 뒤로 이어질 것
+# 그래서 여는 것이 아니라 **조건을 붙여 한 줄만** 넘는다. 네 겹으로 좁힌다:
+#   1. 개행 **정확히 1회**, 다음 줄 불릿 표식(`-`·`①`·`1)` 등) **필수**
 #   2. 다음 줄이 **목표를 말할 것**(표지 필수) — 개행 너머는 대개 다른 항목이다
 #   3. 경쟁 지표 라벨 금지(`_plain_gap`과 동일) — G2 가드가 여기서도 산다
-# 이 tier는 기존 규칙이 못 찾았을 때만 도는 폴백이라 회귀 위험이 구조적으로 0이다.
+#   4. **지표 라벨꼴 토큰 금지**(`_METRIC_TOKEN`) — 3의 목록이 못 막는 것을 구조로 막는다
+#
+# ⚠️ 4는 code-review 2026-08-07의 지적으로 추가됐다. **1.10의 오탐 방어는 전부 *같은 줄*
+# 안의 경쟁 라벨 배제였고, 개행 금지가 그 목록(5개)의 불완전함을 덮고 있었다.** 줄을 열자
+# 목록이 유일한 방어가 됐고, 목록 밖 라벨에서 셀 간 절도가 부활했다:
+#     _strip_tags('<TD>ROE 개선</TD><TD>K-ICS 비율 목표 320%</TD>') → target_roe=320.0
+# **K-ICS는 이 스토리의 실샘플 plan 98의 인접 항목이다** — 원문에서 ROE가 뒤에 왔기 때문에
+# 살았을 뿐, 방어가 아니라 배치 운(運)이었다. 목록을 영원히 보완하는 대신(다음 미등록
+# 라벨에서 같은 병이 난다) **라벨의 꼴 자체**를 막는다(레아: 넓히기 전에 없앨 수 있는지 묻는다).
+#
+# 1·2의 위반도 같은 리뷰에서 드러났다 — `_BULLET`이 옵셔널이고 `\s`가 `\n`을 포함해
+# 주석이 약속한 "개행 1회 + 불릿 필수"가 **코드에 없었다**('ROE \n \n \n 목표 10%'가 통과).
+# 주석을 사실로 바꾸는 대신 코드를 주석에 맞춘다 — 실샘플 98·99는 둘 다 불릿 서식이다.
 _BULLET = r"(?:[-–—·•*ㆍ]|[①-⑳]|[㉠-㉭]|\(?\d{1,2}[).]|[□■○●▶>])"
+# 지표 라벨의 **꼴**: 낱말 + 지표 접미. `K-ICS 비율`·`배당수익률`·`매출총이익률`·`소각률`.
+_METRIC_TOKEN = (
+    r"(?:[A-Za-z][A-Za-z0-9\-]+|[가-힣]{2,})\s*"
+    r"(?:비율|이익률|수익률|증가율|성장률|배수|지수|비중|률|율)"
+)
 # 다음 줄이 목표를 말한다는 표지. `_TARGET_MARK`(값 뒤 룩어헤드)와 달리 **값 앞**을 본다.
-_NEWLINE_MARK = r"(?:목표|지향|이상|달성|확대|중반|수준|상향|계획)"
+# 어휘는 `_TARGET_MARK`와 **같다** — 표지가 무엇인가는 하나로 정의하고, 다른 것은 위치뿐이다.
+# (code-review 2026-08-07: 여기에만 `달성`·`중반`이 더 있었다. `_TARGET_MARK`가 `달성`을
+#  **의도적으로 뺀** 단어인데 — 실적 서술의 대표어다 — 실증 샘플 0인 채로 들어와 있었고,
+#  '주주환원율 \n- 초과 달성 57%' → 57.0으로 실적을 목표로 삼았다. 한솔 215 원문의 실적
+#  줄이 정확히 `2) 주주환원 초과 달성 \n- 주주환원율 57%`다.)
+_NEWLINE_MARK = r"(?:목표|지향|이상|확대|원칙|수준|계획)"
+# 값 **앞** 표지는 더 좁다 — 목표를 선언하는 말만 인정한다(code-review 결정 ①).
+# `확대`·`수준`·`이상`은 실적 서술에도 그대로 쓰이는데 premark tier에는 값 뒤 가드가 없어
+# 그것이 유일한 앵커다. 실증 5건이 premark에서 요구하는 표지는 코웨이(317)의 `상향` 하나뿐.
+_PREMARK_MARK = r"(?:목표|지향|상향|계획)"
+# 표지와 값 사이에 **실적어**가 끼면 목표 선언이 아니다 — `주주환원율 상향 이전 실적인 32%`.
+# 좁힌 표지만으로는 이 형태가 남는다(`상향`이 목표어이므로). 값 뒤 가드가 없는 tier이니
+# 값 **앞** 구간에서라도 실적 서술을 끊는다.
+_PERF_WORD = r"(?:실적|기록|달성|현황|이행)"
 
 
 def _newline_gap(others: str) -> str:
-    """라벨 → (같은 줄 잔여) → 개행 1회 → 불릿 → 표지 → 값."""
+    """라벨 → (같은 줄 잔여) → 개행 1회 → **불릿** → 표지 → 값. 라벨꼴 토큰 금지."""
     same_line = rf"(?:(?!{others})[^0-9%\n]){{0,8}}"
-    crossing = rf"\n\s*{_BULLET}?\s*"
-    before_mark = rf"(?:(?!{others})[^0-9%\n]){{0,12}}?"
-    after_mark = rf"(?:(?!{others})[^0-9%\n]){{0,8}}?"
+    crossing = rf"\n[ \t]*{_BULLET}[ \t]*"
+    guard = rf"(?!{others})(?!{_METRIC_TOKEN})"
+    before_mark = rf"(?:{guard}[^0-9%\n]){{0,12}}?"
+    after_mark = rf"(?:{guard}[^0-9%\n]){{0,8}}?"
     return same_line + crossing + before_mark + _NEWLINE_MARK + after_mark
 
 
 _ROE_NEWLINE_RE = re.compile(
     _ROE_LABEL + _newline_gap(_OTHERS_FOR_ROE) + _PCT, re.IGNORECASE
 )
-_PAYOUT_NEWLINE_RE = re.compile(r"배당성향" + _newline_gap(_OTHERS_FOR_PAYOUT) + _PCT)
-_RETURN_NEWLINE_RE = re.compile(_RETURN_LABEL + _newline_gap(_OTHERS_FOR_RETURN) + _PCT)
+# `_PAYOUT_NEWLINE_RE`·`_RETURN_NEWLINE_RE`는 **제거됐다**(code-review 결정 ④).
+# 전자는 정의만 있고 `parse_targets`가 부르지 않는 dead code였고, 후자는 호출되지만 전
+# 코퍼스 519건에서 매치 **0건**·뮤테이션에도 죽는 테스트 없음이었다. T3(역순 규칙)를
+# *"실증 0인 규칙은 넣지 않는다"*로 기각한 커밋이 같은 자리에서 실증 0인 규칙을 넣고
+# 있었다 — 그 논거를 자기 산출물에도 적용한다. 실샘플이 나오면 그때 되살린다.
 
 # ── [Story 1.11] 표지가 값 **앞**에 오는 형태 ──
 #
@@ -262,13 +296,22 @@ _RETURN_NEWLINE_RE = re.compile(_RETURN_LABEL + _newline_gap(_OTHERS_FOR_RETURN)
 # 표지 요구 자체는 **없애지 않는다.** 주주환원율은 계획 공시에서 목표만큼 자주 *실적*으로
 # 등장하고(5-1 실측: 13건 중 5건이 과거 실적), 한솔은 같은 문서에 목표(20~50%)와
 # 실적(57%)이 나란히 있다. 창을 넓히는 대신 **표지의 위치를 하나 더 인정**한다.
+# ⚠️ code-review 2026-08-07: 이 tier에는 **값 뒤 가드가 없다.** 커밋 메시지는
+# *"`_TARGET_MARK` 원본은 건드리지 않았다 — 실적을 목표로 삼는 오탐의 유일한 방어선"*이라
+# 적었지만, 그 방어선은 이 tier를 지나가지 않는다. 유일한 앵커가 **값보다 앞에 있는** 표지다.
+# 그래서 표지를 넓은 `_NEWLINE_MARK`에서 좁은 `_PREMARK_MARK`로 바꾼다(결정 ①).
+# 그냥 `_TARGET_MARK`를 덧붙이면 코웨이(317)가 죽는다 — 값 뒤 12자에 표지가 없는 게
+# 애초에 이 tier가 생긴 이유다. 재현됐던 오탐(전부 `확대`·`수준`·`이상`이 앵커였다):
+#     '주주환원율 확대 노력으로 57%를 달성'  → 57.0
+#     '주주환원율 상향 이전 실적인 32%'      → 32.0   ← `상향`이라 좁혀도 남는다(아래 tail 가드)
 def _premark_gap(others: str) -> str:
-    """라벨 → (짧은 구간) → **표지** → (수식어·괄호) → 값."""
-    pre = rf"(?:(?!{others})[^0-9%\n]){{0,12}}?"
-    body = rf"(?:(?!{others})[^0-9%\n(]){{0,12}}"
+    """라벨 → (짧은 구간) → **목표 표지** → (수식어·괄호) → 값."""
+    guard = rf"(?!{others})(?!{_PERF_WORD})"
+    pre = rf"(?:{guard}[^0-9%\n]){{0,12}}?"
+    body = rf"(?:{guard}[^0-9%\n(]){{0,12}}"
     paren = rf"(?:\((?:(?!%|{others})[^)\n]){{0,25}}\))?"
-    tail = rf"(?:(?!{others})[^0-9%\n]){{0,8}}?"
-    return pre + _NEWLINE_MARK + body + paren + tail
+    tail = rf"(?:{guard}[^0-9%\n]){{0,8}}?"
+    return pre + _PREMARK_MARK + body + paren + tail
 
 
 _RETURN_PREMARK_RE = re.compile(_RETURN_LABEL + _premark_gap(_OTHERS_FOR_RETURN) + _PCT)
@@ -276,9 +319,16 @@ _RETURN_PREMARK_RE = re.compile(_RETURN_LABEL + _premark_gap(_OTHERS_FOR_RETURN)
 # 원인 C 전용 — 범위 표현에 한해 표지 창을 넓히고 개행 1회를 넘게 한다.
 # 범위(`20~50%`)는 단일 값보다 **목표일 개연성이 구조적으로 높다**: 실적은 확정된 한 값으로
 # 적히지 범위로 적히지 않는다(실측 — 실적 표기 57%·268.0%·78%는 전부 단일 값).
+#
+# code-review 2026-08-07: 이 창만 `[^\n]`이라 다른 gap(`[^0-9%\n]`)보다 헐거웠다 —
+# **다음 줄 남의 문장에서 표지를 빌려왔다.** 다만 `[^0-9%\n]`로 그냥 좁히면 실샘플
+# 한솔 215가 죽는다(넘어간 줄이 `- 2026년 …`이라 숫자가 필수 경로에 있다). 그래서
+# 숫자는 남기고 **`%`(다른 값)와 지표 라벨꼴(`_METRIC_TOKEN`)을 막는다** — 창 안에
+# 또 다른 지표나 또 다른 값이 있으면 그 표지는 남의 것이다.
+# 남은 한계(deferred): `.search`는 첫 매칭이라 **이행실적 절이 목표 절보다 앞서면 뒤집힌다.**
 _RETURN_MARK_WIDE = (
-    rf"(?=(?:(?!{_OTHERS_FOR_RETURN})[^\n]){{0,6}}\n?"
-    rf"(?:(?!{_OTHERS_FOR_RETURN})[^\n]){{0,20}}?{_NEWLINE_MARK})"
+    rf"(?=(?:(?!{_OTHERS_FOR_RETURN})(?!{_METRIC_TOKEN})[^%\n]){{0,6}}\n?"
+    rf"(?:(?!{_OTHERS_FOR_RETURN})(?!{_METRIC_TOKEN})[^%\n]){{0,20}}?{_NEWLINE_MARK})"
 )
 _RETURN_RANGE_WIDE_RE = re.compile(
     _RETURN_LABEL + _plain_gap(_OTHERS_FOR_RETURN) + _PCT_RANGE + _RETURN_MARK_WIDE
@@ -577,12 +627,13 @@ def parse_targets(
     )
     if total_return is None:
         total_return = _num_qualified(_RETURN_QUAL_RE)
-    if total_return is None:
-        total_return = _num(_RETURN_PREMARK_RE)  # 계열D(1.11) — 표지가 값 앞
-    if total_return is None:
-        total_return = _num(_RETURN_NEWLINE_RE)  # 계열C(1.11) — 라벨과 값이 다른 줄
+    # 폴백 순서 = **증거가 강한 것부터**(code-review 2026-08-07, Blind H3).
+    # 범위 tier는 `20~50%`라는 형태적 증거를 갖지만 premark tier의 앵커는 낱말 하나뿐이다.
+    # 느슨한 쪽이 먼저 돌면 강한 증거를 선점한다 — 실제로 그 순서였다.
     if total_return is None:  # 계열E(1.11) — 범위 + 넓힌 표지 창
         total_return = _with_range(None, _RETURN_RANGE_WIDE_RE, "total_return_ratio")
+    if total_return is None:
+        total_return = _num(_RETURN_PREMARK_RE)  # 계열D(1.11) — 표지가 값 앞
 
     return {
         "target_roe": roe,

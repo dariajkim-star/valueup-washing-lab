@@ -260,6 +260,52 @@ class TestChoosePlan:
         assert c.plan["plan_id"] == 1
         assert c.used_fallback is True
 
+    # ── code-review 2026-08-07 결정 ③: 못 따라간 것을 이유로 계획을 버리지 않는다 ──
+    #
+    # 병렬 트리거를 붙이면서 `ref`가 있으면 라벨과 무관하게 규칙 1의 루프에 들어오게 됐는데,
+    # 루프의 탈출구는 refiling(껍데기)용 "이 문서를 빼고 다음으로" 하나뿐이었다. 그래서
+    # **목표를 공시한 문서가 가리킨 날짜를 해소하지 못했다는 이유만으로 폐기**됐다.
+    # `is_unrankable`의 "못 읽은 걸 벌하지 않는다"를 선택 계층으로 옮긴 것이 아래 셋이다.
+
+    def test_axis_targets_kept_when_reference_points_to_itself(self):
+        """자기 날짜를 가리키는 공시 — 이동이 아니므로 폐기도 폴백도 아니다."""
+        c = choose_plan([
+            plan(plan_id=10, disclosure_date="2026-02-06", body_signal=AXIS_TARGETS,
+                 body_reference_date="2026-02-06", target_roe=12.0),
+            plan(plan_id=9, disclosure_date="2024-05-01", body_signal=AXIS_TARGETS,
+                 target_roe=8.0),
+        ])
+        assert c.plan["plan_id"] == 10
+        assert c.used_fallback is False
+
+    def test_axis_targets_kept_when_referenced_plan_is_missing(self):
+        """가리킨 공시가 코퍼스에 없다 — `_REPORT_EXCLUDE`가 거른 문서이거나 날짜가 어긋난다.
+
+        이전에는 최신 계획(roe 12.0)을 버리고 구버전(roe 9.0)을 골랐다. 우리가 따라가지
+        못한 것을 회사 탓으로 돌리지 않는다.
+        """
+        c = choose_plan([
+            plan(plan_id=30, disclosure_date="2026-03-01", body_signal=AXIS_TARGETS,
+                 body_reference_date="2025-01-01", target_roe=12.0),
+            plan(plan_id=29, disclosure_date="2024-05-01", body_signal=AXIS_TARGETS,
+                 target_roe=9.0),
+        ])
+        assert c.plan["plan_id"] == 30
+        assert c.used_fallback is False
+
+    def test_refiling_with_unresolvable_reference_is_still_skipped(self):
+        """반대 방향 보존: **껍데기**는 가리킨 곳을 못 찾아도 여전히 후보에서 뺀다.
+
+        폐기 경로 자체를 없애면 계획을 담지 않은 문서가 근거가 된다 — 규칙 1의 존재 이유다.
+        """
+        c = choose_plan([
+            plan(plan_id=3, disclosure_date="2026-03-31", body_signal=REFILING,
+                 body_reference_date="2099-01-01"),
+            plan(plan_id=1, disclosure_date="2024-10-29", target_roe=10.0),
+        ])
+        assert c.plan["plan_id"] == 1
+        assert c.used_fallback is True
+
     def test_body_signal_absent_behaves_as_before(self):
         """신호가 아직 백필되지 않은 행(null)도 기존 규칙대로 동작한다."""
         c = choose_plan([

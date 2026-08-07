@@ -181,22 +181,36 @@ def choose_plan(ordered_plans: Sequence[Mapping[str, Any]]) -> PlanChoice | None
     #
     # 보일러플레이트 방어는 날짜가 대신한다: "변경 시 재공시 할 예정"은 미래 약속이라
     # 가리킬 날짜가 없다(실측 — axis_targets 309건 전부 참조 날짜 없음).
+    #
+    # [code-review 2026-08-07 · 결정 ③] **못 따라간 것을 이유로 계획을 버리지 않는다.**
+    # 병렬 트리거를 붙이면서 `ref`가 있으면 라벨과 무관하게 이 루프에 들어오게 됐는데,
+    # 루프의 탈출구는 refiling(계획을 담지 않은 껍데기)용으로 만든 "이 문서를 빼고 다음으로"
+    # 하나뿐이었다. 그래서 **목표를 공시한 문서가 가리킨 날짜를 해소하지 못했다는 이유만으로
+    # 폐기**됐다(자기참조 · 무효 날짜 · 코퍼스 밖 날짜 세 갈래 전부 재현).
+    # 폐기는 껍데기에만 허용한다 — `is_unrankable`의 *"못 읽은 걸 벌하지 않는다"*와 같은 결이고,
+    # 이 층에서는 *"우리가 못 따라간 것을 회사 탓으로 돌리지 않는다"*가 된다.
     seen_dates: set[str] = set()
     for _ in range(len(candidates)):
         head = candidates[0]
         ref = head.get("body_reference_date")
-        if not ref and head.get("body_signal") != REFILING:
+        is_refiling = head.get("body_signal") == REFILING
+        if not ref and not is_refiling:
             break
         if ref and ref not in seen_dates:
             seen_dates.add(ref)
-            target = [c for c in candidates if c.get("disclosure_date") == ref]
+            # **자기 자신은 대상이 아니다** — 자기 날짜를 가리키는 공시(실측 0건이나
+            # 파싱상 가능)를 "이동"으로 세면 used_fallback이 거짓으로 켜지고, 다음 회차에
+            # seen_dates에 걸려 결국 자기를 버린다.
+            target = [c for c in candidates[1:] if c.get("disclosure_date") == ref]
             if target:
                 # 가리킨 공시를 맨 앞으로(그 뒤로는 그보다 오래된 것들만 남긴다)
                 idx = candidates.index(target[0])
                 candidates = candidates[idx:]
                 used_fallback = True
                 continue
-        # 날짜를 못 읽었거나 그 공시가 없다 → 이 문서를 빼고 다음으로
+        # 날짜를 못 읽었거나 그 공시가 없다.
+        if not is_refiling:
+            break  # 이 문서는 껍데기가 아니다 — 못 따라갔을 뿐이므로 그대로 쓴다
         if len(candidates) == 1:
             break  # 남은 게 이것뿐이면 그대로 둔다(빈 결과보다 낫다)
         candidates = candidates[1:]

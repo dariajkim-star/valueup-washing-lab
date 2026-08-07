@@ -195,3 +195,39 @@ class TestDeclaresNoAttachment:
         text = self.HIGH_DIV + "\n旣공시(2026.2.6) 내용 참조"
         assert classify_body(text, EMPTY).kind == REFILING
         assert declares_no_attachment(text) is True
+
+
+# ── code-review 2026-08-07 결정 ⑦: 실재하는 날짜만 내보낸다 ──
+
+
+class TestReferencedDateValidity:
+    """`_referenced_date`에 날짜 검증이 없어 ISO처럼 생긴 **무효 문자열**이 나왔다.
+
+    무효 날짜는 `choose_plan`에서 어떤 공시와도 매칭되지 않아 조용히 "가리켰는데 못 찾음"
+    경로로 떨어진다. 못 읽은 것은 못 읽었다고 말하는 게 낫다(NFR2).
+    1.11 이전에는 이 추출이 사다리 2번 안에 있어 축>0 문서에서는 돌지도 않았다 —
+    노출면이 313건으로 넓어졌기 때문에 이제 이 검증이 필요하다.
+    """
+
+    def test_impossible_day_is_rejected(self):
+        s = classify_body("旣공시(2026.2.30) 내용 참조", EMPTY)
+        assert s.referenced_date is None
+
+    def test_impossible_month_is_rejected(self):
+        s = classify_body("기공시(2026.13.45) 참조", EMPTY)
+        assert s.referenced_date is None
+
+    def test_zero_month_and_day_rejected(self):
+        s = classify_body("기공시(2026.0.0) 참조", EMPTY)
+        assert s.referenced_date is None
+
+    def test_valid_date_still_extracted(self):
+        """정상 경로는 그대로 — 실측 4건이 전부 이 형태다."""
+        s = classify_body("旣공시(2026.2.6) 내용 참조", EMPTY)
+        assert s.kind == REFILING
+        assert s.referenced_date == "2026-02-06"
+
+    def test_leap_day_is_valid(self):
+        """2026-02-29는 없지만 2024-02-29는 있다 — 달력을 쓰지 자릿수만 세지 않는다."""
+        assert classify_body("旣공시(2024.2.29) 참조", EMPTY).referenced_date == "2024-02-29"
+        assert classify_body("旣공시(2026.2.29) 참조", EMPTY).referenced_date is None

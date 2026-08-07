@@ -65,9 +65,11 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 # 상수는 plan_selection이 소유한다(선택 규칙이 refiling을 알아야 하는데 그쪽이 이 모듈을
@@ -79,6 +81,8 @@ from app.analysis.plan_selection import (  # noqa: F401 — 재수출(호출부 
     REFILING,
     disclosed_axis_count,
 )
+
+logger = logging.getLogger(__name__)
 
 # 목표를 뜻하는 표지. parse_targets의 _TARGET_MARK와 같은 계열이지만 여기선 **어느 지표든**
 # 상관없이 "목표가 쓰여 있는가"만 본다.
@@ -156,7 +160,16 @@ def _referenced_date(text: str) -> str | None:
     if not m:
         return None
     y, mo, d = m.group(1), int(m.group(2)), int(m.group(3))
-    return f"{y}-{mo:02d}-{d:02d}"
+    # [code-review 2026-08-07] 실재하는 날짜만 내보낸다. 이전에는 검증이 없어
+    # `旣공시(2026.2.30)` → `'2026-02-30'`, `기공시(2026.13.45)` → `'2026-13-45'` 같은
+    # **ISO처럼 생긴 무효 문자열**이 DB에 적재됐다. 무효 날짜는 `choose_plan`에서 어떤
+    # 공시와도 매칭되지 않아 조용히 "가리켰는데 못 찾음" 경로로 떨어진다 —
+    # 못 읽은 것을 못 읽었다고 말하는 게 낫다(NFR2).
+    try:
+        return date(int(y), mo, d).isoformat()
+    except ValueError:
+        logger.debug("참조 날짜가 실재하지 않음: %s.%s.%s", y, mo, d)
+        return None
 
 
 def classify_body(raw_text: str | None, targets: Mapping[str, Any]) -> BodySignal:
