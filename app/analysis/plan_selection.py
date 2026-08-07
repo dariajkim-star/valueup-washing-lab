@@ -166,22 +166,51 @@ def choose_plan(ordered_plans: Sequence[Mapping[str, Any]]) -> PlanChoice | None
 
     # 1) 재공시 건너뛰기 — 연쇄(재공시가 재공시를 가리키는 경우)도 따라간다.
     #    무한 루프 방지를 위해 방문한 날짜를 기억하고, 후보 수만큼만 시도한다.
+    #
+    # [Story 1.11 T2.5, 파티 비준 2026-08-06] **참조 날짜는 라벨과 직교한 사실이다.**
+    # 판정 키가 `body_signal == REFILING`뿐이면, 파서가 좋아져 재공시 사본의 목표가
+    # 파싱되는 순간 `classify_body`의 사다리 1번(축>0)이 라벨을 axis_targets로 덮어
+    # **건너뛰기가 죽는다**(서울보증보험 98 실측). 지금까지 이 규칙이 작동한 것은
+    # 재공시 문서들이 **우연히** 파싱되지 않았기 때문이고, 1.11이 그 우연을 없앤다.
+    #
+    # 그래서 참조 날짜를 **병렬 트리거로 추가**한다 — 교체가 아니다:
+    #   · 날짜 있음  → 라벨과 무관하게 그것이 가리킨 공시로 간다(새로 열리는 경로)
+    #   · 날짜 없음 + refiling 라벨 → 기존대로 후보에서 뺀다(보존해야 하는 경로)
+    # 날짜로 **교체**하면 refiling 19건 중 날짜 없는 15건의 제외 경로가 사라져
+    # 실측 4개사(포스코퓨처엠·한국전력기술·DB하이텍·한국타이어)의 선택이 바뀐다.
+    #
+    # 보일러플레이트 방어는 날짜가 대신한다: "변경 시 재공시 할 예정"은 미래 약속이라
+    # 가리킬 날짜가 없다(실측 — axis_targets 309건 전부 참조 날짜 없음).
+    #
+    # [code-review 2026-08-07 · 결정 ③] **못 따라간 것을 이유로 계획을 버리지 않는다.**
+    # 병렬 트리거를 붙이면서 `ref`가 있으면 라벨과 무관하게 이 루프에 들어오게 됐는데,
+    # 루프의 탈출구는 refiling(계획을 담지 않은 껍데기)용으로 만든 "이 문서를 빼고 다음으로"
+    # 하나뿐이었다. 그래서 **목표를 공시한 문서가 가리킨 날짜를 해소하지 못했다는 이유만으로
+    # 폐기**됐다(자기참조 · 무효 날짜 · 코퍼스 밖 날짜 세 갈래 전부 재현).
+    # 폐기는 껍데기에만 허용한다 — `is_unrankable`의 *"못 읽은 걸 벌하지 않는다"*와 같은 결이고,
+    # 이 층에서는 *"우리가 못 따라간 것을 회사 탓으로 돌리지 않는다"*가 된다.
     seen_dates: set[str] = set()
     for _ in range(len(candidates)):
         head = candidates[0]
-        if head.get("body_signal") != REFILING:
-            break
         ref = head.get("body_reference_date")
+        is_refiling = head.get("body_signal") == REFILING
+        if not ref and not is_refiling:
+            break
         if ref and ref not in seen_dates:
             seen_dates.add(ref)
-            target = [c for c in candidates if c.get("disclosure_date") == ref]
+            # **자기 자신은 대상이 아니다** — 자기 날짜를 가리키는 공시(실측 0건이나
+            # 파싱상 가능)를 "이동"으로 세면 used_fallback이 거짓으로 켜지고, 다음 회차에
+            # seen_dates에 걸려 결국 자기를 버린다.
+            target = [c for c in candidates[1:] if c.get("disclosure_date") == ref]
             if target:
                 # 가리킨 공시를 맨 앞으로(그 뒤로는 그보다 오래된 것들만 남긴다)
                 idx = candidates.index(target[0])
                 candidates = candidates[idx:]
                 used_fallback = True
                 continue
-        # 날짜를 못 읽었거나 그 공시가 없다 → 이 문서를 빼고 다음으로
+        # 날짜를 못 읽었거나 그 공시가 없다.
+        if not is_refiling:
+            break  # 이 문서는 껍데기가 아니다 — 못 따라갔을 뿐이므로 그대로 쓴다
         if len(candidates) == 1:
             break  # 남은 게 이것뿐이면 그대로 둔다(빈 결과보다 낫다)
         candidates = candidates[1:]

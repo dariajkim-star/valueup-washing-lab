@@ -1,6 +1,13 @@
 # 환경/시크릿
 .env
 *.db
+# 스토리 착수 전 DB 백업(수 MB 바이너리). 로컬 안전망이지 이력에 남길 것이 아니다.
+*.db.bak-*
+
+# experiments/out — DB에서 재생성 가능한 산출물. 단 골드 라벨은 사람 작업이라 보존한다.
+# 디렉터리를 통째로 제외하면 하위 파일을 되살릴 수 없으므로 내용만 제외한다.
+experiments/out/*
+!experiments/out/gold_labels.csv
 
 # Python
 __pycache__/

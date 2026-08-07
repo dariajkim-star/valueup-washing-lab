@@ -292,6 +292,213 @@ def test_period_backtick_two_digit_years() -> None:
     assert t2["period_end"] == "2027"
 
 
+# ── Story 1.11: 축=0 구간 전수 재판독 (v2-backlog P1-2 2차) ──
+#
+# 배경: P1-2 1차의 결론("본문에 정말 목표가 없다")은 `no_targets` 175건만 보고 내린
+# 것이었다. 축=0 구간 210건 중 나머지 35건(refiling 19 + other_metric 16)은 전수
+# 판독된 적이 없었고, 거기서 5건이 나왔다. 아래는 **실샘플 원문 그대로**다 —
+# 정규화한 문자열로 쓰면 개행 버그가 테스트를 통과한다(1.11 Dev Notes).
+
+
+def test_roe_label_and_value_on_separate_lines() -> None:
+    """원인 A · 서울보증보험(plan 98·99): 라벨과 값이 다른 줄.
+
+    `_plain_gap`이 개행을 금지해 끊겼다. 공시가 `③ ROE` 다음 줄에 `- 중장기 목표 10%`를
+    쓰는 불릿 서식이라 통째로 버려지고 있었다.
+    """
+    text = (
+        "① 주주환원 \n- 업계 최고 수준의 총주주환원 \n② K-ICS 비율 \n"
+        "- 중장기 목표 320% 이상 \n③ ROE \n- 중장기 목표 10% \n"
+        "2. 기업가치 제고를 위한 실행방안"
+    )
+    assert parse_targets(text)["target_roe"] == 10.0
+
+
+def test_newline_requires_target_marker_on_next_line() -> None:
+    """원인 A의 안전장치: 개행을 넘으려면 **다음 줄이 목표를 말해야** 한다.
+
+    개행 너머는 대개 다른 항목이다. 표지 없이 열면 라벨이 무관한 줄의 숫자를 훔친다.
+    """
+    assert parse_targets("③ ROE \n2. 기업가치 제고를 위한 실행방안 50%")["target_roe"] is None
+
+
+def test_newline_does_not_cross_into_competing_metric() -> None:
+    """원인 A의 안전장치 2: 개행을 열어도 경쟁 지표의 숫자는 훔치지 않는다.
+
+    G2(표 셀 경계) 가드와 같은 계열 — 1.10 일괄리뷰 High 3건이 전부 이 방향이었다.
+    """
+    assert parse_targets("ROE 개선 \n- 배당성향 목표 30%")["target_roe"] is None
+
+
+def test_return_target_marker_before_the_value() -> None:
+    """원인 B · 코웨이(plan 317): 목표 표지가 값 **앞**에 있다.
+
+    `_TARGET_MARK`는 값 뒤 12자만 본다. 여기서 표지(`상향`)는 라벨과 값 사이에 있고,
+    값 뒤에는 다음 항목이 온다.
+    """
+    text = "2) 주주환원율 상향: 당기순이익(연결)의 40% \n3) 재무건전성과 자본효율성을 고려한 적정 자본구조"
+    assert parse_targets(text)["target_total_return_ratio"] == 40.0
+
+
+def test_return_range_with_marker_on_following_line() -> None:
+    """원인 C · 한솔케미칼(plan 215): 표지가 값 뒤 15자째(창은 12자) + 개행 너머.
+
+    OQ-1 확정대로 범위는 **하한**을 채택하고 원문 범위를 보존한다.
+    """
+    text = "2) 주주환원 확대 \n- 주주환원율 20~50% \n- 2026년 주주환원 확대 적극 검토"
+    t = parse_targets(text)
+    assert t["target_total_return_ratio"] == 20.0
+    assert "total_return_ratio:20~50" in (t["target_ranges"] or "")
+
+
+def test_return_past_performance_is_not_taken_as_target() -> None:
+    """원인 C의 안전장치 · 한솔 실측 함정: **같은 문서에 목표와 실적이 나란히 있다**.
+
+    `2) 주주환원 초과 달성 - 주주환원율 57%`는 2025년 **이행 실적**이다.
+    표지 조건을 느슨하게 풀면 57%를 목표로 삼는다 — `_TARGET_MARK`가 존재하는 이유다
+    (5-1 실샘플: 라벨+숫자만 보면 13건 중 5건이 과거 실적이었다).
+    """
+    text = (
+        "1. 2026년 기업가치 제고 계획 \n1) 지속적인 성장 \n"
+        "- 연결 매출액, 영업이익 연 10% 성장 \n2) 주주환원 확대 \n"
+        "- 주주환원율 20~50% \n- 2026년 주주환원 확대 적극 검토 \n3) 투자자 소통 강화 \n"
+        "2. 2025년 기업가치 제고 계획 이행 현황 \n1) 성장 목표 달성 \n"
+        "- 매출액 14%, 영업이익 21% 성장 \n2) 주주환원 초과 달성 \n- 주주환원율 57%"
+    )
+    assert parse_targets(text)["target_total_return_ratio"] == 20.0
+
+
+def test_return_bare_performance_still_rejected() -> None:
+    """회귀 방어(5-1): 표지 없는 주주환원율 실적은 여전히 채택하지 않는다."""
+    assert parse_targets("'25년 총 주주환원율 268.0%")["target_total_return_ratio"] is None
+    assert parse_targets("3년 평균 주주환원율 78%(현황)")["target_total_return_ratio"] is None
+
+
+def test_separate_basis_return_ratio_is_not_adopted() -> None:
+    """원인 D · 현대지에프홀딩스(plan 72): **역순 + 회사 자기 정의**.
+
+    `별도 당기순이익 기준 80% 이상 주주환원율 지향` — 값이 라벨 앞에 오는 역순이고,
+    분모가 **별도** 당기순이익이다. 우리 실적은 연결 기준이라 이 값을 채택하면
+    **다른 정의로 채점**하게 된다.
+
+    2026-08-05에 환원율 축 소각 기준 재론을 기각한 근거가 정확히 이것이었다 —
+    *"기업마다 총주주환원율 정의가 다르다"*. 그때 죽인 것을 여기서 되살리지 않는다.
+    이 건은 조건부 백로그 **P1-9의 트리거 후보 1건**으로만 계상한다.
+
+    → 그래서 역순 정규식을 **추가하지 않는다**. 실증된 유일한 역순 샘플이 '채택하면
+      안 되는 건'이므로, 규칙을 넓히는 것은 관념적 개선이 된다(1.10 Debug Log 규율).
+    """
+    text = (
+        "3. 주주환원 확대 \n- '25년 부 100억 이상 반기 배당 실시 \n"
+        "- '27년 배당금총액 500억(결산+반기) 수준 지향 \n"
+        "- '25년 부 시가배당률 5% 수준 지향 \n"
+        "- 별도 당기순이익 기준 80% 이상 주주환원율 지향 \n4. 소통 강화"
+    )
+    assert parse_targets(text)["target_total_return_ratio"] is None
+
+
+def test_lguplus_two_ranges_both_preserved() -> None:
+    """plan 350 LG유플러스 — **T0 스캔 밖에서 바뀐 유일한 건**(축=2 구간).
+
+    한 문서에 범위가 둘(`ROE 8~10%`·`주주환원율 40~60%`)이고, OQ-1은 하한 채택과
+    **원문 범위 보존을 함께** 요구한다. 실 DB에는 `total_return_ratio:40~60`이 빠져
+    있었다(백필이 기존 `target_ranges`를 덮지 않는 결함) — 파싱 층에서 둘 다 나오는지를
+    여기서 고정해, 다음에 어긋나면 그것이 백필 문제임이 바로 드러나게 한다.
+    """
+    text = (
+        "[추진 목표(I)] 중장기 ROE 8~10% \n- 실행계획 \n"
+        "① (B2B) AIDC를 통한 성장동력 강화 \n② (B2C) 디지털 기반 유통구조 전환 \n"
+        "③ (운영) AX 추진 및 사업구조 개선 \n[추진 목표(II)] 주주환원율 40~60% \n"
+        "- 실행계획 \n① 중장기 적정 자본구조를 부채비율 100%로 설정"
+    )
+    t = parse_targets(text)
+    assert t["target_roe"] == 8.0
+    assert t["target_total_return_ratio"] == 40.0
+    ranges = t["target_ranges"] or ""
+    assert "roe:8~10" in ranges
+    assert "total_return_ratio:40~60" in ranges
+
+
+# ── code-review 2026-08-07 회귀 테스트 ──
+#
+# 3계층 리뷰(Blind / Edge Case / Acceptance)가 재현한 오탐 경로. 전부 **현 코퍼스에서는
+# 발현 0건**이었지만, 1.11이 개행을 열면서 구조적으로 열린 문이었다. 진단이 하나로 모였다:
+# **1.10의 오탐 방어는 전부 *같은 줄* 안의 경쟁 라벨 배제였고, 개행 금지가 그 목록(5개)의
+# 불완전함을 덮고 있었다.**
+
+
+def test_newline_does_not_cross_into_unlisted_metric_label() -> None:
+    """[AC 4] 경쟁 라벨 **목록**이 아니라 라벨의 **꼴**로 막는다.
+
+    `_OTHERS_FOR_ROE`는 5개(배당성향·주주환원·PBR·영업이익·부채비율)뿐이라, 목록 밖
+    지표가 다음 줄에 오면 그대로 통과했다. **K-ICS는 이 스토리의 실샘플 plan 98의 인접
+    항목이다** — 원문에서 ROE가 뒤에 왔기 때문에 살았을 뿐, 방어가 아니라 배치 운이었다.
+    """
+    assert parse_targets("ROE 개선 \n- K-ICS 비율 목표 320%")["target_roe"] is None
+    assert parse_targets("③ ROE \n- 배당수익률 목표 3%")["target_roe"] is None
+    assert parse_targets("③ ROE \n- 매출총이익률 목표 25%")["target_roe"] is None
+    assert parse_targets("② ROE \n- 자사주 소각률 목표 50%")["target_roe"] is None
+
+
+def test_newline_requires_bullet_and_exactly_one_break() -> None:
+    """주석이 약속한 방어가 코드에 **없었다** — `_BULLET`이 옵셔널이고 `\\s`가 개행을 먹었다."""
+    assert parse_targets("ROE 개선 \n중장기 목표 12%")["target_roe"] is None  # 불릿 없음
+    assert parse_targets("ROE \n \n \n 목표 10%")["target_roe"] is None  # 빈 줄 여러 개
+    assert parse_targets("③ ROE \n① \n\n 목표 10%")["target_roe"] is None  # 개행 3회
+
+
+def test_premark_rejects_performance_wording() -> None:
+    """값 **앞** 표지가 유일한 앵커인 tier — 그 표지가 실적 서술에도 쓰이면 안 된다.
+
+    `_premark_gap`에는 값 뒤 가드(`_TARGET_MARK`)가 없다. 커밋 메시지는 그 방어선을
+    유지했다고 적었지만 이 tier는 그 앞을 지나가지 않는다. 그래서 표지를 목표어로 좁히고
+    (`확대`·`수준`·`이상` 제거), 표지와 값 사이에 실적어가 끼면 끊는다.
+    """
+    for text in (
+        "주주환원율 확대 노력으로 57%를 달성",
+        "주주환원율은 업계 최고 수준인 57%를 기록하였습니다",
+        "주주환원율 이행계획에 따라 배당한 결과 57%",
+        "총주주환원율 실적: 예상 수준을 넘어선 268.0%",
+        "주주환원율 상향 이전 실적인 32%",
+    ):
+        assert parse_targets(text)["target_total_return_ratio"] is None, text
+    # 실증 샘플(코웨이 317)은 계속 통과해야 한다 — 좁히되 죽이지 않는다.
+    coway = "2) 주주환원율 상향: 당기순이익(연결)의 40% \n3) 재무건전성과 자본효율성"
+    assert parse_targets(coway)["target_total_return_ratio"] == 40.0
+
+
+def test_newline_mark_excludes_performance_word() -> None:
+    """`_NEWLINE_MARK`에 `달성`이 있었다 — `_TARGET_MARK`가 **의도적으로 뺀** 단어다.
+
+    한솔(215) 원문의 실적 줄이 정확히 `2) 주주환원 초과 달성 \\n- 주주환원율 57%`이고,
+    라벨과 `달성`의 **순서만** 반대여서 통과하지 못했을 뿐이다.
+    """
+    assert parse_targets("주주환원율 \n- 초과 달성 57%")["target_total_return_ratio"] is None
+    assert parse_targets("ROE \n- 초과 달성 12%")["target_roe"] is None
+
+
+def test_wide_window_does_not_borrow_marker_across_sentence() -> None:
+    """넓힌 창만 `[^\\n]`이라 다음 줄 **남의 문장**에서 표지를 빌려왔다."""
+    text = "주주환원율 20~50% 검토 \n2028년까지 매출 5조원 달성"
+    assert parse_targets(text)["target_total_return_ratio"] is None
+
+
+def test_range_tier_precedes_premark_in_fallback_order() -> None:
+    """폴백 순서는 **증거가 강한 것부터**.
+
+    범위(`30~50%`)는 형태적 증거를 갖지만 premark의 앵커는 낱말 하나다. 느슨한 쪽이
+    먼저 돌면 강한 증거를 선점한다 — 실제로 그 순서였고, 자사주 소각 비율 `2%`가
+    환원율 목표로 채택될 수 있었다.
+    """
+    text = (
+        "주주환원율 상향 계획에 따라 자사주 2% 소각을 검토하며, \n"
+        "- 중장기 주주환원율 30~50% 목표"
+    )
+    t = parse_targets(text)
+    assert t["target_total_return_ratio"] == 30.0
+    assert "total_return_ratio:30~50" in (t["target_ranges"] or "")
+
+
 def test_period_two_digit_requires_marker() -> None:
     """2자리 연도는 백틱/따옴표 표식 필수 — '24~26개월' 같은 비연도 오탐 방지."""
     t = parse_targets("향후 24~26개월 내 실행")
@@ -386,3 +593,44 @@ def test_zip_total_size_cap() -> None:
             z.writestr(f"doc{i}.xml", member)
     with pytest.raises(DartDocumentError, match="누적"):
         _zip_to_text(buf.getvalue())
+
+
+# ── code-review 2026-08-07 ⑪⑫: target_ranges 축 단위 병합 ──
+
+
+def test_backfill_merges_ranges_per_axis() -> None:
+    """`target_ranges`는 한 칸에 여러 축이 들어가는 문자열이다.
+
+    이전 가드(`not plan.target_ranges`)는 **축 하나라도 있으면 통째로 건너뛰었다.**
+    plan 350(LG유플러스)이 `roe:8~10`을 갖고 있어 1.11이 회수한
+    `total_return_ratio:40~60`이 유실됐고, 화면이 이 칸을 읽으므로 40~60% 약속이
+    40% 단일 목표로 보였다(OQ-1의 '원문 범위 보존' 위반).
+    """
+    from app.analysis.backfill_targets import _merge_ranges
+
+    merged, added, clashed = _merge_ranges("roe:8~10", "roe:8~10,total_return_ratio:40~60")
+    assert merged == "roe:8~10,total_return_ratio:40~60"
+    assert added == ["total_return_ratio"]
+    assert clashed == []
+
+
+def test_backfill_does_not_overwrite_existing_range() -> None:
+    """기존 축은 덮지 않고 **보고**한다 — 스칼라 필드와 같은 정책.
+
+    기존 값이 어떤 규칙에서 나왔는지 이 층에서 알 수 없다는 것이 그 정책의 이유다.
+    """
+    from app.analysis.backfill_targets import _merge_ranges
+
+    merged, added, clashed = _merge_ranges("roe:8~10", "roe:9~11")
+    assert merged == "roe:8~10"
+    assert added == []
+    assert clashed == [("roe", "8~10", "9~11")]
+
+
+def test_backfill_range_merge_handles_empty_sides() -> None:
+    """한쪽이 비어도 안전하다 — 파싱이 범위를 못 내면 기존 값을 그대로 둔다."""
+    from app.analysis.backfill_targets import _merge_ranges
+
+    assert _merge_ranges(None, "roe:8~10")[0] == "roe:8~10"
+    assert _merge_ranges("roe:8~10", None)[0] == "roe:8~10"
+    assert _merge_ranges(None, None)[0] == ""

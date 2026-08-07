@@ -22,6 +22,22 @@ inputDocuments:
 
 > **2026-07-08 범위 확장 (확정)**: 데이터 소스에 **ECOS**(금리/환율/경기지표) 추가, 지표에 **EV/EBITDA** 추가, 두 번째 스코어 **M&A Target Score**(4요소) 추가, DART **지분구조** 수집 추가. 배당은 DART에서 수집(금융공공데이터 어댑터 제거) → 소스 3종(DART·KRX·ECOS). 배당성향은 내부 계산 유지.
 
+> ## 2026-08-06 정합 갱신 — 이 문서는 07-14에 멈춰 있었다
+>
+> v1 마감(07-14) 이후 **에픽 3개가 더 실행됐는데 이 문서에 기록되지 않았다.** 그중 Epic 6은
+> `create-story`를 거치지 않아 **AC가 파티 원장(`docs/party-mode/`)에만 존재**했다 —
+> 즉 지금 화면에서 돌아가는 핵심 지표에 스토리 문서가 없었다. 아래 §Epic 4·5·6에서 닫는다.
+>
+> **⚠ 이 문서에 남은 `washing_flag` 언급은 전부 은퇴한 지표를 가리킨다** (FR5, Story 2.2,
+> Story 2.4·3.2의 AC 본문). 실측에서 `washing_flag=True`가 **0건**이었고 2026-07-23에
+> 은퇴했다. AC 원문은 **당시 계약의 기록으로 남기고 지우지 않는다** — 대신 각 지점에
+> 은퇴 표기를 달고, 대체물은 FR11 `opacity_rank`다.
+>
+> **v2에서 없앤 것과 만든 것이 거의 일대일이다** — `washing_flag`·`washing_only` 토글·
+> 참조문구 검사·고정 임계 상수·"소각 이행" 라벨을 지웠고, `opacity_rank`·`is_unrankable`·
+> 순위 필터·축별 하한·화면 다이얼을 만들었다. **우리가 만든 것의 절반은 우리가 만든 것을
+> 지우는 데 쓰였다.** v1이 "재는 도구"를 지었다면 v2는 *그 자가 제대로 재는지*를 실데이터로 검사했다.
+
 ## Requirements Inventory
 
 ### Functional Requirements
@@ -30,12 +46,14 @@ FR1: (CAP-1) DART 밸류업 계획공시에서 목표 ROE·배당성향·PBR·�
 FR2: (CAP-2) DART 재무제표(EBITDA·순부채·배당 포함)·KRX 시세/시총/거래대금을 수집해 `company`·`financials`·`prices`에 적재.
 FR3: (CAP-3) ROE·ROA·PBR·PER·**EV/EBITDA**·부채비율·배당성향·YoY 성장률을 `valuation_metrics` SQL VIEW로 계산(최신 주가 반영).
 FR4: (CAP-4) 목표 대비 달성률·진척률·Value-up 실행점수(0~100)를 산출해 `valueup_score`에 적재.
-FR5: (CAP-5) 자사주 3단계(공시/매입/소각) 구분, "진척률 ≥ 0.5 & 달성률 < 0.6 & 소각 미이행(NOT buyback_retired)" 종목을 washing_flag=true로 판정(2026 의무소각 반영). buyback_status로 '매입만·미소각' 약한신호 별도.
+~~FR5: (CAP-5) 자사주 3단계(공시/매입/소각) 구분, "진척률 ≥ 0.5 & 달성률 < 0.6 & 소각 미이행(NOT buyback_retired)" 종목을 washing_flag=true로 판정(2026 의무소각 반영).~~ 🪦 **판정 부분 은퇴 (2026-07-23)** — 실측 True **0건**. 자사주 3단계 구분과 `buyback_status`('매입만·미소각' 약한신호)는 **살아 있고**, 죽은 것은 **판정식과 플래그**다. 대체 → **FR11**.
 FR6: (CAP-6) 갭분석·워싱랭킹·M&A랭킹·스크리닝·지표 REST API. 필터·정렬·페이지네이션·OpenAPI.
 FR7: (CAP-7) 시장·시총구간별 평균지표·워싱비율·매크로·헤드라인 KPI 집계 API.
 FR8: (신규) ECOS에서 기준금리·국고채3년·원달러환율·경기선행지수를 수집해 `macro_indicator`에 시계열 적재.
 FR9: (신규) DART 지분공시에서 최대주주 지분율·자사주 비중을 수집해 `ownership`에 적재.
 FR10: (신규) M&A Target Score(저평가·인수여력·지배구조·매크로 4요소 가중합, 0~100)를 산출해 `mna_score`에 적재.
+FR11: (신규 2026-07-23, **FR5 판정의 대체**) 4축(roe·payout·period·buyback) 미공시 수를 peer 격차 proxy로 삼아 `opacity_rank`를 **순위 전용**으로 산출·적재. 목표 미파싱 종목은 `is_unrankable`로 순위에서 제외하고 **벌점을 주지 않는다**(측정 불가 ≠ 가장 나쁨). 임계는 고정 상수가 아니라 **화면 다이얼**이 소유한다.
+FR12: (신규 2026-08-05) 공시 본문 신호(`body_signal` 4값 상호배타)와 첨부 부존재 선언(`attachment_absent`)을 **직교 컬럼**으로 각각 판정·적재. 판정 근거는 회사가 쓴 문장이며, 원문이 없으면 False가 아니라 **판정 보류**다. `refiling`은 선택 규칙을 바꿔 **가리킨 원공시로 이동**시킨다.
 
 ### NonFunctional Requirements
 
@@ -73,12 +91,14 @@ FR1: Epic 1 — 밸류업 공시 수집 → valueup_plan
 FR2: Epic 1 — DART 재무·KRX 시세 수집 → company/financials/prices
 FR3: Epic 1 — valuation_metrics SQL VIEW (EV/EBITDA 포함)
 FR4: Epic 2 — Value-up 갭 스코어링 → valueup_score
-FR5: Epic 2 — 워싱 플래그 판정
+FR5: Epic 2 — ~~워싱 플래그 판정~~ 🪦 은퇴(2026-07-23) · 자사주 3단계 구분은 존속
 FR6: Epic 2 — 갭/워싱/M&A 랭킹·스크리닝 API
 FR7: Epic 3 — 시장·매크로 통계 API
 FR8: Epic 1 — ECOS 매크로 수집 → macro_indicator
 FR9: Epic 1 — DART 지분구조 수집 → ownership
 FR10: Epic 2 — M&A Target Score → mna_score
+FR11: **Epic 6** — 공시 불투명도 순위 → opacity_score (FR5 판정의 대체)
+FR12: **Epic 6 후속(v2 인계)** — body_signal · attachment_absent 직교 판정
 UX-DR1~5: Epic 3 — Figma 스크리너 UI + Tableau/매크로 연계
 
 ## Epic List
@@ -238,6 +258,25 @@ So that 갭 스코어(achievement_rate) 커버리지가 실사용 가능한 수�
 **Then** 계획 아닌 공시가 valueup_plan에서 배제되고 목표 필드 파싱률이 측정 가능하게 개선되며(before/after 리포트)
 **And** raw_text 보존·전체교체 upsert로 재파싱이 파괴 없이 수행된다(1.5 원칙).
 
+### Story 1.11: 축=0 구간 전수 재판독 — 검사된 적 없는 35건 (v2-backlog P1-2 2차)
+
+> **추가 경위 (2026-08-06)**: P1-2 1차의 결론 *"본문에 정말 목표가 없다"*는 `no_targets` 175건만
+> 보고 내린 것이었다. 축=0 구간은 210건이고 나머지 35건(`refiling` 19 + `other_metric` 16)은
+> **전수 판독된 적이 없다.** 그 35건에서 파싱 실패 5건(14%)이 실측됐다.
+
+As a 애널리스트,
+I want 본문에 수치로 적힌 우리 4축 목표가 빠짐없이 파싱되는 것,
+So that 채점 종목 수와 발표 숫자가 실제 공시와 어긋나지 않는다.
+
+**Acceptance Criteria:**
+
+**Given** 축=0 구간 210건 전수(35건만이 아니라 **전부** — 35건만 본 것도 다시 표본이 된다)
+**When** 라벨-값 사이 개행과 **값 앞에 오는 목표 표지**를 인식하도록 파서를 확장해 재파싱하면
+**Then** 실측 5건(서울보증보험 98·99 / 코웨이 317 / 한솔케미칼 215 / 현대지에프홀딩스 72)이 각각 **죽일 수 있는 회귀 테스트**로 고정되고
+**And** 1.10 일괄리뷰가 막은 오탐 3종("정규식이 남의 숫자를 훔침")이 재발하지 않음이 테스트로 단언되며
+**And** 재공시 참조가 직교 사실로 승격되어(파티 비준 2026-08-06) `choose_plan`이 라벨이 아니라 `body_reference_date`를 따르고 — 파싱 성공으로 라벨이 `axis_targets`로 바뀌어도 원공시 이동이 유지되며
+**And** 채점 종목 수·점수 변동을 before/after로 보고한다(**변동 0이어도 보고** — 팔 곳을 정하기 전에 세는 것이 이 방의 규율).
+
 ---
 
 ## Epic 2: 밸류업 워싱 & M&A 타겟 스코어 (핵심 차별점)
@@ -257,9 +296,18 @@ So that 밸류업 이행 정도를 비교할 수 있다.
 **Then** `valueup_score`(achievement_rate, progress_rate, execution_score, as_of, **buyback_executed, buyback_retired, buyback_status**)가 적재되고(gap_engine이 유일 writer)
 **And** **buyback_executed = (buyback_amount>0), buyback_retired = (buyback_retired_amount>0), buyback_status = retired/purchased_only/none로 도출**되며, progress_rate는 as_of 기준(AD-8), 임계치·가중치는 config 주입(NFR3).
 
-### Story 2.2: 워싱 플래그 판정
+### Story 2.2: 워싱 플래그 판정 — 🪦 **산출물 은퇴 (2026-07-23)**
 
 > **2026-07-10: 별도 구현 없이 완료 처리** — 이 AC 전부가 Story 2.1(gap_engine)의 산출물에 이미 포함됨(washing_flag 계산, buyback_status=purchased_only 노출, config 임계치 연동). 설계 단계부터 2.1·2.2가 "같은 엔진·같은 테이블"이라 스토리만 분리돼 있었음. 별도 구현 시도 없이 sprint-status만 done으로 갱신.
+>
+> **2026-07-23: 이 스토리의 산출물이 은퇴했다.** 실데이터에서 `washing_flag=True`가 **0건** —
+> 켜질 수 없는 경고등이었다. 임계치를 낮추면 켜졌겠지만 그것은 *"걸러낼 기업이 있다"*는
+> 결론을 먼저 정하고 기준을 맞추는 것이라 프로젝트 서명(*불확실을 확실로 세탁하지 않는다*)에
+> 어긋난다. 함께 죽은 것: `washing_only` 토글(항상 빈 결과를 내던 죽은 필터).
+> 대체 → **Story 6.1 `opacity_rank`**.
+>
+> **AC 원문은 아래에 그대로 둔다** — 당시 계약의 기록이고, 무엇이 왜 죽었는지가 이 프로젝트의
+> 산출물이기 때문이다. 다만 이 AC는 **더 이상 유효 계약이 아니다.**
 
 As a 애널리스트,
 I want 공시만 하고 이행 안 한 기업이 자동 표시되는 것,
@@ -413,3 +461,70 @@ So that 발표·리포트용 시각 자료를 얻는다.
 > AC 개정(2026-07-14, 리드 승인): 원문 "Tableau를 PostgreSQL에 연결"은 실스택
 > SQLite + Tableau Public(라이브 DB 연결 미지원) 제약으로 실현 불가 판명 —
 > CSV 스냅숏 연결로 대체. 근거·검증은 3-5 스토리 문서 참조.
+
+---
+
+# v2 국면 (2026-07-20 ~ 08-05) — 소급 기록
+
+> **왜 소급인가**: v1 마감(07-14) 직후 CX 분석(07-16)이 v2 백로그를 내며 재개됐고,
+> 에픽 3개가 연속 실행됐으나 **이 문서에 기록되지 않았다.** 특히 Epic 6은
+> `create-story`를 거치지 않아 AC가 파티 원장에만 있었다 —
+> **지금 화면에서 돌아가는 핵심 지표에 스토리 문서가 없었다는 뜻이다.**
+> 아래는 구현·회고·파티 원장에서 복원한 소급 기록이며, 사후 작성임을 명시한다.
+
+## Epic 4: 배치 실행 계층
+
+**목표**: 스코어 엔진을 수동 호출이 아니라 재현 가능한 배치로 돌린다.
+**완료** 2026-07-22 (PR #1~#7) · 산출물 [4-1](../implementation-artifacts/4-1-scoring-batch-cli.md) · [4-2](../implementation-artifacts/4-2-mna-batch-caller.md)
+
+### Story 4.1: gap_engine 배치 CLI
+As a 운영자, I want 스코어링을 CLI 한 줄로 재실행하는 것, So that 데이터 갱신 후 점수를 일관되게 다시 만든다.
+**AC**: `as_of` 인자로 스코어링이 전종목 실행되고, 재실행이 멱등이며, 처리 행 수가 완료 메타로 남는다.
+
+### Story 4.2: M&A 배치 호출자
+As a 운영자, I want mna_engine도 같은 배치 계층에서 도는 것, So that 두 스코어가 같은 기준일로 동기화된다.
+**AC**: gap·mna 배치가 동일 `as_of`로 실행되고, 한쪽 실패가 다른 쪽 결과를 오염시키지 않는다.
+
+## Epic 5: 점수 커버리지 · 근거 노출
+
+**목표**: 점수가 **왜** 그 값인지 화면이 말하게 한다. CX 분석 UJ-1 3단계의 감정 꺾임이 근거.
+**완료** 2026-07-22 (PR #8~#10) · 산출물 [5-1](../implementation-artifacts/5-1-execution-score-coverage.md) · [5-2](../implementation-artifacts/5-2-score-basis-frontend.md)
+
+### Story 5.1: execution_score 커버리지 확대
+**AC**: non-null 종목이 **1 → 12**로 늘고, 커버리지 확대가 **억지 추정 없이**(SM-C1) 달성된다.
+
+### Story 5.2: score_basis 화면 노출
+**AC**: 각 종목의 점수 근거(축별 기여·결측 축)가 화면에서 확인되고, 결측은 0이 아니라 **결측으로** 표시된다.
+
+## Epic 6: 공시 불투명도 — `washing_flag`의 은퇴와 대체
+
+**목표**: 워싱을 *판정*하는 대신 **격차를 드러낸다.**
+**완료** 2026-07-28 (PR #12~#17) · 근거 파티 원장 07-23·07-28 · 회고 [epic-4-5-6-retro](../implementation-artifacts/epic-4-5-6-retro-2026-07-28.md)
+
+> **절차 결함 기록**: 이 에픽은 `create-story`를 거치지 않았다. 파티가 결정하고 곧바로
+> 구현했으며 AC는 파티 원장에만 있었다. 아래 AC는 **2026-08-06 소급 복원**이다.
+> 회고가 이 사실을 "어려웠던 것 1번"으로 이미 지목했다.
+
+### Story 6.1: opacity_rank 신설 (FR11)
+As a 애널리스트, I want 공시 축을 안 채운 기업을 peer 격차 순위로 보는 것, So that 유죄 판정 없이 "이 공시 수준으론 밸류를 못 믿겠다"를 근거로 패스한다.
+**AC**:
+- 4축 미공시 수를 세어 **순위 전용**으로 노출된다(점수 아님 — 절대 수준에 의미를 부여할 근거가 없다).
+- 목표 미파싱 종목은 `is_unrankable`로 **순위에서 빠지고 벌점을 받지 않는다.**
+- 임계는 고정 상수(`OPAQUE_MIN_RANK`)가 아니라 **화면 다이얼**이 소유한다.
+
+### Story 6.2: 죽은 규칙 제거
+**AC**: `washing_flag`·`washing_only` 토글·`is_cover_notice` 참조문구 검사(26/26 동일 서식으로 변별력 0)·`OPAQUE_MIN_RANK` 상수·"소각 이행" 라벨(16 중 5만 계획기간 내)이 제거되고, 각 제거가 실측 근거를 문서에 남긴다.
+
+> 이 스토리가 이 에픽의 **본체**다. 해법이 매번 "규칙 추가"가 아니라 **"규칙 제거"**였다 —
+> 레아의 문장(*규칙을 넓힐 게 아니라 없애야 합니다*)이 세 번 연속 옳았고,
+> **규칙이 복잡해질 때가 규칙이 틀렸을 때**라는 작동 원리가 여기서 정착했다.
+
+### Story 6.3: 첨부 부존재 직교 분리 (FR12) — 2026-08-05 인계
+**AC**:
+- `body_signal`("왜 축을 못 채웠나")과 `attachment_absent`("받으러 갈 문서가 있나")가 **직교 컬럼**으로 분리된다.
+- 한 축에 합치면 새는 조합(목표 공시 + 첨부 부존재 선언)이 **테스트로 고정**된다.
+- 판정은 `declares_no_attachment` **단일 정의처**를 통한다(복제하면 갈라진다 — `lookahead.py`에서 배운 것).
+
+> 실측: 첨부 부존재 선언은 101건이 아니라 **212건**이었고, 한 칸에 넣었을 때 **8건이 샜다**
+> (그 결과 존재하지 않는 문서를 찾는 작업 7건이 생성됐다). **처방은 맞고 칸이 틀렸다.**
+> 부수 교훈: 픽스처가 파이프라인보다 친절하면 실제로 새는 조합이 테스트를 통과한다.
