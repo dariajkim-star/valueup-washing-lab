@@ -27,6 +27,8 @@ export interface GapDetail {
   plan_newest_disclosure_date: string | null;
   // 본문이 왜 우리 축을 못 채웠는가: axis_targets / other_metric / refiling / no_targets
   plan_body_signal: string | null;
+  // 순위 불가의 사유(6.4) — undisclosed | unreadable | unstated | null
+  unrankable_reason: string | null;
   // 회사가 본문에서 첨부가 없다고 직접 선언했는가(0031). 위 신호와 **직교**하다 —
   // 축을 공시하고도 첨부는 안 붙인 회사가 실측 102건이라 한 칸에 담을 수 없다.
   // null = 미판정("첨부가 있다"가 아니다).

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.analysis import lookahead
 from app.analysis.plan_selection import choose_plan, merge_attachment
+from app.analysis.plan_signals import plan_reason_row, unrankable_reason
 from app.models import (
     Company,
     Financial,
@@ -261,6 +262,11 @@ def list_scores(
             # 첨부 부존재(0031) — 위 신호와 다른 질문에 답한다("받으러 갈 문서가 있나").
             # 화면은 둘을 조합해 말한다: "본문에 목표 없음 · 회사가 첨부 없음을 명시".
             "plan_attachment_absent": plan.attachment_absent if plan else None,
+            # 순위 불가의 **사유**(6.4/FR-15) — undisclosed(회사가 안 냈다·신호) /
+            # unreadable(본문 밖에 있다·우리 한계) / unstated(근거 없음·판정 보류).
+            # 순위 가능하면 None. 세 값의 차이는 요약이 아니라 **행동 분기**다:
+            # 첫째는 화면에서 드러내고, 둘째는 첨부 워크리스트로 보내고, 셋째는 아무 말도 안 한다.
+            "unrankable_reason": unrankable_reason(plan_reason_row(plan)) if plan else None,
             # 범위 공시 원문(0023) — 하한 채택 사실을 화면이 말할 수 있게
             "target_ranges": plan.target_ranges if plan else None,
             # 근거 공시가 그 종목의 최신이 아니면 폴백이다(최신 공시에 목표가 없어 이전

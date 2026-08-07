@@ -13,6 +13,9 @@ from sqlalchemy import and_, case, func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.analysis import lookahead
+# 판정은 순수 모듈에서 직접 가져온다 — opacity_engine은 repository를 임포트하는
+# 배선 층이라 서빙에서 부르면 순환이 난다(2026-08-07 실제로 났다).
+from app.analysis.plan_signals import plan_reason_row, unrankable_reason
 from app.models import Company, MnaScore, OpacityScore, ValueupPlan, ValueupScore
 
 # 정렬 허용 필드 화이트리스트(AD-6 `field`/`-field` 규약). 사용자 입력을 컬럼 객체로만
@@ -225,7 +228,7 @@ def list_screening(
         conds.append(Company.corp_code.in_(passing_mcap))
 
     base = (
-        select(Company, ValueupScore, MnaScore, OpacityScore, ValueupPlan.body_signal)
+        select(Company, ValueupScore, MnaScore, OpacityScore, ValueupPlan)
         .select_from(Company)
         .join(
             ValueupScore,
@@ -273,7 +276,12 @@ def list_screening(
     ).all()
 
     items = []
-    for company, vs, ms, os, body_signal in rows:
+    for company, vs, ms, os, plan in rows:
+        body_signal = plan.body_signal if plan else None
+        # 순위 불가의 **사유**(6.4/FR-15). 순위 가능하면 None이므로 화면은 이 값이
+        # 있을 때만 말한다. 계획 엔티티를 통째로 받는 비용은 페이지 크기(<=100)에
+        # 묶여 있고, 그 대가로 판정이 `unrankable_reason` **한 곳**에서만 난다.
+        reason = unrankable_reason(plan_reason_row(plan)) if plan else None
         m = metrics_map.get(company.corp_code)
         items.append({
             "corp_code": company.corp_code,
@@ -313,6 +321,9 @@ def list_screening(
             "opacity_basis": os.opacity_basis if os else None,
             # '순위 불가'의 이유 구분용(0018 신호). 상세(plan_body_signal)와 같은 값.
             "plan_body_signal": body_signal,
+            # 순위 불가의 사유(6.4) — undisclosed(회사가 안 냈다·신호) /
+            # unreadable(본문 밖에 있다·우리 한계) / unstated(근거 없음·판정 보류).
+            "unrankable_reason": reason,
             # 목표의 야심도 — 공시한 축 중 자기 과거 대비 가장 낮은 격차(%p, P1-7).
             # 음수 = 하던 것보다 낮게 약속. null = 비교할 과거 실적 없음(0이 아니다).
             "lowest_own_gap": own_gap_map.get(company.corp_code),

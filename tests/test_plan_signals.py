@@ -11,8 +11,13 @@ from app.analysis.plan_signals import (
     NO_TARGETS,
     OTHER_METRIC,
     REFILING,
+    UNDISCLOSED,
+    UNREADABLE,
+    UNSTATED,
     classify_body,
     declares_no_attachment,
+    references_external_plan,
+    unrankable_reason,
 )
 
 EMPTY = {
@@ -231,3 +236,92 @@ class TestReferencedDateValidity:
         """2026-02-29는 없지만 2024-02-29는 있다 — 달력을 쓰지 자릿수만 세지 않는다."""
         assert classify_body("旣공시(2024.2.29) 참조", EMPTY).referenced_date == "2024-02-29"
         assert classify_body("旣공시(2026.2.29) 참조", EMPTY).referenced_date is None
+
+
+# ── Story 6.4 / FR-15: 순위 불가의 세 범주 ──
+
+
+class TestUnrankableReason:
+    """순위 불가가 **회사가 안 낸 것**인지 **우리가 못 읽은 것**인지 가른다.
+
+    누락이 기준축이 되면(PRD §1.1) 이 둘은 같은 칸에 있을 수 없다 — 전자는 찾던 신호
+    그 자체이고, 후자는 우리 파이프라인의 한계다. `attachments/README.md`가 이미
+    계약으로 갖고 있던 구분을 부축에서 주축으로 올린 것이다.
+    """
+
+    ZERO = dict(EMPTY)  # 4축 전무 = 순위 불가
+    REF = "상세한 내용은 첨부된 '2024년 SK하이닉스 기업가치 제고 계획'을 참고하시기 바랍니다."
+    DECL = ("조세특례제한법 제104조의27에 따른 고배당기업에 해당하여 별도의 기업가치 "
+            "제고 계획 첨부 없이 주요 내용을 기재하였습니다.")
+
+    def _plan(self, **kw):
+        return {**self.ZERO, "raw_text": None, "attachment_absent": None, **kw}
+
+    def test_rankable_plan_has_no_reason(self):
+        """축이 하나라도 있으면 순위 대상 — 사유를 묻지 않는다."""
+        assert unrankable_reason(self._plan(target_roe=10.0)) is None
+
+    def test_declaration_is_undisclosed(self):
+        """실측 110건. 회사가 첨부 없다고 **직접 말했다** → 미공시는 신호다."""
+        p = self._plan(raw_text=self.DECL, attachment_absent=True)
+        assert unrankable_reason(p) == UNDISCLOSED
+
+    def test_attachment_reference_is_unreadable(self):
+        """실측 29건. 받으러 갈 문서가 있다 → 우리 한계, 워크리스트로 간다."""
+        p = self._plan(raw_text=self.REF, attachment_absent=False)
+        assert unrankable_reason(p) == UNREADABLE
+
+    def test_no_evidence_is_unstated(self):
+        """실측 67건. **근거가 없으면 미공시로 세지 않는다** — 이게 AC 4다.
+
+        모르는 것에 이름을 붙이는 순간 그것이 세탁이다(NFR2).
+        """
+        p = self._plan(raw_text="기업가치 제고 계획을 공시합니다.", attachment_absent=False)
+        assert unrankable_reason(p) == UNSTATED
+
+    def test_missing_raw_text_is_unstated_not_undisclosed(self):
+        """원문이 없으면 **판정 보류**다. 없는 것을 '회사가 안 냈다'로 읽지 않는다."""
+        assert unrankable_reason(self._plan()) == UNSTATED
+
+    def test_declaration_wins_over_reference_ordering(self):
+        """순서 근거: 회사가 직접 쓴 선언이 가장 강한 증거다.
+
+        실측상 둘이 공존하는 행은 **0건**이라 이 순서는 아무것도 가리지 않는다
+        (라벨링 기준서 §2-F — 상상한 경계가 아니라 세어본 결과).
+        """
+        p = self._plan(raw_text=self.DECL + " " + self.REF, attachment_absent=True)
+        assert unrankable_reason(p) == UNDISCLOSED
+
+
+class TestReferencesExternalPlan:
+    """어휘 선정에 규율이 있다 — **변별력을 먼저 쟀다**(전 코퍼스 519건)."""
+
+    def test_real_reference_forms(self):
+        for text in (
+            "상세한 내용은 첨부된 '기업가치 제고 계획'을 참고하시기 바랍니다.",
+            "세부사항은 첨부된 '2025년 ㈜케이씨씨 기업가치 제고 계획' 파일을 참고하시기",
+            "2025년 9월 25일 공시한 기업가치 제고 계획에 첨부한 내용과 동일합니다.",
+        ):
+            assert references_external_plan(text) is True, text
+
+    def test_standard_form_fields_are_not_references(self):
+        """`게재일시`·`관련 웹페이지`는 519건 중 **463건**에 있는 DART 표준 서식 필드다.
+
+        2026-07-28에 `is_unrankable`의 참조 검사를 폐기한 이유가 정확히 이것이었고
+        (불투명순 1·2·3등이 전부 오탐), 같은 함정을 열흘 만에 다시 밟을 뻔했다.
+        """
+        assert references_external_plan("5. 관련 자료 \n게재일시 \n- \n관련 웹페이지 \n-") is False
+        assert references_external_plan("관련 웹페이지 https://example.com/ir") is False
+
+    def test_declaration_is_not_a_reference(self):
+        """`첨부서류`는 선언 문구 `첨부서류를 생략한`의 **부분문자열**이다.
+
+        어휘에 넣었더니 선언·참조가 9건 공존했다 — 전부 이 오탐이었고, 빼니 0건이 됐다.
+        """
+        decl = "본 공시는 기업가치 제고 계획 첨부서류를 생략한 약식 공시입니다."
+        assert references_external_plan(decl) is False
+        assert declares_no_attachment(decl) is True
+
+    def test_empty_text(self):
+        assert references_external_plan(None) is False
+        assert references_external_plan("") is False

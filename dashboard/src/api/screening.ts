@@ -34,6 +34,8 @@ export interface ScreeningRow {
   // 근거 공시의 본문 신호(0018): axis_targets/other_metric/refiling/no_targets.
   // '순위 불가'가 부실 공시인지 "타 지표로 공시"(우리 자에 눈금 없음)인지 구분용.
   plan_body_signal: string | null;
+  // 순위 불가의 사유(6.4) — undisclosed | unreadable | unstated | null
+  unrankable_reason: string | null;
   // 목표의 야심도(P1-7) — 공시한 축 중 **자기 과거 대비 가장 낮은 격차**(%p).
   // 음수 = 하던 것보다 낮게 약속. null = 비교할 과거 실적 없음(격차 0이 **아니다**).
   // 상세 ambition의 own_gap과 같은 정의(plan_own_gap 뷰가 단일 정의처).

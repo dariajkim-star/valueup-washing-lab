@@ -80,6 +80,7 @@ from app.analysis.plan_selection import (  # noqa: F401 — 재수출(호출부 
     OTHER_METRIC,
     REFILING,
     disclosed_axis_count,
+    is_unrankable,
 )
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,89 @@ def declares_no_attachment(raw_text: str | None) -> bool:
     선언 여부를 모르므로 False가 아니라 **판정하지 않는다**(호출부가 None으로 저장).
     """
     return any(k in _squeeze(raw_text or "") for k in _NO_ATTACHMENT_DECL)
+
+
+# 외부 문서 참조(Story 6.4, 2026-08-07). `declares_no_attachment`와 **반대 방향의 사실**이다:
+# 저쪽은 "받으러 갈 문서가 없다", 이쪽은 "있다".
+#
+# ⚠️ 어휘 선정에 규율이 있다 — **변별력을 먼저 쟀다.** 2026-07-28에 `is_unrankable`의 참조
+# 검사를 폐기한 이유가 `관련 웹페이지`가 DART 표준 서식 필드라 전건에 있었기 때문이고,
+# 그 결과 불투명순 1·2·3등이 전부 오탐이었다. 전 코퍼스 519건 실측:
+#     게재 · 게재일시 · 관련 웹페이지   463건  → 서식 필드. **쓰지 않는다**
+#     related_url 보유                60건  → 위 필드에서 추출한 값. 같은 이유로 제외
+#     첨부된 180 · 첨부파일 45 · 첨부한 5    → 채택
+# 그리고 `첨부서류`는 **채택하지 않는다** — 선언 문구 `첨부서류를 생략한`의 부분문자열이라
+# 넣으면 선언·참조가 9건 공존한다(실제로는 0건, 라벨링 기준서 §2-F).
+_ATTACHMENT_REF = ("첨부된", "첨부파일", "첨부한", "첨부를참조", "첨부참조", "첨부문서")
+
+
+def references_external_plan(raw_text: str | None) -> bool:
+    """본문이 **첨부 문서를 가리키는가** — 비가독 판정의 단일 정의처.
+
+    `declares_no_attachment`와 마찬가지로 근거는 **회사가 쓴 문장**이다. 첨부가 실제로
+    존재하는지 우리가 확인한 게 아니라, 있다고 회사가 말했다는 사실을 옮긴다.
+
+    이 술어의 쓰임은 **게이트가 아니라 라벨**이다(Story 6.4). 순위 대상 여부는 여전히
+    `is_unrankable`의 `count==4`가 정하고, 이것은 이미 빠진 종목의 **사유**만 가른다.
+    틀렸을 때의 비용이 "화면 1등이 오탐"에서 "배지 문구 하나"로 내려간 것이 2026-07-28에
+    폐기한 규칙과의 차이다.
+    """
+    return any(k in _squeeze(raw_text or "") for k in _ATTACHMENT_REF)
+
+
+# ── 순위 불가의 사유 — 세 범주 (Story 6.4 / FR-15, 2026-08-07) ──
+#
+# 리드 결정으로 **누락이 기준축**이 됐다(PRD §1.1). 기준축이 되면 아래 둘은 더 이상 같은
+# 칸에 있을 수 없다 — 전자는 **찾던 신호 그 자체**이고 후자는 **우리 파이프라인의 한계**다.
+# `attachments/README.md`가 이미 계약으로 갖고 있던 구분을 부축에서 주축으로 올린 것이며,
+# 새 개념이 아니다.
+#
+# **셋인 이유**: 둘로 접으면 근거 없는 67건을 어느 한쪽으로 밀어야 한다. "회사가 안 냈다"와
+# "우리가 못 읽었다"가 다른 범주이듯 **"둘 중 어느 쪽인지 모른다"도 다른 범주**다.
+# 모르는 것에 이름을 붙이는 순간 그것이 세탁이다(NFR2).
+UNDISCLOSED = "undisclosed"  # 미공시 — 회사가 첨부 없이 기재했다고 선언. **신호다**
+UNREADABLE = "unreadable"  # 비가독 — 본문 밖(첨부)에 있다. **우리 한계**, 워크리스트로
+UNSTATED = "unstated"  # 무언급 — 어느 근거도 없다. **판정 보류**
+
+
+# `unrankable_reason`이 읽는 계획 필드. ORM 객체를 그대로 넘기지 않고 이 목록으로 좁혀,
+# 판정이 무엇에 의존하는지 호출부에서 보이게 한다(축 5 + 첨부 선언 + 원문).
+_REASON_FIELDS = (
+    "target_roe",
+    "target_payout_ratio",
+    "target_total_return_ratio",
+    "period_start",
+    "buyback_planned",
+    "attachment_absent",
+    "raw_text",
+)
+
+
+def plan_reason_row(plan: Any) -> dict[str, Any]:
+    """ORM 계획 객체 → `unrankable_reason`이 읽는 최소 매핑."""
+    return {f: getattr(plan, f, None) for f in _REASON_FIELDS}
+
+
+def unrankable_reason(plan: Mapping[str, object]) -> str | None:
+    """순위 불가라면 그 **사유**, 순위 가능하면 None.
+
+    `is_unrankable`을 **바꾸지 않는다** — 순위 대상 여부는 여전히 `count==4`가 정하고,
+    이것은 이미 빠진 종목에 사유 라벨만 붙인다. 2026-07-28에 폐기한 규칙과 재료(참조 문구)는
+    같지만 자리가 다르다: 그때는 게이트였고 지금은 라벨이다. 틀렸을 때의 비용이
+    "불투명순 1·2·3등이 오탐"에서 "배지 문구 하나"로 내려간다.
+
+    판정 순서에 근거가 있다 — **회사가 직접 쓴 선언이 가장 강한 증거**이므로 먼저 본다.
+    실측(2026-08-07, 축=0 구간 206건): 미공시 110 · 비가독 29 · 무언급 67.
+    선언과 참조가 **공존하는 행은 0건**이므로 이 순서는 실제로는 아무것도 가리지 않는다
+    (라벨링 기준서 §2-F — 상상한 경계가 아니라 세어본 결과다).
+    """
+    if not is_unrankable(plan):
+        return None
+    if plan.get("attachment_absent"):
+        return UNDISCLOSED
+    if references_external_plan(plan.get("raw_text")):  # type: ignore[arg-type]
+        return UNREADABLE
+    return UNSTATED
 
 
 # ── 관련 웹페이지 URL 추출(0019) ──
