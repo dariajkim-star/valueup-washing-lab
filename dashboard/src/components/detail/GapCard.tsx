@@ -266,7 +266,13 @@ function PlanProvenance({ gap }: { gap: GapDetail }) {
               "미공시"와 "다른 지표로 공시"는 다른 사실이다 — LG엔솔은 매출 2배·EBITDA
               Margin 10% 중반을 명확히 약속했다. 그걸 "순위 불가"로만 표시하면 부실 공시로
               읽히는데, 부실한 건 그 회사가 아니라 우리 자다. */}
-          <BodySignalNote signal={gap.plan_body_signal} />
+          {/* [2026-08-05] 첨부 부존재는 위 신호와 **다른 축**이라 따로 넘긴다. 한 칸에
+              넣었더니 우선순위에 가려 사라졌고(도화엔지니어링은 '다른 지표로 공시'만
+              말하고 첨부가 없다는 사실은 삼켰다), 작업 목록도 같이 틀렸다. */}
+          <BodySignalNote
+            signal={gap.plan_body_signal}
+            attachmentAbsent={gap.plan_attachment_absent}
+          />
         </div>
 
         <button
@@ -327,8 +333,13 @@ function buybackLabel(status: string | null, timing?: string | null): string {
 
 // 본문이 우리 4축을 못 채운 이유. axis_targets(정상)는 굳이 말하지 않는다 — 값이 이미
 // 화면에 있으므로 설명이 노이즈다. 나머지 셋만 각자 다른 행동을 함의하므로 구분해 쓴다.
-function BodySignalNote({ signal }: { signal: string | null }) {
-  if (!signal || signal === "axis_targets") return null;
+function BodySignalNote({
+  signal,
+  attachmentAbsent,
+}: {
+  signal: string | null;
+  attachmentAbsent: boolean | null;
+}) {
   const NOTE: Record<string, { text: string; tone: string }> = {
     // 부실 공시가 아니다 — 회사는 명확히 약속했고 우리 자에 그 눈금이 없다.
     other_metric: {
@@ -346,12 +357,25 @@ function BodySignalNote({ signal }: { signal: string | null }) {
       tone: "#6b7280",
     },
   };
-  const note = NOTE[signal];
-  if (!note) return null;
-  return (
-    <span className="mt-1 text-[10px] leading-snug" style={{ color: note.tone }}>
-      {note.text}
+  // axis_targets(정상)는 굳이 말하지 않는다 — 값이 이미 화면에 있으므로 설명이 노이즈다.
+  const note = signal && signal !== "axis_targets" ? NOTE[signal] : undefined;
+  // 첨부 부존재는 **축을 채운 공시에도** 붙을 수 있다(실측 102건). 그래서 위 note가
+  // 없어도 단독으로 말한다 — "왜 축이 비었나"가 아니라 "받으러 갈 문서가 없다"는
+  // 별개의 사실이고, 첨부 수집을 기다리는 사용자에게는 이쪽이 답이다.
+  const absentNote = attachmentAbsent === true && (
+    <span className="mt-1 text-[10px] leading-snug text-gray-500">
+      회사가 본문에 &lsquo;첨부 없이 기재&rsquo;라고 명시한 약식 공시다 — 받아올 계획서
+      문서가 존재하지 않는다(고배당기업 등 제도상 사유).
     </span>
+  );
+  if (!note) return absentNote || null;
+  return (
+    <>
+      <span className="mt-1 text-[10px] leading-snug" style={{ color: note.tone }}>
+        {note.text}
+      </span>
+      {absentNote}
+    </>
   );
 }
 

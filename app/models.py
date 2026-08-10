@@ -160,6 +160,12 @@ class ValueupPlan(Base):
     body_signal: Mapped[str | None] = mapped_column(String(24))
     # refiling일 때 가리킨 공시일. 못 읽으면 null(추측하지 않는다).
     body_reference_date: Mapped[str | None] = mapped_column(String(10))
+    # 회사가 본문에서 **첨부가 없다고 직접 선언**했는가(0031). body_signal과 **직교**하다 —
+    # 그쪽은 "왜 축을 못 채웠나", 이쪽은 "받으러 갈 문서가 존재하나"에 답한다. 실측으로
+    # 직교성이 확인됐다: 선언 212건 중 102건이 axis_targets(축을 공시하고도 첨부는 없음).
+    # 첨부 작업 목록이 이 값으로 거른다 — 없는 문서를 찾으러 사람을 보내지 않기 위해.
+    # null = 아직 판정 안 함(원문 미보유 등). False가 아니다 — "없다"가 아니라 "모른다".
+    attachment_absent: Mapped[bool | None] = mapped_column(Boolean)
     # 공시의 '관련 웹페이지' 필드가 가리킨 URL(0019). DART 첨부 경로가 닫힌 뒤 남은 길이며,
     # 회사가 규제 공시에서 스스로 지목한 주소다. 실측 49/60 공시가 담고 있다.
     related_url: Mapped[str | None] = mapped_column(String(500))

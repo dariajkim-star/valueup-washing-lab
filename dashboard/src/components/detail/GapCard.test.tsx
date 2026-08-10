@@ -23,7 +23,7 @@ function gap(partial: Partial<GapDetail>): GapDetail {
     progress_rate: null, execution_score: null, score_basis: null, washing_flag: null, buyback_status: null,
     plan_disclosure_date: null, plan_rcept_no: null,
     plan_is_fallback: false, plan_newest_disclosure_date: null,
-    plan_body_signal: "axis_targets",
+    plan_body_signal: "axis_targets", unrankable_reason: null, plan_attachment_absent: null,
     excluded_axes: null, buyback_timing: null,
     target_payout_ratio: null, target_total_return_ratio: null,
     actual_payout_ratio: null, actual_total_return_ratio: null,
@@ -127,6 +127,30 @@ describe("출처 표기(0015) — 목표값의 신선도를 감추지 않는다"
     const { container } = render(<GapCard gap={gap({ plan_body_signal: "axis_targets" })} />);
     expect(container.textContent).not.toContain("밖의 지표");
     expect(container.textContent).not.toContain("재공시");
+  });
+
+  // [2026-08-05] 첨부 부존재는 본문 신호와 **직교**하다. 한 칸에 담았을 때 우선순위에
+  // 가려 사라졌고(화면은 침묵, 작업 목록은 헛걸음), 그래서 축을 나눴다.
+  it("첨부 부존재는 다른 신호에 가려지지 않는다", () => {
+    render(<GapCard gap={gap({
+      plan_body_signal: "other_metric", unrankable_reason: null, plan_attachment_absent: true,
+    })} />);
+    expect(screen.getByText(/우리가 재는 4축.*밖의 지표/)).toBeTruthy();
+    expect(screen.getByText(/받아올 계획서 문서가 존재하지 않는다/)).toBeTruthy();
+  });
+
+  it("축을 다 공시한 회사도 첨부 부존재는 말한다 — 실측 102건이 이 조합", () => {
+    render(<GapCard gap={gap({
+      plan_body_signal: "axis_targets", unrankable_reason: null, plan_attachment_absent: true,
+    })} />);
+    expect(screen.getByText(/받아올 계획서 문서가 존재하지 않는다/)).toBeTruthy();
+  });
+
+  it("미판정(null)은 아무 말도 하지 않는다 — '없다'가 아니라 '모른다'", () => {
+    const { container } = render(<GapCard gap={gap({
+      plan_body_signal: "axis_targets", unrankable_reason: null, plan_attachment_absent: null,
+    })} />);
+    expect(container.textContent).not.toContain("첨부 없이");
   });
 
   it("[2026-07-28] 자사주 라벨은 '이행'을 주장하지 않는다", () => {

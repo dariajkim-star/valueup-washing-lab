@@ -1,5 +1,5 @@
 # generated: 2026-07-08
-# last_updated: 2026-07-28
+# last_updated: 2026-08-07
 # project: 밸류업 워싱 스크리너
 # project_key: NOKEY
 # tracking_system: file-system
@@ -19,7 +19,10 @@
 # - 개발 순서: Epic 1 → 2 → 3 (데이터 → 스코어 → UI). 발표 순서는 역순.
 
 generated: 2026-07-08
-last_updated: 2026-07-28  # v2 국면(epic 4·5·6) 반영 — 2026-07-14~28 2주 stale 해소
+last_updated: 2026-08-07  # 1-11 완료 · 6-4 신설(epic-6 재개) — 2026-07-28~08-07 stale 해소.
+# ⚠ 2026-08-06 "기획단 정합" 커밋이 PRD·epics·DEV_PLAN을 갱신하면서 **이 파일만 빠뜨렸다.**
+# 그 결과 하루 동안 1-11이 review 상태로 존재하는데 스토리 상태판에는 없었다.
+# 정합 작업의 대상 목록에 sprint-status.yaml을 반드시 포함할 것.
 #
 # ⚠ 2026-07-14의 "프로젝트 마감 국면"은 더 이상 사실이 아니다. 마감 직후 CX 분석
 # (2026-07-16)이 v2 백로그를 냈고, 거기서 epic 4·5가, 파티(07-23·07-28)에서 epic 6이
@@ -44,6 +47,8 @@ development_status:
   # 2026-07-13: 드레스 리허설 발견으로 수집 스토리 2건 추가(발견1 배당·발견3 파서) → epic-1 재개
   1-9-ingest-dividends: done
   1-10-valueup-parser-tuning: done
+  # 2026-08-06: 축=0 구간 전수 재판독으로 파서 결함 5건 회수 → epic-1 재개(3회차)
+  1-11-axis-zero-parser-audit: done  # 2026-08-07 code-review 3계층 → 12건 전건 조치, 테스트 521
   epic-1-retrospective: done
 
   # ===== Epic 2: 밸류업 워싱 & M&A 타겟 스코어 =====
@@ -88,7 +93,7 @@ development_status:
   # 구현했으므로 개별 스토리 파일이 없고, AC는 파티 원장(docs/party-mode/)에 있다.
   # 상태를 정직하게 적으려면 그 사실 자체를 적어야 한다 — 없는 스토리 파일을
   # 있는 것처럼 나열하지 않는다.
-  epic-6: done
+  epic-6: in-progress  # 2026-08-07 6.4로 재개
   6-1-opacity-core: done  # PR #12 (610da18) — opacity_rank 순수 코어, washing_flag 대체물
   6-2-opacity-db-spine: done  # PR #13 (6c100a1) — 마이그 0014·엔진·repo·서빙·정렬
   6-3-review-bundle-5-followups: done  # PR #14 — 파서 목표표지 절도·채점 하한 2건 확증·수정
@@ -96,6 +101,8 @@ development_status:
   6-5-opacity-screen: done  # PR #16 (16d7dcf) — 동행 노출·기본정렬 전환·AC2 필터 재조준
   6-6-threshold-dial: done  # 2026-07-28 (821de91) — 임계 소유권을 화면 다이얼로 확정
   6-7-buyback-retired-badge: done  # 2026-07-28 (caa7aaf) — AC3 소각 사실 배지
+  # 2026-08-07: 리드 결정(누락=기준축, PRD 1.1) 후속으로 epic-6 재개
+  6-4-unrankable-split: review  # 순위 불가 3분할(FR-15) · 브랜치 story/6-4-unrankable-split
   epic-6-retrospective: done  # 2026-07-28 통합 회고: epic-4-5-6-retro-2026-07-28.md
   # 세 에픽을 한 문서로 묶은 이유는 교훈이 하나의 축을 공유하기 때문이다 —
   # "방은 왜 자꾸 확신에 차서 틀렸는가"(v2에서 실측이 판을 6번 뒤집었다).

@@ -33,6 +33,41 @@ _FIELDS = (
 )
 
 
+def _parse_ranges(raw: str | None) -> dict[str, str]:
+    """`'roe:8~10,total_return_ratio:40~60'` → `{'roe': '8~10', ...}`. 순서는 보존한다."""
+    out: dict[str, str] = {}
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        key, _, val = part.partition(":")
+        out[key.strip()] = val.strip()
+    return out
+
+
+def _merge_ranges(
+    old_raw: str | None, new_raw: str | None
+) -> tuple[str, list[str], list[tuple[str, str, str]]]:
+    """축 단위로 병합. **없던 축만 더하고, 있던 축은 덮지 않는다**(스칼라 필드와 같은 정책).
+
+    이전에는 `if parsed and not plan.target_ranges`라 **기존 값이 있으면 통째로 건너뛰었다.**
+    `target_ranges`는 한 칸에 여러 축이 들어가는 문자열이라, 축 하나가 이미 있으면 나중에
+    회수된 다른 축이 영영 못 들어간다 — 실측: plan 350(LG유플러스)이 `roe:8~10`을 갖고
+    있어 1.11이 회수한 `total_return_ratio:40~60`이 유실됐고, 화면(`GapCard`)이 이 칸을
+    읽으므로 **40~60% 약속이 40% 단일 목표로 보였다**(OQ-1의 '원문 범위 보존' 위반).
+
+    반환 (병합 문자열, 새로 더한 축, 값이 어긋난 축 목록).
+    """
+    old = _parse_ranges(old_raw)
+    new = _parse_ranges(new_raw)
+    added = [k for k in new if k not in old]
+    clashed = [(k, old[k], new[k]) for k in new if k in old and old[k] != new[k]]
+    merged = dict(old)
+    for k in added:
+        merged[k] = new[k]
+    return ",".join(f"{k}:{v}" for k, v in merged.items()), added, clashed
+
+
 def run(dry_run: bool = False) -> tuple[Counter, list[str]]:
     """(필드별 신규 회수 건수, 기존값이 달라진 경우의 보고 목록)."""
     gained: Counter = Counter()
@@ -52,8 +87,17 @@ def run(dry_run: bool = False) -> tuple[Counter, list[str]]:
                         conflicts.append(
                             f"{plan.corp_code} {plan.disclosure_date} {field}: {old} → {new}"
                         )
-                if not dry_run and parsed["target_ranges"] and not plan.target_ranges:
-                    plan.target_ranges = parsed["target_ranges"]
+                merged, added, clashed = _merge_ranges(
+                    plan.target_ranges, parsed["target_ranges"]
+                )
+                if added:
+                    gained["target_ranges"] += len(added)
+                    if not dry_run:
+                        plan.target_ranges = merged
+                conflicts.extend(
+                    f"{plan.corp_code} {plan.disclosure_date} range {k}: {o} → {n}"
+                    for k, o, n in clashed
+                )
             if dry_run:
                 session.rollback()
     return gained, conflicts

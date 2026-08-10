@@ -152,16 +152,41 @@ export function OpacityCell({ row }: { row: ScreeningRow }) {
     // other_metric은 별도 표기(파티 결정 2026-07-29) — 회사는 명확히 약속했고(예: CapEx·
     // 매출·EBITDA) 우리 자에 그 눈금이 없을 뿐이다. "부실 공시"와 묶으면 판정이 된다.
     const otherMetric = row.plan_body_signal === "other_metric";
+    // [6.4/FR-15] 순위 불가의 **사유**를 말한다. 누락이 기준축이 되면서(PRD §1.1)
+    // "회사가 안 냈다"와 "우리가 못 읽었다"는 더 이상 같은 칸에 있을 수 없다:
+    //   undisclosed — 회사가 첨부 없이 기재했다고 **직접 선언**했다. 이건 우리가 찾던
+    //                 신호 그 자체이므로 조용히 빠지지 않고 **드러낸다**.
+    //   unreadable  — 계획이 본문 밖(첨부)에 있다. **우리 한계**이므로 벌하지 않고
+    //                 첨부 워크리스트로 보낸다.
+    //   unstated    — 어느 근거도 없다. **아무 말도 하지 않는다.** 모르는 것에 이름을
+    //                 붙이는 순간 그것이 세탁이다(AC 4 / NFR2).
+    const reason = row.unrankable_reason;
+    const LABELS: Record<string, string> = {
+      undisclosed: "목표 미제시",
+      unreadable: "본문 밖 공시",
+      // [OQ-4 종결 2026-08-07] 예고는 **미공시가 아니라 아직 시점이 안 된 것**이다.
+      // "순위 불가"로 묶으면 곧 내겠다고 알린 회사가 안 낸 회사와 같아 보인다.
+      notice: "계획 예고됨",
+    };
+    const TIPS: Record<string, string> = {
+      undisclosed:
+        "회사가 본문에서 '첨부 없이 주요 내용을 기재했다'고 선언했다 — 받으러 갈 문서가 없다. 목표를 제시하지 않았다는 사실 자체가 판단 재료다.",
+      unreadable:
+        "계획이 본문이 아니라 첨부 문서에 있다. 우리가 아직 읽지 못한 것이므로 벌점을 주지 않는다 — 첨부 취득 대상이다.",
+      notice:
+        "이 공시는 계획이 아니라 '곧 내겠다'는 예고(안내공시)다. 아직 시점이 안 된 것이므로 미공시와 구분한다.",
+    };
+    const label = otherMetric ? "타 지표로 공시" : (LABELS[reason ?? ""] ?? "순위 불가");
+    const tip = otherMetric
+      ? "목표를 공시했으나 우리가 재는 4축(ROE·환원율·기간·자사주) 밖의 지표다(예: 매출·EBITDA·CapEx). 상세 화면에 설명이 있다."
+      : TIPS[reason ?? ""];
+    // 미공시만 색으로 드러낸다(신호). 나머지는 회색 — 우리 한계나 보류는 강조하지 않는다.
+    const tone = reason === "undisclosed" && !otherMetric ? "text-amber-700" : "text-gray-400";
     return (
       <div className="flex flex-col items-end gap-0.5">
         <span className="text-[15px] font-bold text-gray-400">—</span>
-        <span
-          className="text-[10px] text-gray-400"
-          title={otherMetric
-            ? "목표를 공시했으나 우리가 재는 4축(ROE·환원율·기간·자사주) 밖의 지표다(예: 매출·EBITDA·CapEx). 상세 화면에 설명이 있다."
-            : undefined}
-        >
-          {otherMetric ? "타 지표로 공시" : "순위 불가"}
+        <span className={`text-[10px] ${tone}`} title={tip}>
+          {label}
         </span>
       </div>
     );

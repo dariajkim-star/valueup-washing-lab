@@ -39,6 +39,7 @@ function row(partial: Partial<ScreeningRow>): ScreeningRow {
     opacity_count: null,
     opacity_basis: null,
     plan_body_signal: null,
+    unrankable_reason: null,
     lowest_own_gap: null,
     buyback_timing: null,
     has_valueup_score: true,
@@ -224,6 +225,56 @@ describe("OpacityCell — 불투명도(washing_flag 대체)", () => {
   it("has_opacity_score=true인데 rank null이어도 순위 불가로 (peer 부족)", () => {
     render(<OpacityCell row={row({ has_opacity_score: true, opacity_rank: null })} />);
     expect(screen.getByText("순위 불가")).toBeTruthy();
+  });
+
+  // ── Story 6.4 / FR-15: 순위 불가의 세 범주 ──
+  // 누락이 기준축이 되면서(PRD §1.1) "회사가 안 냈다"와 "우리가 못 읽었다"가 갈렸다.
+
+  it('undisclosed → "목표 미제시"로 **드러낸다**(신호이므로 조용히 빠지지 않는다)', () => {
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null, unrankable_reason: "undisclosed",
+    })} />);
+    const el = screen.getByText("목표 미제시");
+    expect(el).toBeTruthy();
+    // 회색이 아니라 색으로 드러낸다 — 이것만 신호다.
+    expect(el.className).toContain("amber");
+  });
+
+  it('unreadable → "본문 밖 공시"(우리 한계이므로 강조하지 않는다)', () => {
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null, unrankable_reason: "unreadable",
+    })} />);
+    const el = screen.getByText("본문 밖 공시");
+    expect(el).toBeTruthy();
+    expect(el.className).toContain("gray");
+  });
+
+  it('unstated → 아무 말도 하지 않는다("순위 불가" 그대로) — AC 4', () => {
+    // 근거 없이 "회사가 안 냈다"고 말하면 그것이 세탁이다. 실측 67건이 여기 있다.
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null, unrankable_reason: "unstated",
+    })} />);
+    expect(screen.getByText("순위 불가")).toBeTruthy();
+    expect(screen.queryByText("목표 미제시")).toBeNull();
+  });
+
+  it('notice → "계획 예고됨"(미공시와 구분) — OQ-4 종결', () => {
+    // 곧 내겠다고 알린 회사와 안 낸 회사를 같은 칸에 두면 예고가 미공시로 읽힌다.
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null, unrankable_reason: "notice",
+    })} />);
+    expect(screen.getByText("계획 예고됨")).toBeTruthy();
+    expect(screen.queryByText("목표 미제시")).toBeNull();
+    expect(screen.queryByText("순위 불가")).toBeNull();
+  });
+
+  it("other_metric이 사유보다 우선한다(회사는 명확히 약속했다)", () => {
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null,
+      plan_body_signal: "other_metric", unrankable_reason: "undisclosed",
+    })} />);
+    expect(screen.getByText("타 지표로 공시")).toBeTruthy();
+    expect(screen.queryByText("목표 미제시")).toBeNull();
   });
 
   it('순위 불가 + other_metric → "타 지표로 공시"(부실 공시와 구분)', () => {

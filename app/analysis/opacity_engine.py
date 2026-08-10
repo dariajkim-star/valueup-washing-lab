@@ -34,7 +34,17 @@ from sqlalchemy.orm import Session
 from app.analysis.gap_engine import _validate_as_of  # as_of 검증 재사용(중복 정의 금지)
 from app.analysis.mna_engine import _pct_rank_high, _sector_bucket
 from app.analysis.plan_selection import OPACITY_AXES
+from app.analysis.plan_selection import is_unrankable, opacity_count  # noqa: F401 — 재수출
 from app.analysis.plan_selection import opacity_axes as _plan_opacity_axes
+# 순위 불가의 사유는 판정 어휘(declares_no_attachment 이웃)를 쓰므로 plan_signals가 소유한다.
+from app.analysis.plan_signals import (  # noqa: F401 — 재수출(호출부·테스트 호환)
+    NOTICE,
+    UNDISCLOSED,
+    UNREADABLE,
+    UNSTATED,
+    is_notice,
+    unrankable_reason,
+)
 from app.config import settings
 from app.db import SessionLocal
 from app.repositories import opacity_score as repo
@@ -55,38 +65,6 @@ logger = logging.getLogger(__name__)
 # 어긋난다. 여기서는 이름만 유지(호출부·테스트 호환).
 _OPACITY_AXES = OPACITY_AXES
 opacity_axes = _plan_opacity_axes
-
-
-def opacity_count(plan: Mapping[str, object]) -> int:
-    """공시하지 않은 축의 수(0~4). 높을수록 불투명."""
-    return sum(opacity_axes(plan).values())
-
-
-# ── 순위 불가 판정(비가독 공시 방어) ──
-def is_unrankable(plan: Mapping[str, object]) -> bool:
-    """본문만으로 순위를 매길 수 없는 계획인가 — 4축이 **전부** 미공시(count==4)면 True.
-
-    본문 4축이 전부 비면 그 공시는 "목표를 공시하지 않았다"가 아니라 **"본문에서 읽을 수
-    없다"**이다. 둘은 다른 범주이고, 후자를 최고 불투명으로 매기면 이 엔진의 원칙("못 읽은
-    걸 벌하지 않는다")을 정면 위반한다 — 애매하면 null(NFR2).
-
-    **이전 규칙과 그것을 버린 이유(실 DB 첫 적재 2026-07-28)**: 원래는 "첨부 참조 문구 AND
-    count==4"였다. 실측이 그 참조 검사가 count==4에서 **변별력 0**임을 드러냈다 — count==4인
-    6종목이 **전부** 외부 문서를 가리키고 있었고("관련 웹페이지"는 26/26 표준 서식 필드),
-    규칙은 그 6개를 내용이 아니라 **정규식 운**으로 3:3으로 갈랐다:
-      · 삼성화재: 첨부·게시 언급이 아예 없고 웹페이지 필드만  → 통과(오탐)
-      · LG화학:   "게시된 … 참고"라 '첨부'가 아님              → 통과(오탐)
-      · 하나금융: 첨부가 있으나 회사명이 길어 25자 창을 2자 초과 → 통과(오탐)
-    그 결과 불투명순 정렬의 **1·2·3등이 전부 오탐**이었다. 정규식을 넓혀도 삼성화재는 잡을 수
-    없다(웹페이지 필드는 전건 공통이라 트리거로 쓸 수 없고, 쓰면 26건이 통째로 빠진다).
-    그래서 참조 검사를 **없애고** count==4 자체를 순위 불가로 둔다.
-
-    **대가(의도적)**: 척도가 사실상 0~3으로 줄고, 본문에 아무것도 쓰지 않은 기업은 순위에서
-    빠진다(모집단 23→20). 이는 신호 손실이 아니라 **경계의 정직한 표시**다 — 이 엔진은
-    "가장 나쁜 기업"이 아니라 **"읽을 수 있는 격차"**를 잰다. 본문 밖(첨부·웹페이지)의 계획을
-    읽어 순위 대상으로 되살리는 것은 첨부 수집 백로그의 몫이다.
-    """
-    return opacity_count(plan) == len(_OPACITY_AXES)
 
 
 # ── peer 상대 순위(mna_engine 패턴 재사용) ──
