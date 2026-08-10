@@ -258,6 +258,16 @@ describe("OpacityCell — 불투명도(washing_flag 대체)", () => {
     expect(screen.queryByText("목표 미제시")).toBeNull();
   });
 
+  it('notice → "계획 예고됨"(미공시와 구분) — OQ-4 종결', () => {
+    // 곧 내겠다고 알린 회사와 안 낸 회사를 같은 칸에 두면 예고가 미공시로 읽힌다.
+    render(<OpacityCell row={row({
+      has_opacity_score: false, opacity_rank: null, unrankable_reason: "notice",
+    })} />);
+    expect(screen.getByText("계획 예고됨")).toBeTruthy();
+    expect(screen.queryByText("목표 미제시")).toBeNull();
+    expect(screen.queryByText("순위 불가")).toBeNull();
+  });
+
   it("other_metric이 사유보다 우선한다(회사는 명확히 약속했다)", () => {
     render(<OpacityCell row={row({
       has_opacity_score: false, opacity_rank: null,

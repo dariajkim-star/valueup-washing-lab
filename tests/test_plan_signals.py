@@ -11,11 +11,13 @@ from app.analysis.plan_signals import (
     NO_TARGETS,
     OTHER_METRIC,
     REFILING,
+    NOTICE,
     UNDISCLOSED,
     UNREADABLE,
     UNSTATED,
     classify_body,
     declares_no_attachment,
+    is_notice,
     references_external_plan,
     unrankable_reason,
 )
@@ -325,3 +327,50 @@ class TestReferencesExternalPlan:
     def test_empty_text(self):
         assert references_external_plan(None) is False
         assert references_external_plan("") is False
+
+
+# ── OQ-4 종결 2026-08-07: 예고(안내공시)는 네 번째 범주 ──
+
+
+class TestNotice:
+    """예고는 **미공시가 아니라 아직 시점이 안 된 것**이다.
+
+    처음 셋으로 갈랐을 때 무언급이 67건이었는데 **그중 56건이 예고**였다.
+    "판정 보류"라던 통의 84%가 실은 애매하지 않았고, 우리가 제목을 안 봤을 뿐이다.
+    """
+
+    TITLE = ("우리금융지주/기업가치 제고 계획 예고(안내공시)/(2024.06.24)"
+             "기업가치 제고 계획 예고(안내공시)")
+    # 진짜 계획이 **자기 예고를 참조**하는 형태 — 오탐의 원천(실측 48건)
+    RELATED = "※ 관련공시 \n2024-09-04 기업가치 제고 계획 예고(안내공시)"
+
+    def test_title_form_is_a_notice(self):
+        assert is_notice(self.TITLE) is True
+
+    def test_related_disclosure_list_is_not_a_notice(self):
+        """**단순 포함으로 잡으면 axis_targets 40건이 예고로 뒤집힌다.**
+
+        전 코퍼스 519건에서 `예고(안내공시)` 문자열은 104건에 있지만 진짜 예고는 56건뿐이고,
+        나머지 48건은 목표를 다 공시한 회사가 자기 예고를 관련공시로 나열한 것이다.
+        `게재`·`관련 웹페이지`와 같은 계열의 함정이며, 여기서는 **제목 서식**이 갈랐다.
+        """
+        assert is_notice(self.RELATED) is False
+
+    def test_notice_is_its_own_unrankable_reason(self):
+        empty = {**EMPTY, "raw_text": self.TITLE, "attachment_absent": False}
+        assert unrankable_reason(empty) == NOTICE
+
+    def test_plan_referencing_its_notice_is_not_labelled_notice(self):
+        """관련공시 목록만 가진 축=0 공시는 여전히 무언급이다(근거가 없으므로)."""
+        empty = {**EMPTY, "raw_text": self.RELATED, "attachment_absent": False}
+        assert unrankable_reason(empty) == UNSTATED
+
+    def test_declaration_still_wins_over_notice(self):
+        """사다리 순서 — 회사가 직접 쓴 선언이 먼저다. 실측상 공존 0건이라 무해하다."""
+        text = self.TITLE + " 첨부 없이 주요 내용을 기재하였습니다."
+        empty = {**EMPTY, "raw_text": text, "attachment_absent": True}
+        assert unrankable_reason(empty) == UNDISCLOSED
+
+    def test_empty_text(self):
+        assert is_notice(None) is False
+        assert is_notice("") is False

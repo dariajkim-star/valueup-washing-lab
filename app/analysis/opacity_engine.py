@@ -38,9 +38,11 @@ from app.analysis.plan_selection import is_unrankable, opacity_count  # noqa: F4
 from app.analysis.plan_selection import opacity_axes as _plan_opacity_axes
 # 순위 불가의 사유는 판정 어휘(declares_no_attachment 이웃)를 쓰므로 plan_signals가 소유한다.
 from app.analysis.plan_signals import (  # noqa: F401 — 재수출(호출부·테스트 호환)
+    NOTICE,
     UNDISCLOSED,
     UNREADABLE,
     UNSTATED,
+    is_notice,
     unrankable_reason,
 )
 from app.config import settings

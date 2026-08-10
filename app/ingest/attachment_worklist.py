@@ -35,7 +35,7 @@ from app.analysis.plan_selection import (
     choose_plan,
     disclosed_axis_count,
 )
-from app.analysis.plan_signals import declares_no_attachment
+from app.analysis.plan_signals import declares_no_attachment, is_notice
 from app.db import SessionLocal
 from app.models import Company, PlanAttachment, ValueupPlan
 
@@ -84,6 +84,11 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
                     else declares_no_attachment(p.raw_text) if p.raw_text
                     else None
                 ),
+                # 예고 여부도 여기서 판정해 넣는다(위 attachment_absent와 같은 방식).
+                # ⚠️ 원문(raw_text)을 이 dict에 담지 않으므로, 아래에서 `chosen["raw_text"]`로
+                # 판정하려 하면 **항상 None이라 가드가 조용히 무력해진다** — 2026-08-07에
+                # 실제로 그렇게 썼다가 워크리스트가 19건 그대로여서 잡았다.
+                "is_notice": is_notice(p.raw_text),
             }
             for p in candidates
         ]
@@ -99,6 +104,12 @@ def build_worklist(session, include_partial: bool = False) -> list[dict]:
         # 컬럼을 보는 이유는 모듈 문서 참조 — 신호로 걸렀을 때 7건이 새어나갔다.
         # None(모른다)은 거르지 않는다: 없다고 확인된 것만 뺀다(NFR2).
         if chosen.get("attachment_absent") is True:
+            continue
+        # [2026-08-07, OQ-4 종결] 예고(안내공시)도 부르지 않는다 — **아직 낼 것이 없다.**
+        # 위와 같은 이유(받을 수 없는 것은 부르지 않는다)이고 근거만 다르다: 저쪽은 회사가
+        # "첨부 없이 냈다"고 말한 것이고, 이쪽은 문서 자체가 계획이 아니라 알림이다.
+        # 실측 — 계획 단위 워크리스트 후보 96건 중 **56건이 예고**였다.
+        if chosen.get("is_notice"):
             continue
         if axes == 0:
             priority = 1
