@@ -39,6 +39,10 @@ import statistics
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from app.analysis.plan_signals import is_notice as _prod_is_notice  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 
 # ── 1. 스타일시트 제거 ──────────────────────────────────────────────────────
@@ -150,20 +154,28 @@ def segment_texts(text: str | None) -> list[str]:
 
 # "기업가치 제고 계획 **예고**(안내공시)" — 계획 본공시가 아니라 "곧 내겠다"는 알림이다.
 # 실측 56건이며 전부 축=0·`no_targets`로 떨어져 있다(labeling-guide §2-A).
-# 머리말에서만 찾는다 — 본문에 '예고'가 우연히 나오는 문서를 끌어오지 않기 위해.
-_NOTICE = re.compile(r"예고\s*\(?\s*안내공시|계획\s*예고")
+#
+# ⚠️ [2026-08-07] **정의를 여기서 갖지 않는다.** 이 모듈은 원래 자체 정규식
+# (`예고\s*\(?\s*안내공시|계획\s*예고`, 머리말 한정)을 갖고 있었는데, 같은 날 OQ-4를
+# 닫으면서 운영 코드에도 `plan_signals.is_notice`가 생겼다 — **같은 개념의 정의가 둘**이
+# 된 것이다. 실측상 그날은 둘 다 정확히 56건으로 일치했지만, 갈라지는 것은 시간 문제다
+# (`lookahead.py`에서 배운 것: 복제하면 갈라진다). 운영 정의를 권위로 삼고 여기서는
+# 재수출만 한다 — 실험 트랙이 화면·워크리스트와 **다른 모수로 평가하는 일**을 막는다.
+#
+# 운영 정의는 제목 서식(`…예고(안내공시)/(`)을 요구한다. 이유는 그쪽 docstring 참조 —
+# 단순 포함으로 잡으면 `axis_targets` 40건이 예고로 뒤집힌다(자기 예고를 관련공시로
+# 나열한 진짜 계획들).
 
 
 def is_notice(text: str | None) -> bool:
-    """계획 예고(안내공시)인가. 학습 모수에서 제외하는 기준이다.
+    """계획 예고(안내공시)인가 — 판정은 `plan_signals.is_notice`가 소유한다.
 
-    제외하는 이유는 두 가지다. (1) 머리말 문자열로 100% 갈리므로 학습할 것이 없다.
-    (2) `no_targets` 210건 중 56건(27%)이 이 정형 문서라, 남겨두면 어휘 baseline도
-    거의 다 맞혀 macro-F1이 통째로 부풀려진다. 제외 사실과 건수는 항상 함께 보고한다.
+    **학습 모수에서 제외하는 기준**이라는 쓰임은 이 모듈 것이다. 제외 이유는 두 가지다.
+    (1) 머리말 문자열로 100% 갈리므로 학습할 것이 없다.
+    (2) 축=0 구간 206건 중 56건(27%)이 이 정형 문서라, 남겨두면 어휘 baseline도 거의 다
+    맞혀 macro-F1이 통째로 부풀려진다. 제외 사실과 건수는 항상 함께 보고한다.
     """
-    segs = segments(text)
-    head = segs[0][1] if segs and segs[0][0] == "header" else clean(text)[:200]
-    return bool(_NOTICE.search(head))
+    return _prod_is_notice(text)
 
 
 # ── 3. 검증 — 전처리가 신호를 죽이지 않았는가 ───────────────────────────────
