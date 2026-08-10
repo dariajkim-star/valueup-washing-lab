@@ -25,7 +25,7 @@ updated: 2026-08-06
 
 ## 0. Document Purpose
 
-이 PRD는 PM·다운스트림 워크플로우(아키텍처·에픽·개발) 소유자를 위한 요구사항 문서다. 이 프로젝트는 이미 **SPEC**(`specs/spec-valueup-washing/SPEC.md`, **CAP-1~11**), **아키텍처 스파인**(`.../ARCHITECTURE-SPINE.md`, AD-1~10), **에픽·스토리**(`planning-artifacts/epics.md`, **6에픽/29스토리**)를 갖고 있으며, 본 PRD는 그것들을 **중복하지 않고 정합되게** 상위 요구사항으로 정리한다. 기술 구현(HOW)은 아키텍처 스파인과 `addendum.md`에 있다. FR은 전역 번호(**FR-1~15**, FR-7 은퇴)로 안정 참조되며, 용어는 §3 Glossary를 정확히 따른다.
+이 PRD는 PM·다운스트림 워크플로우(아키텍처·에픽·개발) 소유자를 위한 요구사항 문서다. 이 프로젝트는 이미 **SPEC**(`specs/spec-valueup-washing/SPEC.md`, **CAP-1~11**), **아키텍처 스파인**(`.../ARCHITECTURE-SPINE.md`, AD-1~10), **에픽·스토리**(`planning-artifacts/epics.md`, **6에픽/31스토리**)를 갖고 있으며, 본 PRD는 그것들을 **중복하지 않고 정합되게** 상위 요구사항으로 정리한다. 기술 구현(HOW)은 아키텍처 스파인과 `addendum.md`에 있다. FR은 전역 번호(**FR-1~15**, FR-7 은퇴)로 안정 참조되며, 용어는 §3 Glossary를 정확히 따른다.
 
 > **2026-08-07 정합**: 이 문단 자체가 3주 낡아 있었다 — `CAP-1~10`(CAP-11 누락) · `3에픽/18스토리`(실제 6에픽) · `FR-1~14`(FR-15 신설 후). **문서의 첫 문단이 그 문서가 무엇을 참조하는지 틀리게 말하고 있었다.**
 
